@@ -11,6 +11,8 @@ from macro_pipeline.render.playwright_engine import PlaywrightEngine
 from macro_pipeline.telegram.bot import TelegramBot
 from macro_pipeline.publishers.x_client import XClient
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
+from macro_pipeline.storage.r2_client import R2Client
+from macro_pipeline.storage.state import StateDB
 from macro_pipeline.observability.logger import setup_observability
 
 logger = structlog.get_logger(__name__)
@@ -32,10 +34,19 @@ class MacroOrchestrator:
         self.validator_agent = ValidatorAgent(self.llm)
         self.renderer = PlaywrightEngine()
         
-        # 3. Capa de Seguridad (HITL)
+        # 3. Capa de Seguridad (HITL) y Estado Local
         self.telegram = TelegramBot()
+        self.state = StateDB()
         
-        # 4. Capa de Publicación (Manejo tolerante a fallos si faltan tokens de dev)
+        # 4. Capa de Almacenamiento Remoto
+        try:
+            self.r2 = R2Client()
+            self.r2_ready = True
+        except ValueError as e:
+            logger.warning("r2_not_configured", reason=str(e))
+            self.r2_ready = False
+        
+        # 5. Capa de Publicación (Manejo tolerante a fallos si faltan tokens de dev)
         try:
             self.x_client = XClient()
             self.linkedin = LinkedInClient()
@@ -84,6 +95,12 @@ class MacroOrchestrator:
         try:
             if span_context: span_context.__enter__()
             
+            # 1. Generar ID de evento y revisar estado
+            event_id = f"weekly_close_{date.today()}"
+            if self.state.is_published(event_id):
+                logger.info("event_already_published_skipping", event_id=event_id)
+                return
+            
             # --- FASE DE DATOS ---
             data = self._fetch_weekly_close()
             
@@ -118,13 +135,23 @@ class MacroOrchestrator:
             # --- FASE DE PUBLICACIÓN ---
             if approved:
                 logger.info("pipeline_approved_publishing")
+                
+                # Subir imagen a R2 si está disponible
+                image_url = None
+                if self.r2_ready:
+                    image_url = self.r2.upload_image(image_bytes, f"{event_id}.png")
+                
                 if self.publishers_ready:
-                    # MVP: Publica el texto. Subir las imágenes con OAuth requería media_ids extra.
+                    # MVP: Publica el texto. En v2 inyectaríamos image_url en el payload.
                     self.x_client.post_tweet(headline)
                     self.linkedin.post_text(headline)
-                    logger.info("pipeline_completed_successfully")
+                    logger.info("pipeline_published_to_socials")
                 else:
                     logger.warning("pipeline_approved_but_publishers_missing")
+                    
+                # Guardar el éxito en SQLite para evitar duplicados en el futuro
+                self.state.mark_as_published(event_id, image_url)
+                logger.info("pipeline_completed_successfully")
             else:
                 logger.warning("pipeline_aborted_by_human")
                 
