@@ -11,6 +11,7 @@ from macro_pipeline.render.playwright_engine import PlaywrightEngine
 from macro_pipeline.telegram.bot import TelegramBot
 from macro_pipeline.publishers.x_client import XClient
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
+from macro_pipeline.observability.logger import setup_observability
 
 logger = structlog.get_logger(__name__)
 
@@ -19,7 +20,8 @@ class MacroOrchestrator:
     Clase principal que coordina todos los módulos del MacroPipeline de forma secuencial
     y respetando la arquitectura de datos deterministas -> IA auxiliar -> HITL -> Redes.
     """
-    def __init__(self):
+    def __init__(self, tracer=None):
+        self.tracer = tracer
         logger.info("initializing_orchestrator")
         # 1. Capa de Datos y Validación
         self.fmp = FMPClient()
@@ -76,7 +78,12 @@ class MacroOrchestrator:
         """Pipeline completo de Cierre Semanal."""
         logger.info("starting_weekly_close_pipeline")
         
+        # Envolver todo el pipeline en un único span distribuido
+        span_context = self.tracer.start_as_current_span("weekly_close_pipeline") if self.tracer else None
+        
         try:
+            if span_context: span_context.__enter__()
+            
             # --- FASE DE DATOS ---
             data = self._fetch_weekly_close()
             
@@ -123,14 +130,18 @@ class MacroOrchestrator:
                 
         except Exception as e:
             logger.error("pipeline_failed_critically", error=str(e))
+            if span_context:
+                span_context.record_exception(e)
             raise
+        finally:
+            if span_context: span_context.__exit__(None, None, None)
 
 if __name__ == "__main__":
     import logging
-    # Configuración básica de logging para consola
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-    )
+    # La configuración básica de logging se delegó a observability/logger.py
+    # structlog.configure(...) ya no es necesario aquí
     
-    orchestrator = MacroOrchestrator()
+    tracer = setup_observability()
+    
+    orchestrator = MacroOrchestrator(tracer=tracer)
     orchestrator.run_weekly_close()

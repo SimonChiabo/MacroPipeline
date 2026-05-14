@@ -212,37 +212,37 @@
 - [x] Crear cuenta X (@MacroPipeline) + Developer Account
 - [x] Crear cuenta personal LinkedIn (si no existe) + Company Page MacroPipeline
 - [x] Crear repo público `github.com/SimonChiabo/MacroPipeline`
-- [ ] Crear bot de Telegram (`@BotFather`)
+- [x] Crear bot de Telegram (`@BotFather`)
 - [ ] Provisionar cuenta Cloudflare R2 free tier
 - [ ] Crear cuenta Grafana Cloud free tier
 
 ### Semana 1 — ETL determinista + validación
-- [ ] Esqueleto del repo con estructura recomendada
-- [ ] Cliente FRED + FMP + Alpha Vantage con retry/fallback
-- [ ] Pydantic schemas por tipo de dato (cierre semanal, macro release, earnings)
-- [ ] Sanity checks declarativos en YAML
-- [ ] Tests unitarios con fixtures grabadas
-- [ ] Pre-commit hooks (ruff, mypy)
-- [ ] **Sin LLM, sin renderizado, sin publicación todavía**
+- [x] Esqueleto del repo con estructura recomendada
+- [x] Cliente FRED + FMP + Alpha Vantage con retry/fallback
+- [x] Pydantic schemas por tipo de dato (cierre semanal, macro release, earnings)
+- [x] Sanity checks declarativos en YAML
+- [x] Tests unitarios con fixtures grabadas
+- [x] Pre-commit hooks (ruff, mypy)
+- [x] **Sin LLM, sin renderizado, sin publicación todavía**
 
 ### Semana 2 — Renderizado + LLM auxiliar
-- [ ] Plantillas iniciales en Claude Design → exportar HTML/PPTX
-- [ ] Runtime Pillow para plantillas fijas (calendarios, esperado vs real)
-- [ ] Runtime Playwright para plantillas complejas (cierre semanal)
-- [ ] Cliente Claude API con prompts versionados
-- [ ] Validator agent con tool-use forzado (schema JSON estructurado)
-- [ ] Tests de snapshot sobre outputs renderizados
+- [x] Plantillas iniciales en Claude Design → exportar HTML/PPTX
+- [x] Runtime Pillow para plantillas fijas (calendarios, esperado vs real)
+- [x] Runtime Playwright para plantillas complejas (cierre semanal)
+- [x] Cliente Claude API con prompts versionados
+- [x] Validator agent con tool-use forzado (schema JSON estructurado)
+- [x] Tests de snapshot sobre outputs renderizados
 
 ### Semana 3 — Orquestación + HITL
-- [ ] Configurar Claude Routine para cierre semanal del viernes
-- [ ] Bot Telegram: envío de drafts con preview + botones
-- [ ] Long polling desde Python
+- [x] Configurar Claude Routine para cierre semanal del viernes
+- [x] Bot Telegram: envío de drafts con preview + botones
+- [x] Long polling desde Python
 - [ ] Estado en SQLite + snapshots a R2
 - [ ] structlog + OpenTelemetry + dashboard básico en Grafana Cloud
 
 ### Semana 4 — Publicación + observabilidad completa
-- [ ] X API v2: publicación de hilos
-- [ ] LinkedIn API: publicación en Company Page (texto + PDF carrusel)
+- [x] X API v2: publicación de hilos
+- [x] LinkedIn API: publicación en Company Page (texto + PDF carrusel)
 - [ ] Workflow `contract-tests.yml` nightly con alertas Telegram
 - [ ] Dashboard Grafana completo (runs OK/KO, latencia, errores)
 
