@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cierre Semanal</title>
+    <style>
+        :root {{
+            --bg-dark: #0f172a;
+            --text-light: #f8fafc;
+            --accent: #38bdf8;
+            --success: #4ade80;
+            --danger: #f87171;
+        }}
+        body {{
+            margin: 0;
+            padding: 0;
+            width: 1080px;
+            height: 1080px;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }}
+        .container {{
+            width: 900px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            padding: 60px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 50px;
+        }}
+        .header h1 {{
+            font-size: 56px;
+            margin: 0;
+            color: var(--accent);
+        }}
+        .header p {{
+            font-size: 28px;
+            margin: 10px 0 0 0;
+            opacity: 0.8;
+        }}
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }}
+        .metric-card {{
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.05);
+        }}
+        .metric-title {{
+            font-size: 32px;
+            color: var(--text-light);
+            opacity: 0.9;
+        }}
+        .metric-value {{
+            font-size: 64px;
+            font-weight: bold;
+            margin: 20px 0;
+        }}
+        .metric-return {{
+            font-size: 36px;
+            font-weight: bold;
+        }}
+        .positive {{ color: var(--success); }}
+        .negative {{ color: var(--danger); }}
+        
+        .footer {{
+            margin-top: 60px;
+            text-align: center;
+            font-size: 24px;
+            opacity: 0.5;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Cierre Semanal de Mercado</h1>
+            <p>{date}</p>
+        </div>
+        
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-title">S&P 500</div>
+                <div class="metric-value">{sp500_close}</div>
+                <div class="metric-return {sp500_class}">{sp500_return}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">NASDAQ</div>
+                <div class="metric-value">{nasdaq_close}</div>
+                <div class="metric-return {nasdaq_class}">{nasdaq_return}</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            MacroPipeline | Generado Automáticamente
+        </div>
+    </div>
+</body>
+</html>

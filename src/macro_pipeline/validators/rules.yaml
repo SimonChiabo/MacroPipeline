@@ -1,0 +1,14 @@
+weekly_close:
+  # Los retornos semanales suelen oscilar en rangos específicos.
+  # Un retorno mayor al 25% o menor al -25% en una semana es extremadamente
+  # anómalo (circuit breakers, crisis financiera) o un error de datos.
+  sp500_return_min: -0.25
+  sp500_return_max: 0.25
+  nasdaq_return_min: -0.30
+  nasdaq_return_max: 0.30
+
+macro_release:
+  # Controles de cordura (sanity checks) para métricas macroeconómicas
+  gdp_growth_max_abs: 0.15   # +/- 15% cambio en GDP es el umbral de alerta
+  unrate_max: 25.0           # Tasa de desempleo > 25% (nivel Gran Depresión)
+  unrate_min: 0.0            # No puede ser negativa
