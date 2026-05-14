@@ -70,9 +70,9 @@ def setup_observability() -> trace.Tracer:
             # Si no, usamos ConsoleRenderer para que el desarrollador lea los colores en terminal.
             structlog.processors.JSONRenderer() if endpoint else structlog.dev.ConsoleRenderer()
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=False
     )
     

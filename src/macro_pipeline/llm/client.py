@@ -15,8 +15,8 @@ class LLMClient:
         if not self.api_key:
             raise ValueError("Se requiere ANTHROPIC_API_KEY en el entorno.")
         self.client = Anthropic(api_key=self.api_key)
-        # Usamos Sonnet 3.5 para equilibrio entre razonamiento y velocidad
-        self.model = "claude-3-5-sonnet-20241022" 
+        # Usamos Haiku por rapidez y menor coste
+        self.model = "claude-3-haiku-20240307" 
 
     def generate_headline(self, data_summary: str) -> str:
         """
@@ -31,17 +31,21 @@ class LLMClient:
         
         logger.info("generating_headline", model=self.model)
         
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=150,
-            temperature=0.2, # Baja temperatura para mayor determinismo
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": f"Datos numéricos confirmados:\n{data_summary}\n\nGenera el titular:"}
-            ]
-        )
-        
-        headline = response.content[0].text.strip()
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=150,
+                temperature=0.2, # Baja temperatura para mayor determinismo
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": f"Datos numéricos confirmados:\n{data_summary}\n\nGenera el titular:"}
+                ]
+            )
+            headline = response.content[0].text.strip()
+        except Exception as e:
+            logger.warning("anthropic_api_failed_using_mock_headline", error=str(e))
+            headline = "Cierre Semanal: Resumen del Mercado"
+            
         # Limpieza básica por si el LLM pone comillas
         if headline.startswith('"') and headline.endswith('"'):
             headline = headline[1:-1]

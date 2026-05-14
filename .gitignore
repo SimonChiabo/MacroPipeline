@@ -23,3 +23,7 @@ test-results/
 dist/
 build/
 *.egg-info/
+
+# Databases
+*.db
+*.sqlite3

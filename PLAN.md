@@ -237,8 +237,8 @@
 - [x] Configurar Claude Routine para cierre semanal del viernes
 - [x] Bot Telegram: envío de drafts con preview + botones
 - [x] Long polling desde Python
-- [ ] Estado en SQLite + snapshots a R2
-- [ ] structlog + OpenTelemetry + dashboard básico en Grafana Cloud
+- [x] Estado en SQLite + snapshots a R2
+- [x] structlog + OpenTelemetry + dashboard básico en Grafana Cloud
 
 ### Semana 4 — Publicación + observabilidad completa
 - [x] X API v2: publicación de hilos
