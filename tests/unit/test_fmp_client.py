@@ -54,15 +54,15 @@ def test_get_historical_prices_success(mock_get, fmp_client):
     assert df.iloc[0]['close'] == 130.5
 
 @patch('requests.Session.get')
-def test_get_historical_prices_empty(mock_get, fmp_client):
+def test_get_historical_prices_empty_raises(mock_get, fmp_client):
+    """Respuesta vacía de FMP debe lanzar FMPClientError, no retornar DataFrame vacío silenciosamente."""
     mock_response = MagicMock()
     mock_response.json.return_value = {"historical": []}
+    mock_response.raise_for_status.return_value = None
     mock_get.return_value = mock_response
 
-    df = fmp_client.get_historical_prices("INVALID")
-
-    assert isinstance(df, pd.DataFrame)
-    assert len(df) == 0
+    with pytest.raises(FMPClientError, match="respuesta vacía"):
+        fmp_client.get_historical_prices("INVALID")
 
 @patch('requests.Session.get')
 def test_get_earnings_calendar_success(mock_get, fmp_client):

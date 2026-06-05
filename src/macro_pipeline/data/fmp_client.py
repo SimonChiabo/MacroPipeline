@@ -60,8 +60,11 @@ class FMPClient:
         historical = data.get("historical", [])
         
         if not historical:
-            logger.warning("fmp_historical_prices_no_data", symbol=symbol)
-            return pd.DataFrame()
+            logger.error("fmp_historical_prices_empty_response", symbol=symbol)
+            raise FMPClientError(
+                f"FMP devolvió respuesta vacía para {symbol}. "
+                "Verificar plan de API, límites o estado del servicio."
+            )
             
         df = pd.DataFrame(historical)
         df['date'] = pd.to_datetime(df['date'])

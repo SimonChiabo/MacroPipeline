@@ -27,3 +27,7 @@ build/
 # Databases
 *.db
 *.sqlite3
+
+# Technical reviews and temporary reports
+revision_*.md
+

@@ -17,10 +17,20 @@ class TelegramBot:
     def __init__(self, token: Optional[str] = None, chat_id: Optional[str] = None):
         self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
         self.chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
-        
+
         if not self.token or not self.chat_id:
             raise ValueError("Faltan credenciales TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID.")
-            
+
+        # ID del único operador autorizado. Sin esto, cualquiera en el chat
+        # puede aprobar publicaciones, anulando el HITL.
+        _allowed_raw = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "")
+        self.allowed_user_id: Optional[int] = int(_allowed_raw) if _allowed_raw.isdigit() else None
+        if not self.allowed_user_id:
+            logger.warning(
+                "telegram_allowed_user_id_not_set",
+                detail="Set TELEGRAM_ALLOWED_USER_ID to restrict who can approve posts."
+            )
+
         self.base_url = f"https://api.telegram.org/bot{self.token}"
 
     def send_approval_request(self, text: str, image_bytes: Optional[bytes] = None) -> int:
@@ -97,26 +107,50 @@ class TelegramBot:
                     if "callback_query" in update:
                         cb = update["callback_query"]
                         cb_msg_id = cb["message"]["message_id"]
-                        
+
+                        # Validar que el callback viene del operador autorizado
+                        from_id = cb.get("from", {}).get("id")
+                        if self.allowed_user_id and from_id != self.allowed_user_id:
+                            logger.warning(
+                                "telegram_unauthorized_callback_ignored",
+                                from_id=from_id,
+                                allowed_id=self.allowed_user_id,
+                            )
+                            continue
+
                         # Si respondieron a nuestro mensaje específico
                         if cb_msg_id == message_id:
                             action = cb["data"]
-                            
+
                             # 1. Responder al callback para que el botón deje de cargar
-                            requests.post(f"{self.base_url}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
-                            
+                            requests.post(
+                                f"{self.base_url}/answerCallbackQuery",
+                                json={"callback_query_id": cb["id"]},
+                            )
+
                             # 2. Quitar los botones para que no se pueda pulsar dos veces
-                            requests.post(f"{self.base_url}/editMessageReplyMarkup", json={
-                                "chat_id": self.chat_id,
-                                "message_id": message_id,
-                                "reply_markup": {"inline_keyboard": []} 
-                            })
-                            
+                            requests.post(
+                                f"{self.base_url}/editMessageReplyMarkup",
+                                json={
+                                    "chat_id": self.chat_id,
+                                    "message_id": message_id,
+                                    "reply_markup": {"inline_keyboard": []},
+                                },
+                            )
+
                             if action == "approve_draft":
-                                logger.info("telegram_draft_approved", message_id=message_id)
+                                logger.info(
+                                    "telegram_draft_approved",
+                                    message_id=message_id,
+                                    approved_by=from_id,
+                                )
                                 return True
                             elif action == "reject_draft":
-                                logger.warning("telegram_draft_rejected", message_id=message_id)
+                                logger.warning(
+                                    "telegram_draft_rejected",
+                                    message_id=message_id,
+                                    rejected_by=from_id,
+                                )
                                 return False
                                 
             except requests.exceptions.RequestException as e:

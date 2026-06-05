@@ -5,6 +5,11 @@ from anthropic import Anthropic
 
 logger = structlog.get_logger(__name__)
 
+# Versionar el prompt permite saber qué versión generó cada publicación histórica.
+# Incrementar cuando cambie el contenido del system_prompt o la lógica de llamada.
+HEADLINE_PROMPT_VERSION = "v1.0"
+
+
 class LLMClient:
     """
     Cliente para la API de Claude (Anthropic). 
@@ -33,15 +38,23 @@ class LLMClient:
         
         try:
             response = self.client.messages.create(
-                model=self.model,
-                max_tokens=150,
-                temperature=0.2, # Baja temperatura para mayor determinismo
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": f"Datos numéricos confirmados:\n{data_summary}\n\nGenera el titular:"}
-                ]
-            )
+                    model=self.model,
+                    max_tokens=150,
+                    temperature=0.2,
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": f"Datos numéricos confirmados:\n{data_summary}\n\nGenera el titular:"}
+                    ]
+                )
             headline = response.content[0].text.strip()
+            # Tracking de coste: loggear usage por cada llamada
+            logger.info(
+                "llm_usage",
+                model=self.model,
+                prompt_version=HEADLINE_PROMPT_VERSION,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
         except Exception as e:
             logger.warning("anthropic_api_failed_using_mock_headline", error=str(e))
             headline = "Cierre Semanal: Resumen del Mercado"

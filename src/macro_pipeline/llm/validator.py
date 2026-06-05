@@ -4,6 +4,11 @@ from macro_pipeline.llm.client import LLMClient
 
 logger = structlog.get_logger(__name__)
 
+# Versionar el prompt del validador permite rastrear qué criterios de rechazo
+# estaban activos para cada publicación histórica.
+VALIDATOR_PROMPT_VERSION = "v1.0"
+
+
 class ValidatorAgent:
     """
     Agente de revisión (segunda opinión) utilizando tool-use para forzar 
@@ -64,7 +69,14 @@ class ValidatorAgent:
             for block in response.content:
                 if block.type == "tool_use" and block.name == "submit_review":
                     result = block.input
-                    logger.info("validator_agent_result", approved=result.get("approved"))
+                    # Tracking de coste del agente validador
+                    logger.info(
+                        "validator_usage",
+                        prompt_version=VALIDATOR_PROMPT_VERSION,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        approved=result.get("approved"),
+                    )
                     return result
                     
             # Fallback de seguridad si no usó la tool adecuadamente

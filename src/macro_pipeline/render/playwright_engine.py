@@ -57,20 +57,23 @@ class PlaywrightEngine:
         
         try:
             with sync_playwright() as p:
-                # Lanzar en modo headless
                 browser = p.chromium.launch(headless=True)
-                page = browser.new_page(viewport={"width": self.width, "height": self.height})
-                
-                # Cargar el HTML dinámico directamente en la memoria del browser
-                page.set_content(html_content, wait_until="networkidle")
-                
-                # Tomar screenshot limitando el bounding box (o de la página completa según viewport)
-                screenshot_bytes = page.screenshot(type="png", full_page=False)
-                browser.close()
-                
+                try:
+                    page = browser.new_page(
+                        viewport={"width": self.width, "height": self.height}
+                    )
+                    # timeout=15000 evita espera infinita si hay recursos externos
+                    page.set_content(
+                        html_content, wait_until="networkidle", timeout=15000
+                    )
+                    screenshot_bytes = page.screenshot(type="png", full_page=False)
+                finally:
+                    # Garantiza cleanup aunque page.screenshot() lance excepción
+                    browser.close()
+
             logger.info("playwright_render_success", bytes_size=len(screenshot_bytes))
             return screenshot_bytes
-            
+
         except Exception as e:
             logger.error("playwright_render_failed", error=str(e))
             raise PlaywrightEngineError(f"Fallo al renderizar con Playwright: {e}") from e
