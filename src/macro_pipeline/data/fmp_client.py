@@ -16,8 +16,11 @@ class FMPClient:
     """
     Cliente para interactuar con la API de Financial Modeling Prep.
     Implementa retries automáticos y parseo a Pandas DataFrames.
+
+    Usa la API `stable`. Los endpoints legacy `/api/v3` devuelven 403 para
+    cuentas sin suscripción previa al 31/08/2025.
     """
-    BASE_URL = "https://financialmodelingprep.com/api/v3"
+    BASE_URL = "https://financialmodelingprep.com/stable"
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("FMP_API_KEY")
@@ -44,29 +47,30 @@ class FMPClient:
         """
         Obtiene los precios históricos diarios para un símbolo dado.
         """
-        endpoint = f"{self.BASE_URL}/historical-price-full/{symbol}"
-        params = {"apikey": self.api_key, **kwargs}
-        
+        endpoint = f"{self.BASE_URL}/historical-price-eod/full"
+        params = {"symbol": symbol, "apikey": self.api_key, **kwargs}
+
         logger.info("fetching_fmp_historical_prices", symbol=symbol)
-        
+
         try:
             response = self.session.get(endpoint, params=params, timeout=10)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             logger.error("fmp_api_request_failed", symbol=symbol, error=str(e))
             raise FMPClientError(f"Error al obtener datos de FMP: {e}") from e
-            
+
         data = response.json()
-        historical = data.get("historical", [])
-        
-        if not historical:
+
+        # La API stable devuelve una lista plana (más reciente primero).
+        # Un dict indica payload de error servido con HTTP 200.
+        if not isinstance(data, list) or not data:
             logger.error("fmp_historical_prices_empty_response", symbol=symbol)
             raise FMPClientError(
                 f"FMP devolvió respuesta vacía para {symbol}. "
                 "Verificar plan de API, límites o estado del servicio."
             )
-            
-        df = pd.DataFrame(historical)
+
+        df = pd.DataFrame(data)
         df['date'] = pd.to_datetime(df['date'])
         
         # Seleccionamos las columnas clave
@@ -84,7 +88,7 @@ class FMPClient:
         Obtiene el calendario de earnings (reportes financieros) para un rango de fechas.
         Fechas formato YYYY-MM-DD.
         """
-        endpoint = f"{self.BASE_URL}/earning_calendar"
+        endpoint = f"{self.BASE_URL}/earnings-calendar"
         params = {"apikey": self.api_key, "from": from_date, "to": to_date, **kwargs}
         
         logger.info("fetching_fmp_earnings_calendar", from_date=from_date, to_date=to_date)
@@ -93,7 +97,7 @@ class FMPClient:
             response = self.session.get(endpoint, params=params, timeout=10)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
-            logger.error("fmp_api_request_failed", endpoint="earning_calendar", error=str(e))
+            logger.error("fmp_api_request_failed", endpoint="earnings-calendar", error=str(e))
             raise FMPClientError(f"Error al obtener earnings de FMP: {e}") from e
             
         data = response.json()
