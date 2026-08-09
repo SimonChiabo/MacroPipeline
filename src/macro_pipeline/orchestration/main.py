@@ -2,14 +2,16 @@ import os
 import structlog
 from contextlib import nullcontext
 from datetime import date
-from typing import Tuple
+from typing import Optional, Tuple
 
 import pandas as pd
 
 from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.av_client import AlphaVantageClient
-from macro_pipeline.validators.schemas import WeeklyCloseData
-from macro_pipeline.validators.engine import ValidationEngine
+from macro_pipeline.data.fred_client import FREDClient
+from macro_pipeline.data.macro import safe_build_macro_snapshot
+from macro_pipeline.validators.schemas import WeeklyCloseData, MacroSnapshot
+from macro_pipeline.validators.engine import ValidationEngine, ValidationError
 from macro_pipeline.llm.client import LLMClient, HEADLINE_PROMPT_VERSION
 from macro_pipeline.llm.validator import ValidatorAgent, VALIDATOR_PROMPT_VERSION
 from macro_pipeline.render.playwright_engine import PlaywrightEngine
@@ -45,6 +47,14 @@ class MacroOrchestrator:
         self.av = AlphaVantageClient()
         self.validator_engine = ValidationEngine()
 
+        # FRED alimenta el bloque macro, que es complementario: sin key el
+        # pipeline publica igual, solo que sin contexto macroeconómico.
+        try:
+            self.fred = FREDClient()
+        except ValueError as e:
+            logger.warning("fred_not_configured", reason=str(e))
+            self.fred = None
+
         self.llm = LLMClient()
         self.validator_agent = ValidatorAgent(self.llm)
         self.renderer = PlaywrightEngine()
@@ -69,6 +79,29 @@ class MacroOrchestrator:
 
         # Guardia de Mock Data: por defecto bloqueado en producción
         self._allow_mock = os.environ.get("ALLOW_MOCK_DATA", "false").lower() == "true"
+
+    def _fetch_macro_snapshot(self) -> Optional[MacroSnapshot]:
+        """
+        Obtiene y valida el contexto macro de FRED.
+
+        Devuelve None ante cualquier problema (sin key, API caída, serie corta,
+        dato rancio o fuera de rango). El cierre semanal se publica igual: los
+        índices son el contenido principal, el macro es contexto.
+        """
+        if self.fred is None:
+            return None
+
+        snapshot = safe_build_macro_snapshot(self.fred)
+        if snapshot is None:
+            return None
+
+        try:
+            self.validator_engine.validate_macro_snapshot(snapshot)
+        except ValidationError as e:
+            logger.warning("macro_snapshot_rejected_by_validator", reason=str(e))
+            return None
+
+        return snapshot
 
     def _fetch_weekly_close(self) -> Tuple[WeeklyCloseData, str]:
         """
@@ -143,12 +176,14 @@ class MacroOrchestrator:
             sp500_weekly_return=float(sp_return),
             nasdaq_close=float(ndq_last["close"]),
             nasdaq_weekly_return=float(ndq_return),
+            macro=self._fetch_macro_snapshot(),
         )
         logger.info(
             "data_fetched",
             data_source=data_source,
             sp500_close=data.sp500_close,
             nasdaq_close=data.nasdaq_close,
+            macro_included=data.macro is not None,
         )
         return data, data_source
 
@@ -221,6 +256,16 @@ class MacroOrchestrator:
                         f"NASDAQ: Cierre {data.nasdaq_close:,.2f} "
                         f"(Retorno Semanal: {data.nasdaq_weekly_return * 100:+.2f}%)"
                     )
+                    if data.macro:
+                        data_str += (
+                            f"\nContexto macro (FRED):\n"
+                            f"IPC interanual: {data.macro.cpi_yoy * 100:+.1f}% "
+                            f"(dato de {data.macro.cpi_as_of:%m/%Y})\n"
+                            f"Desempleo: {data.macro.unemployment_rate:.1f}% "
+                            f"(dato de {data.macro.unrate_as_of:%m/%Y})\n"
+                            f"Treasury 10 años: {data.macro.treasury_10y:.2f}% "
+                            f"(dato de {data.macro.dgs10_as_of:%d/%m/%Y})"
+                        )
                     headline = self.llm.generate_headline(data_str)
                     review = self.validator_agent.review_draft(headline, data_str)
                     validator_approved = bool(review.get("approved"))

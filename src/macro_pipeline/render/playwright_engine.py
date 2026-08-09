@@ -21,6 +21,34 @@ class PlaywrightEngine:
         self.width = 1080
         self.height = 1080
 
+    def _build_macro_block(self, macro) -> str:
+        """
+        Construye el bloque macro como HTML, o cadena vacía si no hay datos.
+
+        Cada indicador muestra su fecha de referencia: el IPC y el desempleo se
+        publican con semanas de retraso y presentarlos sin fecha daría a
+        entender que son del día del cierre.
+        """
+        if macro is None:
+            return ""
+
+        # Las series mensuales se fechan por mes; el Treasury es diario y su día
+        # importa, porque es lo que cambia entre una publicación y la siguiente.
+        items = [
+            ("IPC interanual", f"{macro.cpi_yoy * 100:+.1f}%", macro.cpi_as_of, "%m/%Y"),
+            ("Desempleo", f"{macro.unemployment_rate:.1f}%", macro.unrate_as_of, "%m/%Y"),
+            ("Treasury 10A", f"{macro.treasury_10y:.2f}%", macro.dgs10_as_of, "%d/%m/%Y"),
+        ]
+        cells = "".join(
+            '<div class="macro-item">'
+            f'<span class="macro-label">{label}</span>'
+            f'<span class="macro-value">{value}</span>'
+            f'<span class="macro-asof">al {as_of.strftime(date_format)}</span>'
+            "</div>"
+            for label, value, as_of, date_format in items
+        )
+        return f'<div class="macro-strip">{cells}</div>'
+
     def render_weekly_close(self, data: WeeklyCloseData) -> bytes:
         """
         Renderiza el HTML de cierre semanal inyectando los datos de WeeklyCloseData
@@ -47,7 +75,8 @@ class PlaywrightEngine:
                 sp500_class=sp500_class,
                 nasdaq_close=f"{data.nasdaq_close:,.2f}",
                 nasdaq_return=f"{data.nasdaq_weekly_return * 100:+.2f}%",
-                nasdaq_class=nasdaq_class
+                nasdaq_class=nasdaq_class,
+                macro_block=self._build_macro_block(data.macro)
             )
         except KeyError as e:
             logger.error("playwright_template_format_error", error=str(e))

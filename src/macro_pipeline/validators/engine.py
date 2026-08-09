@@ -1,9 +1,15 @@
 import yaml
 import structlog
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict
 
-from macro_pipeline.validators.schemas import WeeklyCloseData, MacroReleaseData, EarningsData
+from macro_pipeline.validators.schemas import (
+    WeeklyCloseData,
+    MacroReleaseData,
+    MacroSnapshot,
+    EarningsData,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +65,47 @@ class ValidationEngine:
             raise ValidationError(f"Retorno del NASDAQ {data.nasdaq_weekly_return} fuera del rango permitido.")
             
         logger.info("weekly_close_validated", date=data.date.isoformat())
+        return True
+
+    def validate_macro_snapshot(self, data: MacroSnapshot, today: date = None) -> bool:
+        """
+        Aplica sanity checks al bloque macro: rangos plausibles y frescura de
+        cada serie. `today` es inyectable para que los tests no dependan del reloj.
+        Lanza ValidationError si falla.
+        """
+        rules = self.rules.get("macro_snapshot", {})
+        today = today or date.today()
+
+        checks = [
+            ("IPC interanual", data.cpi_yoy,
+             rules.get("cpi_yoy_min", -1.0), rules.get("cpi_yoy_max", 1.0)),
+            ("Tasa de desempleo", data.unemployment_rate,
+             rules.get("unrate_min", 0.0), rules.get("unrate_max", 100.0)),
+            ("Rendimiento del Treasury 10Y", data.treasury_10y,
+             rules.get("dgs10_min", 0.0), rules.get("dgs10_max", 100.0)),
+        ]
+        for label, value, minimum, maximum in checks:
+            if not (minimum <= value <= maximum):
+                logger.error("validation_failed", reason="macro_value_out_of_bounds",
+                             indicator=label, value=value)
+                raise ValidationError(f"{label} con valor {value} fuera del rango permitido.")
+
+        staleness = [
+            ("CPIAUCSL", data.cpi_as_of, rules.get("cpi_max_staleness_days", 90)),
+            ("UNRATE", data.unrate_as_of, rules.get("unrate_max_staleness_days", 75)),
+            ("DGS10", data.dgs10_as_of, rules.get("dgs10_max_staleness_days", 10)),
+        ]
+        for series_id, as_of, max_days in staleness:
+            age_days = (today - as_of).days
+            if age_days > max_days:
+                logger.error("validation_failed", reason="macro_series_stale",
+                             series_id=series_id, as_of=as_of.isoformat(), age_days=age_days)
+                raise ValidationError(
+                    f"La serie {series_id} tiene {age_days} días de antigüedad "
+                    f"(máximo {max_days}). Publicarla como dato actual sería engañoso."
+                )
+
+        logger.info("macro_snapshot_validated", cpi_as_of=data.cpi_as_of.isoformat())
         return True
 
     def validate_macro_release(self, data: MacroReleaseData) -> bool:

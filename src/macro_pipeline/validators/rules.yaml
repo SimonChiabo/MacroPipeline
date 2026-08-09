@@ -7,6 +7,23 @@ weekly_close:
   nasdaq_return_min: -0.30
   nasdaq_return_max: 0.30
 
+macro_snapshot:
+  # Rangos de cordura para el bloque macro que acompaña al cierre semanal.
+  cpi_yoy_min: -0.05         # Deflación peor al -5% interanual: error de datos
+  cpi_yoy_max: 0.20          # Inflación > 20% interanual en EEUU: error de datos
+  unrate_min: 0.0
+  unrate_max: 25.0
+  dgs10_min: 0.0
+  dgs10_max: 20.0
+
+  # Frescura máxima por serie, en días. Calibrado contra el calendario real de
+  # publicación: el IPC de un mes sale a mediados del siguiente, así que la
+  # última observación disponible ronda los 70 días de antigüedad justo antes
+  # del próximo dato. Umbrales más ajustados descartarían datos válidos.
+  cpi_max_staleness_days: 90
+  unrate_max_staleness_days: 75
+  dgs10_max_staleness_days: 10   # Serie diaria: tolera feriados y fines de semana largos
+
 macro_release:
   # Controles de cordura (sanity checks) para métricas macroeconómicas
   gdp_growth_max_abs: 0.15   # +/- 15% cambio en GDP es el umbral de alerta

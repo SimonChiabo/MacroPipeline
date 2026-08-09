@@ -2,8 +2,42 @@ import pytest
 from datetime import date
 from unittest.mock import patch, MagicMock
 
-from macro_pipeline.validators.schemas import WeeklyCloseData
+from macro_pipeline.validators.schemas import WeeklyCloseData, MacroSnapshot
 from macro_pipeline.render.playwright_engine import PlaywrightEngine, PlaywrightEngineError
+
+def _weekly_close(macro=None):
+    return WeeklyCloseData(
+        date=date(2026, 8, 7),
+        sp500_close=7712.33,
+        sp500_weekly_return=0.0369,
+        nasdaq_close=26372.33,
+        nasdaq_weekly_return=0.0498,
+        macro=macro,
+    )
+
+def _macro():
+    return MacroSnapshot(
+        cpi_yoy=0.024,
+        cpi_as_of=date(2026, 6, 1),
+        unemployment_rate=4.1,
+        unrate_as_of=date(2026, 7, 1),
+        treasury_10y=4.69,
+        dgs10_as_of=date(2026, 8, 6),
+    )
+
+def _rendered_html(mock_sync_playwright, data):
+    """Ejecuta el render mockeado y devuelve el HTML que se inyectó en la página."""
+    mock_p = MagicMock()
+    mock_sync_playwright.return_value.__enter__.return_value = mock_p
+    mock_browser = MagicMock()
+    mock_p.chromium.launch.return_value = mock_browser
+    mock_page = MagicMock()
+    mock_browser.new_page.return_value = mock_page
+    mock_page.screenshot.return_value = b'\x89PNG'
+
+    PlaywrightEngine().render_weekly_close(data)
+
+    return mock_page.set_content.call_args.args[0]
 
 @pytest.fixture
 def mock_sync_playwright():
@@ -55,3 +89,25 @@ def test_playwright_render_weekly_close(mock_sync_playwright):
             pytest.skip("Plantilla HTML no encontrada durante el test. (Verificar pathing)")
         else:
             raise
+
+def test_render_includes_macro_block_when_present(mock_sync_playwright):
+    html = _rendered_html(mock_sync_playwright, _weekly_close(macro=_macro()))
+
+    assert '<div class="macro-strip">' in html
+    assert "+2.4%" in html        # IPC interanual
+    assert "4.1%" in html         # desempleo
+    assert "4.69%" in html        # treasury 10 años
+    # La fecha de referencia es obligatoria: el CPI va meses atrasado
+    assert "al 06/2026" in html
+    # El Treasury es una serie diaria: mostrar solo el mes ocultaría de qué día
+    # es el dato, que es exactamente lo que varía
+    assert "al 06/08/2026" in html
+
+def test_render_omits_macro_block_when_absent(mock_sync_playwright):
+    html = _rendered_html(mock_sync_playwright, _weekly_close(macro=None))
+
+    # El CSS vive siempre en el <style>; lo que no debe aparecer es el marcado
+    assert '<div class="macro-strip">' not in html
+    assert "IPC interanual" not in html
+    # El bloque de mercado sigue intacto
+    assert "7,712.33" in html

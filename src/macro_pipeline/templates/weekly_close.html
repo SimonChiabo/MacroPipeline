@@ -76,6 +76,35 @@
         .positive {{ color: var(--success); }}
         .negative {{ color: var(--danger); }}
         
+        .macro-strip {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            margin-top: 40px;
+            padding-top: 40px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }}
+        .macro-item {{
+            text-align: center;
+        }}
+        .macro-label {{
+            display: block;
+            font-size: 22px;
+            opacity: 0.7;
+        }}
+        .macro-value {{
+            display: block;
+            font-size: 40px;
+            font-weight: bold;
+            margin: 8px 0 4px 0;
+            color: var(--accent);
+        }}
+        .macro-asof {{
+            display: block;
+            font-size: 18px;
+            opacity: 0.45;
+        }}
+
         .footer {{
             margin-top: 60px;
             text-align: center;
@@ -104,6 +133,8 @@
             </div>
         </div>
         
+        {macro_block}
+
         <div class="footer">
             MacroPipeline | Generado Automáticamente
         </div>
