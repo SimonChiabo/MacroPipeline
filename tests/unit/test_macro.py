@@ -89,8 +89,10 @@ def test_build_macro_snapshot_requests_window_relative_to_today(fake_fred):
 
     start = fake_fred.calls[CPI_SERIES]["observation_start"]
     start_date = datetime.strptime(start, "%Y-%m-%d").date()
-    # Debe cubrir más de 13 meses para que siempre entre la observación interanual
-    assert (today - start_date).days >= 400
+    # 13 meses (~395 días) no alcanza: el IPC se publica con ~2 meses de retraso,
+    # así que la observación base interanual queda justo en el borde de la
+    # ventana y el bloque macro desaparecería sin ruido. Se exige holgura real.
+    assert (today - start_date).days >= 450
 
 
 def test_safe_build_macro_snapshot_returns_none_when_fred_fails():

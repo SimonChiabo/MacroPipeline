@@ -15,9 +15,12 @@ CPI_SERIES = "CPIAUCSL"    # Índice de precios al consumidor (nivel, no variaci
 UNRATE_SERIES = "UNRATE"   # Tasa de desempleo (%)
 DGS10_SERIES = "DGS10"     # Rendimiento del Treasury a 10 años (%)
 
-# Ventana solicitada a FRED: debe cubrir con holgura los 13 meses que necesita
-# el cálculo interanual, incluso con series mensuales publicadas con retraso.
-_LOOKBACK_DAYS = 420
+# Ventana solicitada a FRED. No basta con 13 meses: el IPC de un mes se publica
+# a mediados del siguiente, así que la observación base del cálculo interanual
+# cae justo en el borde de una ventana de ~420 días (verificado: margen de 0
+# días). Con 480 el margen sube a ~60 días, suficiente para absorber retrasos
+# de publicación sin que el bloque macro desaparezca en silencio.
+_LOOKBACK_DAYS = 480
 
 
 class MacroDataError(Exception):
