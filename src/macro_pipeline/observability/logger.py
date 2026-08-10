@@ -7,6 +7,8 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
+from macro_pipeline.observability.redaction import install_redaction_filter
+
 def setup_observability() -> trace.Tracer:
     """
     Configura OpenTelemetry y Structlog para inyectar IDs de traza y opcionalmente
@@ -75,5 +77,10 @@ def setup_observability() -> trace.Tracer:
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=False
     )
-    
+
+    # 6. Redacción de credenciales en todo lo que salga por el logging estándar.
+    # FRED y FMP exigen la key como query param, así que urllib3 la imprime
+    # entera al reintentar. Sin esto, las keys llegan a Grafana.
+    install_redaction_filter()
+
     return trace.get_tracer("macro_pipeline.tracer")
