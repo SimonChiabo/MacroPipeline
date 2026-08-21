@@ -353,6 +353,7 @@ class MacroOrchestrator:
                         prompt_version=_PROMPT_VERSION,
                         headline=headline,
                         validator_approved=validator_approved,
+                        macro=data.macro,
                     )
                     logger.info("pipeline_completed_successfully")
                 else:

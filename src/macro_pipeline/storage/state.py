@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import os
 import sqlite3
 import structlog
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - solo para tipado
+    from macro_pipeline.validators.schemas import MacroSnapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +49,12 @@ class StateDB:
                     prompt_version      TEXT,
                     headline            TEXT,
                     validator_approved  INTEGER,
+                    cpi_yoy             REAL,
+                    cpi_as_of           TEXT,
+                    unemployment_rate   REAL,
+                    unrate_as_of        TEXT,
+                    treasury_10y        REAL,
+                    dgs10_as_of         TEXT,
                     image_url           TEXT,
                     x_post_id           TEXT,
                     linkedin_post_id    TEXT
@@ -62,6 +73,12 @@ class StateDB:
             ("prompt_version",      "TEXT"),
             ("headline",            "TEXT"),
             ("validator_approved",  "INTEGER"),
+            ("cpi_yoy",             "REAL"),
+            ("cpi_as_of",           "TEXT"),
+            ("unemployment_rate",   "REAL"),
+            ("unrate_as_of",        "TEXT"),
+            ("treasury_10y",        "REAL"),
+            ("dgs10_as_of",         "TEXT"),
             ("x_post_id",           "TEXT"),
             ("linkedin_post_id",    "TEXT"),
         ]
@@ -148,7 +165,22 @@ class StateDB:
         prompt_version: Optional[str] = None,
         headline: Optional[str] = None,
         validator_approved: Optional[bool] = None,
+        macro: Optional[MacroSnapshot] = None,
     ) -> None:
+        """Cierra la run y persiste sus metadatos.
+
+        `macro` es opcional a proposito: `safe_build_macro_snapshot`
+        devuelve None cuando FRED falla, y el cierre semanal se publica
+        igual. En ese caso las seis columnas macro quedan en NULL.
+
+        Gana la ultima escritura: una segunda llamada con `macro=None`
+        sobrescribe con NULL los valores que hubiera. Es la misma semantica
+        que ya tenian `headline` e `image_url`, y no es alcanzable desde el
+        orquestador porque `is_published` corta la re-ejecucion de un evento
+        ya publicado.
+        """
+        # Las fechas van como TEXT ISO explicito: los adaptadores
+        # implicitos de date/datetime estan deprecados desde Python 3.12.
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """UPDATE published_events SET
@@ -157,7 +189,10 @@ class StateDB:
                     sp500_close = ?, nasdaq_close = ?,
                     sp500_return = ?, nasdaq_return = ?,
                     prompt_version = ?, headline = ?,
-                    validator_approved = ?
+                    validator_approved = ?,
+                    cpi_yoy = ?, cpi_as_of = ?,
+                    unemployment_rate = ?, unrate_as_of = ?,
+                    treasury_10y = ?, dgs10_as_of = ?
                 WHERE event_id = ?""",
                 (
                     datetime.utcnow(),
@@ -170,6 +205,12 @@ class StateDB:
                     prompt_version,
                     headline,
                     int(validator_approved) if validator_approved is not None else None,
+                    macro.cpi_yoy if macro else None,
+                    macro.cpi_as_of.isoformat() if macro else None,
+                    macro.unemployment_rate if macro else None,
+                    macro.unrate_as_of.isoformat() if macro else None,
+                    macro.treasury_10y if macro else None,
+                    macro.dgs10_as_of.isoformat() if macro else None,
                     event_id,
                 ),
             )
@@ -177,6 +218,7 @@ class StateDB:
             "event_marked_as_published",
             event_id=event_id,
             data_source=data_source,
+            macro_persisted=macro is not None,
         )
 
     # ── Fallos y expiración ───────────────────────────────────────────────────
