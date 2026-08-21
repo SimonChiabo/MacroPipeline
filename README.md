@@ -95,6 +95,9 @@ pip install -e ".[dev]"
 cp .env.example .env
 $EDITOR .env
 
+# Verificar que las credenciales de publicacion sirven (no publica nada)
+python scripts/check_publishers.py
+
 # Hooks
 pre-commit install
 
