@@ -68,3 +68,35 @@ def test_get_series_observations_error(mock_get, fred_client):
 
     with pytest.raises(FREDClientError, match="Error al obtener datos de FRED"):
         fred_client.get_series_observations("INVALID_SERIES")
+
+
+@patch('requests.Session.get')
+def test_parses_recorded_fred_payload(mock_get, fred_client):
+    """Parsea una respuesta real grabada de FRED (tests/fixtures/).
+
+    Los otros tests usan dicts escritos a mano con solo 'date' y 'value'. El
+    payload real trae además 'realtime_start' y 'realtime_end' en cada
+    observación: este test es el que verifica que el cliente las descarta.
+    """
+    import json
+    from pathlib import Path
+
+    fixture = (
+        Path(__file__).resolve().parents[1]
+        / "fixtures"
+        / "fred_gdp_observations.json"
+    )
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = payload
+    mock_response.raise_for_status.return_value = None
+    mock_get.return_value = mock_response
+
+    df = fred_client.get_series_observations("GDP")
+
+    assert list(df.columns) == ['date', 'value']
+    assert len(df) == len(payload["observations"])
+    assert pd.api.types.is_datetime64_any_dtype(df['date'])
+    assert pd.api.types.is_numeric_dtype(df['value'])
+    assert df.iloc[0]['value'] == float(payload["observations"][0]["value"])

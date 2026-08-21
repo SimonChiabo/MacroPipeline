@@ -1,6 +1,6 @@
 # ADR-008: Contract tests nightly separados del pipeline de PR
 
-**Estado:** Aceptado (workflow pendiente de implementar — ver H-17 en revision_v2_resultado.md)  
+**Estado:** Aceptado e implementado (workflow + primeros contract tests de FRED, 2026-08-21)  
 **Fecha:** 2026-05-14  
 **Decisores:** Simon Chiabo
 
@@ -36,5 +36,16 @@ La alternativa de incluir tests contra APIs reales en el pipeline de PR tiene do
 - Las credenciales deben estar en GitHub Secrets (no en `.env`).
 - Los contract tests pueden ser flaky por rate limits de APIs gratuitas (mitigado con `--timeout=30` y reintentos manuales).
 
-**Estado de implementación:**  
-El workflow `contract-tests.yml` está creado. El directorio `tests/contract/` existe pero los tests están pendientes de implementar (primer hito: un test que llame a `FREDClient.get_series_observations("GDP")` y verifique que la respuesta tiene las columnas `date` y `value`).
+**Estado de implementación (2026-08-21):**
+
+El workflow `contract-tests.yml` está creado y `tests/contract/test_fred_contract.py` cubre FRED con seis casos: el hito propuesto (`GDP` devuelve `date` y `value`), las tres series que consume el cierre semanal (`CPIAUCSL`, `UNRATE`, `DGS10`) con rangos de plausibilidad y control de frescura, la construcción completa del `MacroSnapshot` contra la API real, y el error esperado ante una serie inexistente.
+
+Tres decisiones que no estaban en la versión original de este ADR y conviene dejar escritas:
+
+1. **Verificar el schema no alcanza.** `FREDClient.get_series_observations` construye `df[['date','value']]` por su cuenta y devuelve un DataFrame vacío —solo con un warning— cuando la respuesta no trae observaciones. Un test que compare nombres de columna pasaría con FRED devolviendo un payload vacío. Por eso cada caso exige además `len(df) > 0`, dtypes y un rango de valores plausible: eso es lo que detecta un cambio de unidad o una serie discontinuada.
+
+2. **Faltar una credencial es un fallo, no un skip.** Un run enteramente saltado sale con código 0 y reportaría el nightly en verde sin haber verificado nada. `tests/contract/conftest.py` resuelve así: en local se salta si falta la key, pero si `CI` está definida en el entorno, falla ruidosamente.
+
+3. **Los contract tests están fuera del run por defecto.** `pyproject.toml` define `addopts = "-m 'not contract'"` para que `pytest` local no pegue contra la red. La contracara es que el workflow **tiene que** pasar `-m contract` explícitamente: sin eso deselecciona todo y sale en verde sin ejecutar un solo test. `pytest-timeout` se agregó a las dependencias de desarrollo, que era lo que faltaba para que `--timeout=30` no fuera un error de argumentos.
+
+**Pendiente:** contract tests equivalentes para FMP y Alpha Vantage. El workflow ya les pasa las credenciales.

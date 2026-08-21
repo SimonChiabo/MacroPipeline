@@ -28,6 +28,7 @@ requires-python = ">=3.12"
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.3.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
@@ -51,3 +52,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Los contract tests pegan contra APIs reales: quedan fuera del run por
+# defecto para que `pytest` local siga siendo rapido y sin red. El workflow
+# nightly los selecciona explicitamente con `-m contract`.
+addopts = "-m 'not contract'"
+markers = [
+    "contract: test contra una API externa real (requiere credenciales)",
+]
