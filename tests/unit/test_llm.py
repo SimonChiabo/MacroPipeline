@@ -2,6 +2,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from anthropic.types import TextBlock, ToolUseBlock
 
 from macro_pipeline.llm.client import LLMClient
 from macro_pipeline.llm.validator import ValidatorAgent
@@ -23,8 +24,13 @@ def test_generate_headline(mock_anthropic):
     # Setup mock
     mock_instance = mock_anthropic.return_value
     mock_response = MagicMock()
+    # TextBlock real y no un MagicMock: el cliente comprueba el tipo del
+    # bloque antes de leer `.text`, y un doble no lo satisface.
     mock_response.content = [
-        MagicMock(text='"El SP500 cierra la semana con un alza del 2.5%"')
+        TextBlock(
+            type="text",
+            text='"El SP500 cierra la semana con un alza del 2.5%"',
+        )
     ]
     mock_instance.messages.create.return_value = mock_response
 
@@ -43,15 +49,19 @@ def test_validator_agent_approved(mock_anthropic):
     mock_instance = mock_anthropic.return_value
     mock_response = MagicMock()
 
-    mock_block = MagicMock()
-    mock_block.type = "tool_use"
-    mock_block.name = "submit_review"
-    mock_block.input = {
-        "approved": True,
-        "reason": "Borrador preciso y fiel a los datos.",
-    }
-
-    mock_response.content = [mock_block]
+    # ToolUseBlock real: el agente comprueba el tipo del bloque antes de
+    # leerlo, así que un MagicMock con `.type` puesto a mano no sirve.
+    mock_response.content = [
+        ToolUseBlock(
+            type="tool_use",
+            id="toolu_test_approved",
+            name="submit_review",
+            input={
+                "approved": True,
+                "reason": "Borrador preciso y fiel a los datos.",
+            },
+        )
+    ]
     mock_instance.messages.create.return_value = mock_response
 
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
@@ -67,15 +77,19 @@ def test_validator_agent_rejected_hallucination(mock_anthropic):
     mock_instance = mock_anthropic.return_value
     mock_response = MagicMock()
 
-    mock_block = MagicMock()
-    mock_block.type = "tool_use"
-    mock_block.name = "submit_review"
-    mock_block.input = {
-        "approved": False,
-        "reason": "El borrador menciona crecimiento del 5% pero la fuente dice 2%.",
-    }
-
-    mock_response.content = [mock_block]
+    mock_response.content = [
+        ToolUseBlock(
+            type="tool_use",
+            id="toolu_test_rejected",
+            name="submit_review",
+            input={
+                "approved": False,
+                "reason": (
+                    "El borrador menciona crecimiento del 5% pero la fuente dice 2%."
+                ),
+            },
+        )
+    ]
     mock_instance.messages.create.return_value = mock_response
 
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):

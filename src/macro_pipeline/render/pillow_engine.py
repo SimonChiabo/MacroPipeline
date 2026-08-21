@@ -14,7 +14,7 @@ class PillowEngine:
     (ej: resúmenes simples, calendarios).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Configuración base (Dark Theme estilo Tailwind)
         self.bg_color = (15, 23, 42)  # Slate 900
         self.text_color = (248, 250, 252)  # Slate 50
@@ -22,8 +22,12 @@ class PillowEngine:
         self.width = 1080
         self.height = 1080
 
-    def _get_font(self, size: int) -> ImageFont.FreeTypeFont:
-        """Intenta cargar una fuente estándar o usa la predeterminada."""
+    def _get_font(self, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        """Intenta cargar una fuente estándar o usa la predeterminada.
+
+        El fallback devuelve un `ImageFont` a secas, no un `FreeTypeFont`:
+        son tipos distintos y el retorno tiene que admitir los dos.
+        """
         try:
             # Arial suele estar disponible en muchos sistemas, intentar usarla
             return ImageFont.truetype("arial.ttf", size)

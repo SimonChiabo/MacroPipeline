@@ -27,7 +27,7 @@ class ValidationEngine:
     Actúa como la última línea de defensa antes de la renderización.
     """
 
-    def __init__(self, rules_path: str = None):
+    def __init__(self, rules_path: str | None = None) -> None:
         if not rules_path:
             # Default to the rules.yaml in the same directory
             rules_path = str(Path(__file__).parent / "rules.yaml")
@@ -82,7 +82,9 @@ class ValidationEngine:
         logger.info("weekly_close_validated", date=data.date.isoformat())
         return True
 
-    def validate_macro_snapshot(self, data: MacroSnapshot, today: date = None) -> bool:
+    def validate_macro_snapshot(
+        self, data: MacroSnapshot, today: date | None = None
+    ) -> bool:
         """
         Aplica sanity checks al bloque macro: rangos plausibles y frescura de
         cada serie. `today` es inyectable para que los tests no dependan del reloj.

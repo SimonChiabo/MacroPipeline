@@ -15,7 +15,7 @@ tanto los logs propios (structlog) como los de librerías de terceros.
 import logging
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 REDACTED = "***REDACTED***"
 
@@ -38,7 +38,7 @@ _PARAM_PATTERN = re.compile(
 _AUTH_PATTERN = re.compile(r"(?i)(authorization[=:]\s*)(basic|bearer)(\s+)(\S+)")
 
 
-def collect_secret_values(env: dict[str, str] | None = None) -> list[str]:
+def collect_secret_values(env: Mapping[str, str] | None = None) -> list[str]:
     """
     Extrae del entorno los valores que deben redactarse.
 
@@ -46,11 +46,11 @@ def collect_secret_values(env: dict[str, str] | None = None) -> list[str]:
     de OTLP o la ruta de la base de datos arruinaría los logs de diagnóstico sin
     proteger nada.
     """
-    env = os.environ if env is None else env
+    source: Mapping[str, str] = os.environ if env is None else env
 
     return [
         value
-        for name, value in env.items()
+        for name, value in source.items()
         if value
         and len(value) >= _MIN_SECRET_LENGTH
         and _SECRET_NAME_PATTERN.search(name)

@@ -1,6 +1,7 @@
 """Construcción del snapshot macroeconómico a partir de series de FRED."""
 
 from datetime import date
+from typing import Any, Protocol
 
 import pandas as pd
 import structlog
@@ -20,6 +21,18 @@ DGS10_SERIES = "DGS10"  # Rendimiento del Treasury a 10 años (%)
 # días). Con 480 el margen sube a ~60 días, suficiente para absorber retrasos
 # de publicación sin que el bloque macro desaparezca en silencio.
 _LOOKBACK_DAYS = 480
+
+
+class SeriesProvider(Protocol):
+    """Lo único que estas funciones necesitan de un cliente de FRED.
+
+    Se tipa como Protocol y no como `FREDClient` porque los tests
+    inyectan un doble que solo implementa este método.
+    """
+
+    def get_series_observations(
+        self, series_id: str, **kwargs: Any
+    ) -> pd.DataFrame: ...
 
 
 class MacroDataError(Exception):
@@ -71,7 +84,9 @@ def _latest_observation(df: pd.DataFrame, series_id: str) -> tuple[float, date]:
     return float(last["value"]), last["date"].date()
 
 
-def build_macro_snapshot(fred, today: date | None = None) -> MacroSnapshot:
+def build_macro_snapshot(
+    fred: SeriesProvider, today: date | None = None
+) -> MacroSnapshot:
     """
     Construye el snapshot macro consultando las tres series a FRED.
     Lanza MacroDataError si alguna serie no alcanza para un dato confiable.
@@ -111,7 +126,9 @@ def build_macro_snapshot(fred, today: date | None = None) -> MacroSnapshot:
     return snapshot
 
 
-def safe_build_macro_snapshot(fred, today: date | None = None) -> MacroSnapshot | None:
+def safe_build_macro_snapshot(
+    fred: SeriesProvider, today: date | None = None
+) -> MacroSnapshot | None:
     """
     Versión tolerante a fallos: devuelve None en lugar de propagar.
 

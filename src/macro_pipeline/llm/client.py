@@ -2,6 +2,7 @@ import os
 
 import structlog
 from anthropic import Anthropic
+from anthropic.types import TextBlock
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +57,16 @@ class LLMClient:
                     }
                 ],
             )
-            headline = response.content[0].text.strip()
+            block = response.content[0]
+            if not isinstance(block, TextBlock):
+                # thinking / tool_use en la primera posición: no hay
+                # titular que extraer. Cae al fallback de más abajo,
+                # igual que un error de red.
+                raise TypeError(
+                    f"La respuesta de Anthropic empieza con un bloque "
+                    f"{block.type}, no con texto."
+                )
+            headline = block.text.strip()
             # Tracking de coste: loggear usage por cada llamada
             logger.info(
                 "llm_usage",

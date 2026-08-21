@@ -65,6 +65,6 @@ class LinkedInClient:
             logger.error("linkedin_api_request_failed", error=str(e))
             raise LinkedInClientError(f"Error al publicar en LinkedIn: {e}") from e
 
-        data = response.json()
+        data: dict[str, Any] = response.json()
         logger.info("linkedin_post_published", post_id=data.get("id"))
         return data

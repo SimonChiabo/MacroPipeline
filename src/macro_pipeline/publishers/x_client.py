@@ -68,6 +68,6 @@ class XClient:
             logger.error("x_api_request_failed", error=str(e), status_code=status)
             raise XClientError(f"Error al publicar en X: {e}") from e
 
-        data = response.json()
+        data: dict[str, Any] = response.json()
         logger.info("tweet_posted", tweet_id=data.get("data", {}).get("id"))
         return data

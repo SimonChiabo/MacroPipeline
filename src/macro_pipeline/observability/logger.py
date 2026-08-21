@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import structlog
 from opentelemetry import trace
@@ -6,6 +7,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from structlog.typing import EventDict
 
 from macro_pipeline.observability.redaction import install_redaction_filter
 
@@ -52,7 +54,9 @@ def setup_observability() -> trace.Tracer:
         provider.add_span_processor(processor)
 
     # 4. Procesador para Structlog: Inyecta `trace_id` y `span_id` en cada log
-    def add_opentelemetry_spans(logger, method_name, event_dict):
+    def add_opentelemetry_spans(
+        logger: Any, method_name: str, event_dict: EventDict
+    ) -> EventDict:
         span = trace.get_current_span()
         if span.is_recording():
             ctx = span.get_span_context()

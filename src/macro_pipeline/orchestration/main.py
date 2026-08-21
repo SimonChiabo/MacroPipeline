@@ -4,6 +4,7 @@ from datetime import date
 
 import pandas as pd
 import structlog
+from opentelemetry import trace
 
 from macro_pipeline.data.av_client import AlphaVantageClient
 from macro_pipeline.data.fmp_client import FMPClient
@@ -41,7 +42,7 @@ class MacroOrchestrator:
     - Estados explícitos: in_progress, published, failed, expired.
     """
 
-    def __init__(self, tracer=None):
+    def __init__(self, tracer: trace.Tracer | None = None) -> None:
         self.tracer = tracer
         logger.info("initializing_orchestrator")
 
@@ -51,6 +52,7 @@ class MacroOrchestrator:
 
         # FRED alimenta el bloque macro, que es complementario: sin key el
         # pipeline publica igual, solo que sin contexto macroeconómico.
+        self.fred: FREDClient | None
         try:
             self.fred = FREDClient()
         except ValueError as e:

@@ -1,6 +1,12 @@
-from typing import Any
+from typing import Any, cast
 
 import structlog
+from anthropic.types import (
+    MessageParam,
+    ToolChoiceToolParam,
+    ToolParam,
+    ToolUseBlock,
+)
 
 from macro_pipeline.llm.client import LLMClient
 
@@ -35,7 +41,7 @@ class ValidatorAgent:
             "3. En otro caso, apruébalo."
         )
 
-        tool_schema = {
+        tool_schema: ToolParam = {
             "name": "submit_review",
             "description": "Envia el resultado de la revisión del borrador generado.",
             "input_schema": {
@@ -61,6 +67,11 @@ class ValidatorAgent:
             },
         }
 
+        tool_choice: ToolChoiceToolParam = {
+            "type": "tool",
+            "name": "submit_review",
+        }
+
         user_content = (
             f"DATOS FUENTE VERIFICADOS:\n{source_data}\n\n"
             f"BORRADOR A REVISAR:\n{draft_text}\n"
@@ -75,13 +86,15 @@ class ValidatorAgent:
                 temperature=0.0,  # Determinismo máximo
                 system=system_prompt,
                 tools=[tool_schema],
-                tool_choice={"type": "tool", "name": "submit_review"},
-                messages=[{"role": "user", "content": user_content}],
+                tool_choice=tool_choice,
+                messages=[MessageParam(role="user", content=user_content)],
             )
 
             for block in response.content:
-                if block.type == "tool_use" and block.name == "submit_review":
-                    result = block.input
+                if isinstance(block, ToolUseBlock) and block.name == "submit_review":
+                    # El SDK tipa `input` como object porque depende del
+                    # esquema; el nuestro fuerza un objeto de dos campos.
+                    result = cast(dict[str, Any], block.input)
                     # Tracking de coste del agente validador
                     logger.info(
                         "validator_usage",

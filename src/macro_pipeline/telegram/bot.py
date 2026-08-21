@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from typing import Any
 
 import requests
 import structlog
@@ -86,7 +87,7 @@ class TelegramBot:
 
             response.raise_for_status()
             res_data = response.json()
-            message_id = res_data["result"]["message_id"]
+            message_id = int(res_data["result"]["message_id"])
             logger.info("telegram_approval_request_sent", message_id=message_id)
             return message_id
 
@@ -111,7 +112,10 @@ class TelegramBot:
 
         while time.time() - start_time < timeout_seconds:
             # Long polling de 10s para no ahogar la red
-            params = {"timeout": 10, "allowed_updates": ["callback_query"]}
+            params: dict[str, Any] = {
+                "timeout": 10,
+                "allowed_updates": ["callback_query"],
+            }
             if offset:
                 params["offset"] = offset
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import structlog
 from playwright.sync_api import sync_playwright
 
-from macro_pipeline.validators.schemas import WeeklyCloseData
+from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
 
 logger = structlog.get_logger(__name__)
 
@@ -19,13 +19,13 @@ class PlaywrightEngine:
     un screenshot exacto y determinista.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Asume que las plantillas están en ../templates respecto a este archivo
         self.templates_dir = Path(__file__).parent.parent / "templates"
         self.width = 1080
         self.height = 1080
 
-    def _build_macro_block(self, macro) -> str:
+    def _build_macro_block(self, macro: MacroSnapshot | None) -> str:
         """
         Construye el bloque macro como HTML, o cadena vacía si no hay datos.
 
