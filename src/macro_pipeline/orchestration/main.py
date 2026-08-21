@@ -1,31 +1,32 @@
 import os
-import structlog
 from contextlib import nullcontext
 from datetime import date
-from typing import Optional, Tuple
 
 import pandas as pd
+import structlog
 
-from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.av_client import AlphaVantageClient
+from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.fred_client import FREDClient
 from macro_pipeline.data.macro import safe_build_macro_snapshot
-from macro_pipeline.validators.schemas import WeeklyCloseData, MacroSnapshot
-from macro_pipeline.validators.engine import ValidationEngine, ValidationError
-from macro_pipeline.llm.client import LLMClient, HEADLINE_PROMPT_VERSION
-from macro_pipeline.llm.validator import ValidatorAgent, VALIDATOR_PROMPT_VERSION
-from macro_pipeline.render.playwright_engine import PlaywrightEngine
-from macro_pipeline.telegram.bot import TelegramBot, TelegramBotError
-from macro_pipeline.publishers.x_client import XClient
+from macro_pipeline.llm.client import HEADLINE_PROMPT_VERSION, LLMClient
+from macro_pipeline.llm.validator import VALIDATOR_PROMPT_VERSION, ValidatorAgent
+from macro_pipeline.observability.logger import setup_observability
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
+from macro_pipeline.publishers.x_client import XClient
+from macro_pipeline.render.playwright_engine import PlaywrightEngine
 from macro_pipeline.storage.r2_client import R2Client
 from macro_pipeline.storage.state import StateDB
-from macro_pipeline.observability.logger import setup_observability
+from macro_pipeline.telegram.bot import TelegramBot, TelegramBotError
+from macro_pipeline.validators.engine import ValidationEngine, ValidationError
+from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
 
 logger = structlog.get_logger(__name__)
 
 # Versión combinada de prompt para trazabilidad
-_PROMPT_VERSION = f"headline={HEADLINE_PROMPT_VERSION}/validator={VALIDATOR_PROMPT_VERSION}"
+_PROMPT_VERSION = (
+    f"headline={HEADLINE_PROMPT_VERSION}/validator={VALIDATOR_PROMPT_VERSION}"
+)
 
 
 class MacroOrchestrator:
@@ -34,7 +35,8 @@ class MacroOrchestrator:
     Arquitectura: datos deterministas → validación → LLM auxiliar → HITL → publicación.
     Garantías:
     - Mock Data bloqueado en producción (ALLOW_MOCK_DATA=false).
-    - Idempotencia parcial: si X publicó pero LinkedIn falló, el re-run solo publica LinkedIn.
+    - Idempotencia parcial: si X publicó pero LinkedIn falló, el re-run
+      solo publica LinkedIn.
     - post_ids persistidos inmediatamente tras cada canal.
     - Estados explícitos: in_progress, published, failed, expired.
     """
@@ -80,7 +82,7 @@ class MacroOrchestrator:
         # Guardia de Mock Data: por defecto bloqueado en producción
         self._allow_mock = os.environ.get("ALLOW_MOCK_DATA", "false").lower() == "true"
 
-    def _fetch_macro_snapshot(self) -> Optional[MacroSnapshot]:
+    def _fetch_macro_snapshot(self) -> MacroSnapshot | None:
         """
         Obtiene y valida el contexto macro de FRED.
 
@@ -103,10 +105,11 @@ class MacroOrchestrator:
 
         return snapshot
 
-    def _fetch_weekly_close(self) -> Tuple[WeeklyCloseData, str]:
+    def _fetch_weekly_close(self) -> tuple[WeeklyCloseData, str]:
         """
         Extrae y calcula datos deterministas para el cierre semanal.
-        Retorna (WeeklyCloseData, data_source) donde data_source es 'fmp', 'av' o 'mock'.
+        Retorna (WeeklyCloseData, data_source) donde data_source es 'fmp',
+        'av' o 'mock'.
         Lanza RuntimeError si se produce Mock Data y ALLOW_MOCK_DATA=false.
         """
         logger.info("orchestrator_fetching_data")
@@ -306,9 +309,7 @@ class MacroOrchestrator:
 
                     image_url = None
                     if self.r2_ready:
-                        image_url = self.r2.upload_image(
-                            image_bytes, f"{event_id}.png"
-                        )
+                        image_url = self.r2.upload_image(image_bytes, f"{event_id}.png")
 
                     if self.publishers_ready:
                         with (
@@ -319,8 +320,8 @@ class MacroOrchestrator:
                             # X: publicar solo si no se hizo ya
                             if not x_already_done:
                                 x_result = self.x_client.post_tweet(headline)
-                                x_post_id = (
-                                    x_result.get("data", {}).get("id", "unknown")
+                                x_post_id = x_result.get("data", {}).get(
+                                    "id", "unknown"
                                 )
                                 self.state.mark_x_published(event_id, x_post_id)
                             else:
@@ -332,9 +333,7 @@ class MacroOrchestrator:
                             if not linkedin_already_done:
                                 li_result = self.linkedin.post_text(headline)
                                 li_post_id = li_result.get("id", "unknown")
-                                self.state.mark_linkedin_published(
-                                    event_id, li_post_id
-                                )
+                                self.state.mark_linkedin_published(event_id, li_post_id)
                             else:
                                 logger.info(
                                     "linkedin_already_published_skipping",
@@ -369,6 +368,7 @@ class MacroOrchestrator:
 
 if __name__ == "__main__":
     import logging
+
     from dotenv import load_dotenv
 
     load_dotenv(override=True)

@@ -31,3 +31,10 @@ build/
 # Technical reviews and temporary reports
 revision_*.md
 
+# Testing / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/

@@ -1,13 +1,14 @@
 import os
-import logging
+
 import structlog
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from macro_pipeline.observability.redaction import install_redaction_filter
+
 
 def setup_observability() -> trace.Tracer:
     """
@@ -16,10 +17,9 @@ def setup_observability() -> trace.Tracer:
     Devuelve un tracer que puede usarse para agrupar operaciones.
     """
     # 1. Definir los metadatos de la aplicación
-    resource = Resource(attributes={
-        "service.name": "macro_pipeline",
-        "service.version": "0.1.0"
-    })
+    resource = Resource(
+        attributes={"service.name": "macro_pipeline", "service.version": "0.1.0"}
+    )
 
     # 2. Iniciar el proveedor de trazas
     provider = TracerProvider(resource=resource)
@@ -29,7 +29,7 @@ def setup_observability() -> trace.Tracer:
     # Por defecto Grafana Cloud usa /v1/traces para HTTP OTLP
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     headers_str = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
-    
+
     # Si hay un endpoint configurado, activamos la exportación
     if endpoint:
         headers = {}
@@ -42,8 +42,10 @@ def setup_observability() -> trace.Tracer:
 
         # Usar el exportador HTTP (Grafana Cloud lo soporta nativamente)
         exporter = OTLPSpanExporter(
-            endpoint=endpoint if endpoint.endswith("/v1/traces") else f"{endpoint}/v1/traces",
-            headers=headers
+            endpoint=endpoint
+            if endpoint.endswith("/v1/traces")
+            else f"{endpoint}/v1/traces",
+            headers=headers,
         )
         # Procesamiento por lotes (recomendado para producción)
         processor = BatchSpanProcessor(exporter)
@@ -68,14 +70,17 @@ def setup_observability() -> trace.Tracer:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-            # Si hay exportación, usamos JSON puro para que Loki/Grafana lo parsee fácil.
-            # Si no, usamos ConsoleRenderer para que el desarrollador lea los colores en terminal.
-            structlog.processors.JSONRenderer() if endpoint else structlog.dev.ConsoleRenderer()
+            # Si hay exportación, usamos JSON puro para que Loki/Grafana lo
+            # parsee fácil. Si no, usamos ConsoleRenderer para que el
+            # desarrollador lea los colores en la terminal.
+            structlog.processors.JSONRenderer()
+            if endpoint
+            else structlog.dev.ConsoleRenderer(),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=False
+        cache_logger_on_first_use=False,
     )
 
     # 6. Redacción de credenciales en todo lo que salga por el logging estándar.

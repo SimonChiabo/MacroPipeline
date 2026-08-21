@@ -15,7 +15,7 @@ tanto los logs propios (structlog) como los de librerías de terceros.
 import logging
 import os
 import re
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
 
 REDACTED = "***REDACTED***"
 
@@ -23,7 +23,9 @@ REDACTED = "***REDACTED***"
 _MIN_SECRET_LENGTH = 8
 
 # Nombres de variables de entorno que denotan un secreto.
-_SECRET_NAME_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
+_SECRET_NAME_PATTERN = re.compile(
+    r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE
+)
 
 # Credencial pasada como query param. Las alternativas van de más larga a más
 # corta para que `access_token` no sea capturado por `token`.
@@ -36,7 +38,7 @@ _PARAM_PATTERN = re.compile(
 _AUTH_PATTERN = re.compile(r"(?i)(authorization[=:]\s*)(basic|bearer)(\s+)(\S+)")
 
 
-def collect_secret_values(env: Optional[Dict[str, str]] = None) -> List[str]:
+def collect_secret_values(env: dict[str, str] | None = None) -> list[str]:
     """
     Extrae del entorno los valores que deben redactarse.
 
@@ -55,7 +57,7 @@ def collect_secret_values(env: Optional[Dict[str, str]] = None) -> List[str]:
     ]
 
 
-def redact(text: str, secrets: Optional[Iterable[str]] = None) -> str:
+def redact(text: str, secrets: Iterable[str] | None = None) -> str:
     """
     Devuelve el texto con las credenciales sustituidas por REDACTED.
 
@@ -68,7 +70,9 @@ def redact(text: str, secrets: Optional[Iterable[str]] = None) -> str:
     values = collect_secret_values() if secrets is None else list(secrets)
 
     result = _PARAM_PATTERN.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
-    result = _AUTH_PATTERN.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{REDACTED}", result)
+    result = _AUTH_PATTERN.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{REDACTED}", result
+    )
 
     for value in values:
         if value and len(value) >= _MIN_SECRET_LENGTH:
@@ -86,7 +90,7 @@ class RedactionFilter(logging.Filter):
     dejaría la key intacta.
     """
 
-    def __init__(self, secrets: Optional[Iterable[str]] = None):
+    def __init__(self, secrets: Iterable[str] | None = None):
         super().__init__()
         self.secrets = collect_secret_values() if secrets is None else list(secrets)
 
@@ -104,7 +108,7 @@ class RedactionFilter(logging.Filter):
         return True
 
 
-def install_redaction_filter(secrets: Optional[Iterable[str]] = None) -> None:
+def install_redaction_filter(secrets: Iterable[str] | None = None) -> None:
     """
     Instala el filtro en todos los handlers del logger raíz.
 

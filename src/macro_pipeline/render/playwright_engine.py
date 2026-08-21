@@ -1,13 +1,16 @@
-import structlog
 from pathlib import Path
+
+import structlog
 from playwright.sync_api import sync_playwright
 
 from macro_pipeline.validators.schemas import WeeklyCloseData
 
 logger = structlog.get_logger(__name__)
 
+
 class PlaywrightEngineError(Exception):
     pass
+
 
 class PlaywrightEngine:
     """
@@ -15,6 +18,7 @@ class PlaywrightEngine:
     Inyecta datos numéricos en plantillas HTML/CSS pre-construidas y toma
     un screenshot exacto y determinista.
     """
+
     def __init__(self):
         # Asume que las plantillas están en ../templates respecto a este archivo
         self.templates_dir = Path(__file__).parent.parent / "templates"
@@ -35,9 +39,24 @@ class PlaywrightEngine:
         # Las series mensuales se fechan por mes; el Treasury es diario y su día
         # importa, porque es lo que cambia entre una publicación y la siguiente.
         items = [
-            ("IPC interanual", f"{macro.cpi_yoy * 100:+.1f}%", macro.cpi_as_of, "%m/%Y"),
-            ("Desempleo", f"{macro.unemployment_rate:.1f}%", macro.unrate_as_of, "%m/%Y"),
-            ("Treasury 10A", f"{macro.treasury_10y:.2f}%", macro.dgs10_as_of, "%d/%m/%Y"),
+            (
+                "IPC interanual",
+                f"{macro.cpi_yoy * 100:+.1f}%",
+                macro.cpi_as_of,
+                "%m/%Y",
+            ),
+            (
+                "Desempleo",
+                f"{macro.unemployment_rate:.1f}%",
+                macro.unrate_as_of,
+                "%m/%Y",
+            ),
+            (
+                "Treasury 10A",
+                f"{macro.treasury_10y:.2f}%",
+                macro.dgs10_as_of,
+                "%d/%m/%Y",
+            ),
         ]
         cells = "".join(
             '<div class="macro-item">'
@@ -57,15 +76,17 @@ class PlaywrightEngine:
         template_path = self.templates_dir / "weekly_close.html"
         if not template_path.exists():
             logger.error("playwright_template_not_found", path=str(template_path))
-            raise PlaywrightEngineError(f"No se encontró la plantilla en {template_path}")
-            
-        with open(template_path, "r", encoding="utf-8") as f:
+            raise PlaywrightEngineError(
+                f"No se encontró la plantilla en {template_path}"
+            )
+
+        with open(template_path, encoding="utf-8") as f:
             template = f.read()
-            
+
         # Determinar clases CSS según si el retorno es positivo o negativo
         sp500_class = "positive" if data.sp500_weekly_return >= 0 else "negative"
         nasdaq_class = "positive" if data.nasdaq_weekly_return >= 0 else "negative"
-        
+
         # Inyección simple de texto usando el formato estándar de Python
         try:
             html_content = template.format(
@@ -76,14 +97,16 @@ class PlaywrightEngine:
                 nasdaq_close=f"{data.nasdaq_close:,.2f}",
                 nasdaq_return=f"{data.nasdaq_weekly_return * 100:+.2f}%",
                 nasdaq_class=nasdaq_class,
-                macro_block=self._build_macro_block(data.macro)
+                macro_block=self._build_macro_block(data.macro),
             )
         except KeyError as e:
             logger.error("playwright_template_format_error", error=str(e))
-            raise PlaywrightEngineError(f"Error al formatear la plantilla HTML: {e}")
-        
+            raise PlaywrightEngineError(
+                f"Error al formatear la plantilla HTML: {e}"
+            ) from e
+
         logger.info("playwright_rendering_weekly_close", date=data.date.isoformat())
-        
+
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -105,4 +128,6 @@ class PlaywrightEngine:
 
         except Exception as e:
             logger.error("playwright_render_failed", error=str(e))
-            raise PlaywrightEngineError(f"Fallo al renderizar con Playwright: {e}") from e
+            raise PlaywrightEngineError(
+                f"Fallo al renderizar con Playwright: {e}"
+            ) from e

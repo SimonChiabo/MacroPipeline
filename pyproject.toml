@@ -29,8 +29,13 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
     "pytest-timeout>=2.3.0",
-    "ruff>=0.2.0",
-    "mypy>=1.8.0",
+    # Pineadas exactas a proposito: `ruff format --check` y `mypy --strict`
+    # son gates de CI, y ambas herramientas cambian de opinion entre minors
+    # (estilo del formateador, reglas nuevas por defecto, inferencia mas
+    # estricta). Con un rango, "verde en local" no predice "verde en CI".
+    # Subirlas es un cambio deliberado, no un efecto del dia en que corre.
+    "ruff==0.15.12",
+    "mypy==2.1.0",
     "pre-commit>=3.6.0",
     "types-pyyaml",
     "types-requests",
@@ -42,6 +47,8 @@ build-backend = "setuptools.build_meta"
 
 [tool.ruff]
 line-length = 88
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B", "UP"]
 
 [tool.mypy]

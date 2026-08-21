@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import structlog
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import structlog
 
 if TYPE_CHECKING:  # pragma: no cover - solo para tipado
     from macro_pipeline.validators.schemas import MacroSnapshot
@@ -24,7 +25,7 @@ class StateDB:
     - Permite reconciliación en caso de fallo parcial de publicación.
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or os.environ.get("STATE_DB_PATH", _DEFAULT_DB_PATH)
         # Garantizar que el directorio padre existe
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -64,23 +65,23 @@ class StateDB:
     def _migrate_db(self) -> None:
         """Añade columnas nuevas a una base de datos existente (idempotente)."""
         new_cols = [
-            ("status",              "TEXT NOT NULL DEFAULT 'published'"),
-            ("data_source",         "TEXT"),
-            ("sp500_close",         "REAL"),
-            ("nasdaq_close",        "REAL"),
-            ("sp500_return",        "REAL"),
-            ("nasdaq_return",       "REAL"),
-            ("prompt_version",      "TEXT"),
-            ("headline",            "TEXT"),
-            ("validator_approved",  "INTEGER"),
-            ("cpi_yoy",             "REAL"),
-            ("cpi_as_of",           "TEXT"),
-            ("unemployment_rate",   "REAL"),
-            ("unrate_as_of",        "TEXT"),
-            ("treasury_10y",        "REAL"),
-            ("dgs10_as_of",         "TEXT"),
-            ("x_post_id",           "TEXT"),
-            ("linkedin_post_id",    "TEXT"),
+            ("status", "TEXT NOT NULL DEFAULT 'published'"),
+            ("data_source", "TEXT"),
+            ("sp500_close", "REAL"),
+            ("nasdaq_close", "REAL"),
+            ("sp500_return", "REAL"),
+            ("nasdaq_return", "REAL"),
+            ("prompt_version", "TEXT"),
+            ("headline", "TEXT"),
+            ("validator_approved", "INTEGER"),
+            ("cpi_yoy", "REAL"),
+            ("cpi_as_of", "TEXT"),
+            ("unemployment_rate", "REAL"),
+            ("unrate_as_of", "TEXT"),
+            ("treasury_10y", "REAL"),
+            ("dgs10_as_of", "TEXT"),
+            ("x_post_id", "TEXT"),
+            ("linkedin_post_id", "TEXT"),
         ]
         with sqlite3.connect(self.db_path) as conn:
             for col, col_type in new_cols:
@@ -122,7 +123,7 @@ class StateDB:
         logger.debug("checking_event_status", event_id=event_id, is_published=is_pub)
         return is_pub
 
-    def get_publication_state(self, event_id: str) -> Dict[str, Any]:
+    def get_publication_state(self, event_id: str) -> dict[str, Any]:
         """Devuelve el estado completo para reconciliación tras fallo parcial."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -156,16 +157,16 @@ class StateDB:
     def mark_as_published(
         self,
         event_id: str,
-        image_url: Optional[str] = None,
-        data_source: Optional[str] = None,
-        sp500_close: Optional[float] = None,
-        nasdaq_close: Optional[float] = None,
-        sp500_return: Optional[float] = None,
-        nasdaq_return: Optional[float] = None,
-        prompt_version: Optional[str] = None,
-        headline: Optional[str] = None,
-        validator_approved: Optional[bool] = None,
-        macro: Optional[MacroSnapshot] = None,
+        image_url: str | None = None,
+        data_source: str | None = None,
+        sp500_close: float | None = None,
+        nasdaq_close: float | None = None,
+        sp500_return: float | None = None,
+        nasdaq_return: float | None = None,
+        prompt_version: str | None = None,
+        headline: str | None = None,
+        validator_approved: bool | None = None,
+        macro: MacroSnapshot | None = None,
     ) -> None:
         """Cierra la run y persiste sus metadatos.
 

@@ -1,7 +1,6 @@
 """Construcción del snapshot macroeconómico a partir de series de FRED."""
 
 from datetime import date
-from typing import Optional, Tuple
 
 import pandas as pd
 import structlog
@@ -11,9 +10,9 @@ from macro_pipeline.validators.schemas import MacroSnapshot
 logger = structlog.get_logger(__name__)
 
 # Series de FRED que alimentan el bloque macro del cierre semanal
-CPI_SERIES = "CPIAUCSL"    # Índice de precios al consumidor (nivel, no variación)
-UNRATE_SERIES = "UNRATE"   # Tasa de desempleo (%)
-DGS10_SERIES = "DGS10"     # Rendimiento del Treasury a 10 años (%)
+CPI_SERIES = "CPIAUCSL"  # Índice de precios al consumidor (nivel, no variación)
+UNRATE_SERIES = "UNRATE"  # Tasa de desempleo (%)
+DGS10_SERIES = "DGS10"  # Rendimiento del Treasury a 10 años (%)
 
 # Ventana solicitada a FRED. No basta con 13 meses: el IPC de un mes se publica
 # a mediados del siguiente, así que la observación base del cálculo interanual
@@ -25,10 +24,11 @@ _LOOKBACK_DAYS = 480
 
 class MacroDataError(Exception):
     """Los datos macro no alcanzan para construir un snapshot confiable."""
+
     pass
 
 
-def compute_yoy(df: pd.DataFrame) -> Tuple[float, date]:
+def compute_yoy(df: pd.DataFrame) -> tuple[float, date]:
     """
     Calcula la variación interanual de una serie de nivel (ej. el IPC).
 
@@ -39,7 +39,9 @@ def compute_yoy(df: pd.DataFrame) -> Tuple[float, date]:
     Retorna (variación como fracción, fecha de la última observación).
     """
     if df is None or df.empty:
-        raise MacroDataError("Serie vacía: no hay observaciones para calcular la variación.")
+        raise MacroDataError(
+            "Serie vacía: no hay observaciones para calcular la variación."
+        )
 
     df = df.sort_values("date")
     last = df.iloc[-1]
@@ -48,7 +50,8 @@ def compute_yoy(df: pd.DataFrame) -> Tuple[float, date]:
     previous = df[df["date"] <= cutoff]
     if previous.empty:
         raise MacroDataError(
-            "La serie no cubre 12 meses hacia atrás: no se puede calcular la variación interanual."
+            "La serie no cubre 12 meses hacia atrás: no se puede calcular la "
+            "variación interanual."
         )
 
     base = previous.iloc[-1]
@@ -59,7 +62,7 @@ def compute_yoy(df: pd.DataFrame) -> Tuple[float, date]:
     return float(yoy), last["date"].date()
 
 
-def _latest_observation(df: pd.DataFrame, series_id: str) -> Tuple[float, date]:
+def _latest_observation(df: pd.DataFrame, series_id: str) -> tuple[float, date]:
     """Devuelve (valor, fecha) de la última observación de una serie de nivel."""
     if df is None or df.empty:
         raise MacroDataError(f"Serie {series_id} sin observaciones.")
@@ -68,7 +71,7 @@ def _latest_observation(df: pd.DataFrame, series_id: str) -> Tuple[float, date]:
     return float(last["value"]), last["date"].date()
 
 
-def build_macro_snapshot(fred, today: Optional[date] = None) -> MacroSnapshot:
+def build_macro_snapshot(fred, today: date | None = None) -> MacroSnapshot:
     """
     Construye el snapshot macro consultando las tres series a FRED.
     Lanza MacroDataError si alguna serie no alcanza para un dato confiable.
@@ -80,7 +83,9 @@ def build_macro_snapshot(fred, today: Optional[date] = None) -> MacroSnapshot:
         fred.get_series_observations(CPI_SERIES, observation_start=observation_start)
     )
     unemployment_rate, unrate_as_of = _latest_observation(
-        fred.get_series_observations(UNRATE_SERIES, observation_start=observation_start),
+        fred.get_series_observations(
+            UNRATE_SERIES, observation_start=observation_start
+        ),
         UNRATE_SERIES,
     )
     treasury_10y, dgs10_as_of = _latest_observation(
@@ -106,7 +111,7 @@ def build_macro_snapshot(fred, today: Optional[date] = None) -> MacroSnapshot:
     return snapshot
 
 
-def safe_build_macro_snapshot(fred, today: Optional[date] = None) -> Optional[MacroSnapshot]:
+def safe_build_macro_snapshot(fred, today: date | None = None) -> MacroSnapshot | None:
     """
     Versión tolerante a fallos: devuelve None en lugar de propagar.
 
@@ -116,5 +121,7 @@ def safe_build_macro_snapshot(fred, today: Optional[date] = None) -> Optional[Ma
     try:
         return build_macro_snapshot(fred, today=today)
     except Exception as e:
-        logger.warning("macro_snapshot_unavailable", error=str(e), error_type=type(e).__name__)
+        logger.warning(
+            "macro_snapshot_unavailable", error=str(e), error_type=type(e).__name__
+        )
         return None

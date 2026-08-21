@@ -1,25 +1,28 @@
-import pytest
-import pandas as pd
 from datetime import date, datetime
 
-from macro_pipeline.data.macro import (
-    compute_yoy,
-    build_macro_snapshot,
-    safe_build_macro_snapshot,
-    MacroDataError,
-    CPI_SERIES,
-    UNRATE_SERIES,
-    DGS10_SERIES,
-)
+import pandas as pd
+import pytest
+
 from macro_pipeline.data.fred_client import FREDClientError
+from macro_pipeline.data.macro import (
+    CPI_SERIES,
+    DGS10_SERIES,
+    UNRATE_SERIES,
+    MacroDataError,
+    build_macro_snapshot,
+    compute_yoy,
+    safe_build_macro_snapshot,
+)
 
 
 def _series(pairs):
     """Construye un DataFrame con la forma que devuelve FREDClient."""
-    return pd.DataFrame({
-        "date": pd.to_datetime([p[0] for p in pairs]),
-        "value": [float(p[1]) for p in pairs],
-    })
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime([p[0] for p in pairs]),
+            "value": [float(p[1]) for p in pairs],
+        }
+    )
 
 
 class FakeFred:
@@ -36,17 +39,29 @@ class FakeFred:
 
 @pytest.fixture
 def fake_fred():
-    return FakeFred({
-        CPI_SERIES: _series([
-            ("2025-06-01", 300.0), ("2025-12-01", 305.0), ("2026-06-01", 309.0),
-        ]),
-        UNRATE_SERIES: _series([
-            ("2026-06-01", 4.2), ("2026-07-01", 4.1),
-        ]),
-        DGS10_SERIES: _series([
-            ("2026-08-05", 4.63), ("2026-08-06", 4.69),
-        ]),
-    })
+    return FakeFred(
+        {
+            CPI_SERIES: _series(
+                [
+                    ("2025-06-01", 300.0),
+                    ("2025-12-01", 305.0),
+                    ("2026-06-01", 309.0),
+                ]
+            ),
+            UNRATE_SERIES: _series(
+                [
+                    ("2026-06-01", 4.2),
+                    ("2026-07-01", 4.1),
+                ]
+            ),
+            DGS10_SERIES: _series(
+                [
+                    ("2026-08-05", 4.63),
+                    ("2026-08-06", 4.69),
+                ]
+            ),
+        }
+    )
 
 
 def test_compute_yoy_compares_against_observation_12_months_earlier():
@@ -82,7 +97,7 @@ def test_build_macro_snapshot_maps_each_series_to_its_field(fake_fred):
 
 
 def test_build_macro_snapshot_requests_window_relative_to_today(fake_fred):
-    """observation_start se calcula desde today: hardcodearlo rompe el YoY con el tiempo."""
+    """observation_start sale de today: hardcodearlo rompe el YoY con el tiempo."""
     today = date(2026, 8, 9)
 
     build_macro_snapshot(fake_fred, today=today)
@@ -106,11 +121,13 @@ def test_safe_build_macro_snapshot_returns_none_when_fred_fails():
 
 
 def test_safe_build_macro_snapshot_returns_none_on_insufficient_history():
-    short = FakeFred({
-        CPI_SERIES: _series([("2026-06-01", 309.0)]),
-        UNRATE_SERIES: _series([("2026-07-01", 4.1)]),
-        DGS10_SERIES: _series([("2026-08-06", 4.69)]),
-    })
+    short = FakeFred(
+        {
+            CPI_SERIES: _series([("2026-06-01", 309.0)]),
+            UNRATE_SERIES: _series([("2026-07-01", 4.1)]),
+            DGS10_SERIES: _series([("2026-08-06", 4.69)]),
+        }
+    )
 
     assert safe_build_macro_snapshot(short, today=date(2026, 8, 9)) is None
 

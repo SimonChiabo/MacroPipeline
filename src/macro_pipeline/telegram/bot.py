@@ -1,53 +1,68 @@
+import json
 import os
 import time
+
 import requests
 import structlog
-import json
-from typing import Optional
 
 logger = structlog.get_logger(__name__)
 
+
 class TelegramBotError(Exception):
     """Excepción específica para errores de Telegram."""
+
     pass
 
+
 class TelegramBot:
-    """Cliente para interactuar con la API de Telegram. Gestiona el flujo HITL (Human In The Loop)."""
-    
-    def __init__(self, token: Optional[str] = None, chat_id: Optional[str] = None):
+    """Cliente de la API de Telegram: gestiona el flujo HITL (Human In The Loop)."""
+
+    def __init__(self, token: str | None = None, chat_id: str | None = None):
         self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
         self.chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
 
         if not self.token or not self.chat_id:
-            raise ValueError("Faltan credenciales TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID.")
+            raise ValueError(
+                "Faltan credenciales TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID."
+            )
 
         # ID del único operador autorizado. Sin esto, cualquiera en el chat
         # puede aprobar publicaciones, anulando el HITL.
         _allowed_raw = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "")
-        self.allowed_user_id: Optional[int] = int(_allowed_raw) if _allowed_raw.isdigit() else None
+        self.allowed_user_id: int | None = (
+            int(_allowed_raw) if _allowed_raw.isdigit() else None
+        )
         if not self.allowed_user_id:
             logger.warning(
                 "telegram_allowed_user_id_not_set",
-                detail="Set TELEGRAM_ALLOWED_USER_ID to restrict who can approve posts."
+                detail=(
+                    "Set TELEGRAM_ALLOWED_USER_ID to restrict who can approve posts."
+                ),
             )
 
         self.base_url = f"https://api.telegram.org/bot{self.token}"
 
-    def send_approval_request(self, text: str, image_bytes: Optional[bytes] = None) -> int:
+    def send_approval_request(self, text: str, image_bytes: bytes | None = None) -> int:
         """
-        Envía un borrador (opcionalmente con imagen) al chat configurado, 
+        Envía un borrador (opcionalmente con imagen) al chat configurado,
         adjuntando los botones inline de Aprobar / Rechazar.
         Devuelve el ID del mensaje para poder identificar las respuestas (callbacks).
         """
         reply_markup = {
             "inline_keyboard": [
                 [
-                    {"text": "✅ Aprobar Publicacion", "callback_data": "approve_draft"},
-                    {"text": "❌ Rechazar / Descartar", "callback_data": "reject_draft"}
+                    {
+                        "text": "✅ Aprobar Publicacion",
+                        "callback_data": "approve_draft",
+                    },
+                    {
+                        "text": "❌ Rechazar / Descartar",
+                        "callback_data": "reject_draft",
+                    },
                 ]
             ]
         }
-        
+
         try:
             if image_bytes:
                 # Enviar como foto
@@ -55,7 +70,7 @@ class TelegramBot:
                 data = {
                     "chat_id": self.chat_id,
                     "caption": text,
-                    "reply_markup": json.dumps(reply_markup)
+                    "reply_markup": json.dumps(reply_markup),
                 }
                 files = {"photo": ("draft.png", image_bytes, "image/png")}
                 response = requests.post(endpoint, data=data, files=files, timeout=15)
@@ -65,16 +80,16 @@ class TelegramBot:
                 payload = {
                     "chat_id": self.chat_id,
                     "text": text,
-                    "reply_markup": reply_markup
+                    "reply_markup": reply_markup,
                 }
                 response = requests.post(endpoint, json=payload, timeout=10)
-                
+
             response.raise_for_status()
             res_data = response.json()
             message_id = res_data["result"]["message_id"]
             logger.info("telegram_approval_request_sent", message_id=message_id)
             return message_id
-            
+
         except Exception as e:
             logger.error("telegram_send_failed", error=str(e))
             raise TelegramBotError(f"Error enviando mensaje a Telegram: {e}") from e
@@ -87,23 +102,27 @@ class TelegramBot:
         endpoint = f"{self.base_url}/getUpdates"
         offset = None
         start_time = time.time()
-        
-        logger.info("telegram_waiting_for_approval", timeout=timeout_seconds, message_id=message_id)
-        
+
+        logger.info(
+            "telegram_waiting_for_approval",
+            timeout=timeout_seconds,
+            message_id=message_id,
+        )
+
         while time.time() - start_time < timeout_seconds:
             # Long polling de 10s para no ahogar la red
-            params = {"timeout": 10, "allowed_updates": ["callback_query"]} 
+            params = {"timeout": 10, "allowed_updates": ["callback_query"]}
             if offset:
                 params["offset"] = offset
-                
+
             try:
                 response = requests.get(endpoint, params=params, timeout=15)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
-                
+
                 for update in updates:
-                    offset = update["update_id"] + 1 # Avanzar el cursor
-                    
+                    offset = update["update_id"] + 1  # Avanzar el cursor
+
                     if "callback_query" in update:
                         cb = update["callback_query"]
                         cb_msg_id = cb["message"]["message_id"]
@@ -128,7 +147,8 @@ class TelegramBot:
                                 json={"callback_query_id": cb["id"]},
                             )
 
-                            # 2. Quitar los botones para que no se pueda pulsar dos veces
+                            # 2. Quitar los botones para que no se pueda
+                            #    pulsar dos veces
                             requests.post(
                                 f"{self.base_url}/editMessageReplyMarkup",
                                 json={
@@ -152,14 +172,17 @@ class TelegramBot:
                                     rejected_by=from_id,
                                 )
                                 return False
-                                
+
             except requests.exceptions.RequestException as e:
-                # En caso de error de red transitorio, solo loggeamos e intentamos de nuevo
+                # En caso de error de red transitorio, solo loggeamos e
+                # intentamos de nuevo
                 logger.error("telegram_polling_network_error", error=str(e))
                 time.sleep(2)
-                
+
             # Pequeña pausa entre polls si la respuesta fue instantánea
             time.sleep(0.5)
-            
+
         logger.error("telegram_approval_timeout")
-        raise TelegramBotError("Tiempo de espera para aprobación en Telegram agotado (timeout).")
+        raise TelegramBotError(
+            "Tiempo de espera para aprobación en Telegram agotado (timeout)."
+        )

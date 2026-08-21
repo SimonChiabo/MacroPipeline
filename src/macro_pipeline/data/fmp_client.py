@@ -1,16 +1,20 @@
 import os
+from typing import Any
+
+import pandas as pd
 import requests
+import structlog
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import pandas as pd
-import structlog
-from typing import Optional, Any
 
 logger = structlog.get_logger(__name__)
 
+
 class FMPClientError(Exception):
     """Excepción personalizada para errores del cliente FMP."""
+
     pass
+
 
 class FMPClient:
     """
@@ -20,13 +24,16 @@ class FMPClient:
     Usa la API `stable`. Los endpoints legacy `/api/v3` devuelven 403 para
     cuentas sin suscripción previa al 31/08/2025.
     """
+
     BASE_URL = "https://financialmodelingprep.com/stable"
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("FMP_API_KEY")
         if not self.api_key:
-            raise ValueError("Se requiere FMP_API_KEY en variables de entorno o como argumento.")
-        
+            raise ValueError(
+                "Se requiere FMP_API_KEY en variables de entorno o como argumento."
+            )
+
         self.session = self._configure_session()
 
     def _configure_session(self) -> requests.Session:
@@ -36,7 +43,7 @@ class FMPClient:
             total=3,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"]
+            allowed_methods=["GET"],
         )
         adapter = HTTPAdapter(max_retries=retries)
         session.mount("http://", adapter)
@@ -71,43 +78,49 @@ class FMPClient:
             )
 
         df = pd.DataFrame(data)
-        df['date'] = pd.to_datetime(df['date'])
-        
+        df["date"] = pd.to_datetime(df["date"])
+
         # Seleccionamos las columnas clave
-        cols = ['date', 'open', 'high', 'low', 'close', 'volume']
+        cols = ["date", "open", "high", "low", "close", "volume"]
         df = df[[c for c in cols if c in df.columns]]
-        
+
         # Orden cronológico
         df = df.sort_values("date").reset_index(drop=True)
-        
+
         logger.info("fmp_historical_prices_success", symbol=symbol, records=len(df))
         return df
 
-    def get_earnings_calendar(self, from_date: str, to_date: str, **kwargs: Any) -> pd.DataFrame:
+    def get_earnings_calendar(
+        self, from_date: str, to_date: str, **kwargs: Any
+    ) -> pd.DataFrame:
         """
-        Obtiene el calendario de earnings (reportes financieros) para un rango de fechas.
-        Fechas formato YYYY-MM-DD.
+        Obtiene el calendario de earnings (reportes financieros) para un
+        rango de fechas. Fechas formato YYYY-MM-DD.
         """
         endpoint = f"{self.BASE_URL}/earnings-calendar"
         params = {"apikey": self.api_key, "from": from_date, "to": to_date, **kwargs}
-        
-        logger.info("fetching_fmp_earnings_calendar", from_date=from_date, to_date=to_date)
-        
+
+        logger.info(
+            "fetching_fmp_earnings_calendar", from_date=from_date, to_date=to_date
+        )
+
         try:
             response = self.session.get(endpoint, params=params, timeout=10)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
-            logger.error("fmp_api_request_failed", endpoint="earnings-calendar", error=str(e))
+            logger.error(
+                "fmp_api_request_failed", endpoint="earnings-calendar", error=str(e)
+            )
             raise FMPClientError(f"Error al obtener earnings de FMP: {e}") from e
-            
+
         data = response.json()
         if not data:
             logger.warning("fmp_earnings_no_data", from_date=from_date, to_date=to_date)
             return pd.DataFrame()
-            
+
         df = pd.DataFrame(data)
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'])
-            
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+
         logger.info("fmp_earnings_success", records=len(df))
         return df

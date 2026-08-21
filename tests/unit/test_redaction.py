@@ -30,16 +30,21 @@ def test_redacts_api_key_query_param():
 
 def test_redacts_apikey_param_without_underscore():
     """FMP usa `apikey`, FRED usa `api_key`: ambos deben caer."""
-    out = redact("https://financialmodelingprep.com/stable/quote?apikey=abc123XYZ789", secrets=[])
+    out = redact(
+        "https://financialmodelingprep.com/stable/quote?apikey=abc123XYZ789", secrets=[]
+    )
 
     assert "abc123XYZ789" not in out
     assert REDACTED in out
 
 
-@pytest.mark.parametrize("header", [
-    "Authorization: Bearer sk-ant-api03-verysecretvalue",
-    "Authorization=Basic OTk5OTk5OmdsY19zZWNyZXQ=",
-])
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Authorization: Bearer sk-ant-api03-verysecretvalue",
+        "Authorization=Basic OTk5OTk5OmdsY19zZWNyZXQ=",
+    ],
+)
 def test_redacts_authorization_headers(header):
     out = redact(header, secrets=[])
 
@@ -110,8 +115,11 @@ def test_filter_redacts_url_passed_as_log_argument():
     out = _capture(
         "test.urllib3",
         secrets=[],
-        emit=lambda log: log.warning("Retrying after connection broken by %r: %s",
-                                     "ReadTimeoutError", FRED_RETRY_URL),
+        emit=lambda log: log.warning(
+            "Retrying after connection broken by %r: %s",
+            "ReadTimeoutError",
+            FRED_RETRY_URL,
+        ),
     )
 
     assert "1c60c60fafdb773bd33904fbe978b77b" not in out
