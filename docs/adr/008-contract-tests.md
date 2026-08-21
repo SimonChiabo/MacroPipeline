@@ -40,7 +40,7 @@ La alternativa de incluir tests contra APIs reales en el pipeline de PR tiene do
 
 El workflow `contract-tests.yml` está creado y `tests/contract/test_fred_contract.py` cubre FRED con seis casos: el hito propuesto (`GDP` devuelve `date` y `value`), las tres series que consume el cierre semanal (`CPIAUCSL`, `UNRATE`, `DGS10`) con rangos de plausibilidad y control de frescura, la construcción completa del `MacroSnapshot` contra la API real, y el error esperado ante una serie inexistente.
 
-Tres decisiones que no estaban en la versión original de este ADR y conviene dejar escritas:
+Cuatro decisiones que no estaban en la versión original de este ADR y conviene dejar escritas:
 
 1. **Verificar el schema no alcanza.** `FREDClient.get_series_observations` construye `df[['date','value']]` por su cuenta y devuelve un DataFrame vacío —solo con un warning— cuando la respuesta no trae observaciones. Un test que compare nombres de columna pasaría con FRED devolviendo un payload vacío. Por eso cada caso exige además `len(df) > 0`, dtypes y un rango de valores plausible: eso es lo que detecta un cambio de unidad o una serie discontinuada.
 
@@ -48,4 +48,6 @@ Tres decisiones que no estaban en la versión original de este ADR y conviene de
 
 3. **Los contract tests están fuera del run por defecto.** `pyproject.toml` define `addopts = "-m 'not contract'"` para que `pytest` local no pegue contra la red. La contracara es que el workflow **tiene que** pasar `-m contract` explícitamente: sin eso deselecciona todo y sale en verde sin ejecutar un solo test. `pytest-timeout` se agregó a las dependencias de desarrollo, que era lo que faltaba para que `--timeout=30` no fuera un error de argumentos.
 
-**Pendiente:** contract tests equivalentes para FMP y Alpha Vantage. El workflow ya les pasa las credenciales.
+4. **La alerta no puede ser el único canal.** El repo estuvo sin ningún secret configurado y el modo de fallo fue el peor posible: pytest moría por credencial faltante y el paso de notificación hacía `curl -s` contra `api.telegram.org/bot/sendMessage` con el token vacío. Telegram contestaba 404, `curl -s` devolvía 0, y el paso quedaba en verde. Un nightly roto se veía igual que un nightly con la alerta entregada. Ahora el workflow (a) comprueba los secrets antes de instalar nada y falla nombrando lo que falta, (b) escribe el fallo en `$GITHUB_STEP_SUMMARY`, que no depende de ninguna credencial, y (c) mira el status code de la llamada a Telegram y falla el paso si no es 200.
+
+**Pendiente:** contract tests equivalentes para FMP y Alpha Vantage. El workflow ya les pasa las credenciales; sus keys se agregan a la comprobación previa cuando esos tests existan (hoy solo exige `FRED_API_KEY`, que es la única que algún test consume).

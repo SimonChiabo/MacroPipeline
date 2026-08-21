@@ -14,6 +14,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # El repo no tenia ningun secret configurado, y el modo de fallo era
+      # ilegible: pytest moria por credencial faltante y la alerta de Telegram
+      # devolvia 404 sin que nadie se enterara. Este paso corre primero, nombra
+      # de una todo lo que falta y explica como cargarlo.
+      - name: Comprobar secrets requeridos
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+
+          # Solo FRED es obligatorio: es la unica API con contract tests hoy.
+          # Cuando lleguen los de FMP y Alpha Vantage, sus keys se agregan aca
+          # (mientras tanto, `conftest.py` igual falla ruidosamente en CI si
+          # falta una credencial que un test si pide).
+          missing=""
+          [ -n "${FRED_API_KEY}" ] || missing="${missing} FRED_API_KEY"
+
+          if [ -n "${missing}" ]; then
+            {
+              echo "## ❌ Faltan secrets obligatorios"
+              echo
+              echo "Los contract tests no pueden correr sin:"
+              for name in ${missing}; do echo "- \`${name}\`"; done
+              echo
+              echo "Cargarlos con:"
+              echo '```sh'
+              for name in ${missing}; do
+                echo "gh secret set ${name} -R ${{ github.repository }}"
+              done
+              echo '```'
+              echo
+              echo "Ver \`docs/adr/008-contract-tests.md\`."
+            } >> "${GITHUB_STEP_SUMMARY}"
+
+            for name in ${missing}; do
+              echo "::error title=Secret faltante::${name} no esta configurado en el repositorio."
+            done
+            exit 1
+          fi
+
+          # Telegram solo transporta la alerta. Que falte degrada el aviso,
+          # no invalida la verificacion: avisar y seguir.
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "::warning title=Alertas de Telegram desactivadas::TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID no estan configurados. Si los contract tests fallan, el aviso solo va a quedar en el resumen del run."
+            echo "> ⚠️ Alertas de Telegram desactivadas: falta \`TELEGRAM_BOT_TOKEN\` o \`TELEGRAM_CHAT_ID\`." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -35,13 +84,44 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
         run: pytest tests/contract/ -v --timeout=30 -m contract
 
-      # Notificar por Telegram si los contract tests fallan
-      - name: Notify on failure
+      # El resumen del run es el canal que no puede fallar: no depende de
+      # ninguna credencial y queda en la pagina del workflow.
+      - name: Registrar el fallo en el resumen del run
         if: failure()
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d text="⚠️ Contract Tests fallaron. Revisar cambios de API. Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "## ❌ El nightly de contract tests fallo"
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "Revisar si alguna API cambio su schema, sus unidades o su endpoint."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Notificar por Telegram si los contract tests fallan.
+      # `curl -s` a secas devuelve 0 aunque la API conteste 404, asi que una
+      # alerta que nunca llego se veia igual que una entregada: hay que mirar
+      # el status code y gritar si no es 200.
+      - name: Notify on failure
+        if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "::warning title=Alerta no enviada::Sin credenciales de Telegram; el fallo queda solo en el resumen del run."
+            exit 0
+          fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="⚠️ Contract Tests fallaron. Revisar cambios de API. Workflow: ${run_url}")
+
+          if [ "${status}" != "200" ]; then
+            echo "::error title=Alerta de Telegram no entregada::sendMessage devolvio HTTP ${status}. Revisar TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID."
+            echo "> ❌ La alerta de Telegram no se entrego (HTTP ${status})." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          echo "Alerta de Telegram entregada."

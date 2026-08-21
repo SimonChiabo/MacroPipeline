@@ -110,6 +110,35 @@ python -m macro_pipeline run weekly-close --dry-run
 
 ---
 
+## Secrets en GitHub
+
+El nightly de contract tests (`.github/workflows/contract-tests.yml`) corre
+contra las APIs reales, así que necesita credenciales en **Settings → Secrets
+and variables → Actions**. El `.env` local no viaja a Actions.
+
+| Secret | Obligatorio | Para qué |
+|---|---|---|
+| `FRED_API_KEY` | Sí | Sin esto el nightly no puede verificar ningún contrato. |
+| `TELEGRAM_BOT_TOKEN` | No | Envía la alerta cuando el nightly falla. |
+| `TELEGRAM_CHAT_ID` | No | Destinatario de esa alerta. |
+| `FMP_API_KEY` | Todavía no | Reservado para los contract tests de FMP. |
+| `ALPHA_VANTAGE_API_KEY` | Todavía no | Ídem, Alpha Vantage. |
+| `CODECOV_TOKEN` | No | Subida de cobertura; el job no falla sin él. |
+
+```sh
+gh secret set FRED_API_KEY -R SimonChiabo/MacroPipeline
+gh secret set TELEGRAM_BOT_TOKEN -R SimonChiabo/MacroPipeline
+gh secret set TELEGRAM_CHAT_ID -R SimonChiabo/MacroPipeline
+gh secret list -R SimonChiabo/MacroPipeline   # verificar
+```
+
+El workflow comprueba los secrets **antes** de instalar nada y falla nombrando
+lo que falta. Los de Telegram solo generan un aviso: que no haya canal de
+alerta degrada el aviso, no la verificación. `ci.yml` no necesita ningún
+secret — mockea todas las dependencias externas.
+
+---
+
 ## Estructura del repo
 
 ```
