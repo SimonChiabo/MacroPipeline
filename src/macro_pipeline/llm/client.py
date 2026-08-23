@@ -8,7 +8,9 @@ logger = structlog.get_logger(__name__)
 
 # Versionar el prompt permite saber qué versión generó cada publicación histórica.
 # Incrementar cuando cambie el contenido del system_prompt o la lógica de llamada.
-HEADLINE_PROMPT_VERSION = "v1.0"
+# v1.1: migración a anthropic 1.x — cambia el modelo, cómo se pasa
+# `temperature`, y se pide texto plano (Haiku 4.5 devolvía markdown).
+HEADLINE_PROMPT_VERSION = "v1.1"
 
 
 class LLMClient:
@@ -23,8 +25,9 @@ class LLMClient:
         if not self.api_key:
             raise ValueError("Se requiere ANTHROPIC_API_KEY en el entorno.")
         self.client = Anthropic(api_key=self.api_key)
-        # Usamos Haiku por rapidez y menor coste
-        self.model = "claude-3-haiku-20240307"
+        # Usamos Haiku por rapidez y menor coste. `claude-3-haiku-20240307`
+        # pasó su fecha de retiro (2026-04-19); 4.5 es la Haiku vigente.
+        self.model = "claude-haiku-4-5"
 
     def generate_headline(self, data_summary: str) -> str:
         """
@@ -36,7 +39,9 @@ class LLMClient:
             "titular corto, profesional e impactante (máximo 120 caracteres) "
             "para un post de redes sociales basado estrictamente en los datos "
             "numéricos provistos. REGLA DE ORO: No inventes números bajo "
-            "ninguna circunstancia. Usa sólo los provistos."
+            "ninguna circunstancia. Usa sólo los provistos. "
+            "Devuelve texto plano: sin markdown, sin asteriscos y sin "
+            "comillas envolviendo el titular."
         )
 
         logger.info("generating_headline", model=self.model)
@@ -45,7 +50,10 @@ class LLMClient:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=150,
-                temperature=0.2,
+                # anthropic 1.x sacó `temperature` de la firma de
+                # `messages.create()`, pero la API de Haiku 4.5 lo sigue
+                # aceptando: `extra_body` se mezcla tal cual en el JSON.
+                extra_body={"temperature": 0.2},
                 system=system_prompt,
                 messages=[
                     {
@@ -79,9 +87,21 @@ class LLMClient:
             logger.warning("anthropic_api_failed_using_mock_headline", error=str(e))
             headline = "Cierre Semanal: Resumen del Mercado"
 
-        # Limpieza básica por si el LLM pone comillas
-        if headline.startswith('"') and headline.endswith('"'):
-            headline = headline[1:-1]
+        # Limpieza básica de envoltorios. Haiku 4.5 tiende a devolver el
+        # titular en negrita markdown (`**...**`), que Haiku 3 no ponía y
+        # que se publicaría con los asteriscos a la vista en X y LinkedIn.
+        # Se itera porque los envoltorios se combinan: `**"titular"**`.
+        for wrapper in ("**", '"', "*"):
+            while (
+                headline.startswith(wrapper)
+                and headline.endswith(wrapper)
+                and len(headline) > 2 * len(wrapper)
+            ):
+                headline = headline[len(wrapper) : -len(wrapper)].strip()
+
+        # Negrita parcial (`**S&P 500** sube 2.5%`): el bucle de arriba solo
+        # quita envoltorios completos. Ningún titular legítimo lleva `**`.
+        headline = headline.replace("**", "")
 
         logger.info("headline_generated", length=len(headline))
         return headline

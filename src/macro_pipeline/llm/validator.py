@@ -14,7 +14,8 @@ logger = structlog.get_logger(__name__)
 
 # Versionar el prompt del validador permite rastrear qué criterios de rechazo
 # estaban activos para cada publicación histórica.
-VALIDATOR_PROMPT_VERSION = "v1.0"
+# v1.1: migración a anthropic 1.x — cambia el modelo y cómo se pasa `temperature`.
+VALIDATOR_PROMPT_VERSION = "v1.1"
 
 
 class ValidatorAgent:
@@ -83,7 +84,10 @@ class ValidatorAgent:
             response = self.llm.client.messages.create(
                 model=self.llm.model,
                 max_tokens=300,
-                temperature=0.0,  # Determinismo máximo
+                # Determinismo máximo. Va por `extra_body` porque anthropic
+                # 1.x sacó `temperature` de la firma; la API de Haiku 4.5 lo
+                # sigue aceptando y el valor llega igual en el JSON.
+                extra_body={"temperature": 0.0},
                 system=system_prompt,
                 tools=[tool_schema],
                 tool_choice=tool_choice,

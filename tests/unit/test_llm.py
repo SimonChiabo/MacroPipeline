@@ -44,6 +44,44 @@ def test_generate_headline(mock_anthropic):
     mock_instance.messages.create.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    "raw_text",
+    [
+        '"El SP500 cierra la semana con un alza del 2.5%"',
+        "**El SP500 cierra la semana con un alza del 2.5%**",
+        '**"El SP500 cierra la semana con un alza del 2.5%"**',
+        "*El SP500 cierra la semana con un alza del 2.5%*",
+    ],
+)
+def test_generate_headline_strips_wrappers(mock_anthropic, raw_text):
+    """Haiku 4.5 devuelve el titular en negrita markdown; no debe publicarse así."""
+    mock_instance = mock_anthropic.return_value
+    mock_response = MagicMock()
+    mock_response.content = [TextBlock(type="text", text=raw_text)]
+    mock_instance.messages.create.return_value = mock_response
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        headline = LLMClient().generate_headline("SP500 Return: 2.5%")
+
+    assert headline == "El SP500 cierra la semana con un alza del 2.5%"
+
+
+def test_generate_headline_strips_partial_bold(mock_anthropic):
+    """Negrita parcial: el envoltorio no abarca todo el titular."""
+    mock_instance = mock_anthropic.return_value
+    mock_response = MagicMock()
+    mock_response.content = [
+        TextBlock(type="text", text="**El SP500** cierra con un alza del 2.5%")
+    ]
+    mock_instance.messages.create.return_value = mock_response
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        headline = LLMClient().generate_headline("SP500 Return: 2.5%")
+
+    assert headline == "El SP500 cierra con un alza del 2.5%"
+    assert "*" not in headline
+
+
 def test_validator_agent_approved(mock_anthropic):
     # Setup mock
     mock_instance = mock_anthropic.return_value

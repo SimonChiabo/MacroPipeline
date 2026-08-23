@@ -9,13 +9,12 @@ dependencies = [
     "pandas>=2.2.0",
     "pydantic>=2.6.0",
     "structlog>=24.1.0",
-    # Acotada por debajo de 1.0 a proposito. `anthropic` 1.x es un major con
-    # cambios rompientes: entre otros, `messages.create()` ya no acepta
-    # `temperature`, que `llm/client.py` y `llm/validator.py` si usan. Con el
-    # rango abierto anterior CI instalaba 1.x y mypy fallaba con
-    # "Unexpected keyword argument temperature" aunque en local pasara.
-    # Subir a 1.x es una migracion, no una actualizacion de version.
-    "anthropic>=0.102.0,<1.0",
+    # Acotada bajo 2.0: la migracion 0.x -> 1.x ya esta hecha (el modelo pasa
+    # a `claude-haiku-4-5` y `temperature` viaja por `extra_body`, porque 1.x
+    # lo saco de la firma de `messages.create()`). El techo se queda para que
+    # un 2.x futuro no entre solo y vuelva a hacer que CI difiera del local,
+    # que es lo que paso cuando el rango estaba abierto.
+    "anthropic>=1,<2",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
     "requests-oauthlib>=1.3.1",
