@@ -53,7 +53,7 @@ Diagrama detallado en [`PLAN.md`](./PLAN.md).
 |---|---|
 | Ingesta | Python 3.12 · FRED · FMP · Alpha Vantage |
 | Procesamiento | Pandas · Pydantic · reglas YAML |
-| LLM auxiliar | Claude Sonnet 4.5 (titulares + validator agent) |
+| LLM auxiliar | Claude Haiku 4.5 (titulares + validator agent) |
 | Orquestación | Claude Routines (scheduled triggers) |
 | Renderizado | Pillow (simples) · Playwright/HTML (complejos) |
 | Plantillas | Diseñadas en Claude Design, una por canal |

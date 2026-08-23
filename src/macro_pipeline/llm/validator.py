@@ -15,7 +15,11 @@ logger = structlog.get_logger(__name__)
 # Versionar el prompt del validador permite rastrear qué criterios de rechazo
 # estaban activos para cada publicación histórica.
 # v1.1: migración a anthropic 1.x — cambia el modelo y cómo se pasa `temperature`.
-VALIDATOR_PROMPT_VERSION = "v1.1"
+# v1.2: el prompt seguía escrito para Sonnet 3.5 / Haiku 3. Se baja el volumen
+# (las mayúsculas imperativas ya no hacen falta y sesgan hacia rechazar), se
+# explicita qué cuenta como fiel —redondeos y separadores en español— para no
+# rechazar titulares correctos, y la tool pasa a `strict`.
+VALIDATOR_PROMPT_VERSION = "v1.2"
 
 
 class ValidatorAgent:
@@ -33,20 +37,41 @@ class ValidatorAgent:
         Fuerza la salida a través de una tool predefinida (JSON).
         """
         system_prompt = (
-            "Eres el Auditor de Riesgos del pipeline. Debes comparar el "
-            "borrador del post con los datos fuente. "
-            "1. Si el borrador contiene números que NO están en la fuente o "
-            "los tergiversa, DEBES RECHAZARLO. "
-            "2. Si el tono es excesivamente sensacionalista o parece dar un "
-            "consejo financiero, RECHÁZALO. "
-            "3. En otro caso, apruébalo."
+            "Eres el control de riesgos previo a publicar el titular del "
+            "cierre semanal en X y en LinkedIn. Comparas el borrador con "
+            "los datos fuente, que son la única verdad disponible: ya "
+            "vienen calculados y verificados por el pipeline.\n"
+            "Rechaza el borrador si cita una cifra que no está en la fuente "
+            "o si la tergiversa, y recházalo si recomienda invertir o si el "
+            "tono es alarmista o promocional. Un rechazo descarta el "
+            "titular y publica en su lugar un texto genérico, así que "
+            "rechaza por un problema real y no por preferencia de estilo.\n"
+            "Cuentan como fieles a la fuente: redondear (2.53% -> 2.5%), "
+            "escribir la misma cifra en notación española (5,100.00 -> "
+            "5.100,00, o 5.100 si además se redondea), omitir alguno de "
+            "los datos, y describir la dirección del movimiento sin "
+            "repetir el número."
         )
 
         tool_schema: ToolParam = {
             "name": "submit_review",
-            "description": "Envia el resultado de la revisión del borrador generado.",
+            "description": (
+                "Registra el veredicto de la revisión del borrador. Es la "
+                "única salida de este agente: el pipeline lee `approved` "
+                "para decidir si publica el titular generado o lo sustituye "
+                "por un texto genérico, y guarda `reason` en SQLite para "
+                "poder auditar después por qué se rechazó. Llámala una sola "
+                "vez y con el veredicto ya decidido: no devuelve nada, no "
+                "hay forma de corregirlo luego, y no se ejecuta ninguna "
+                "otra acción a partir de ella."
+            ),
+            # `strict` hace que la API garantice que `input` valida contra el
+            # esquema, en vez de confiar en que el modelo lo respete.
+            # Soportado en Haiku 4.5. Exige `additionalProperties: false`.
+            "strict": True,
             "input_schema": {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {
                     "approved": {
                         "type": "boolean",

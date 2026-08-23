@@ -67,7 +67,7 @@
                              │
                              ▼
               ┌──────────────────────────┐
-              │  Claude API (Sonnet 4.5)  │
+              │  Claude API (Haiku 4.5)   │
               │  · Headline generation    │
               │  · Validator agent        │
               │    (tool-use, JSON forced)│

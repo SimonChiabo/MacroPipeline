@@ -10,7 +10,7 @@ from macro_pipeline.data.av_client import AlphaVantageClient
 from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.fred_client import FREDClient
 from macro_pipeline.data.macro import safe_build_macro_snapshot
-from macro_pipeline.llm.client import HEADLINE_PROMPT_VERSION, LLMClient
+from macro_pipeline.llm.client import HEADLINE_PROMPT_VERSION, MODEL, LLMClient
 from macro_pipeline.llm.validator import VALIDATOR_PROMPT_VERSION, ValidatorAgent
 from macro_pipeline.observability.logger import setup_observability
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
@@ -24,9 +24,12 @@ from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
 
 logger = structlog.get_logger(__name__)
 
-# Versión combinada de prompt para trazabilidad
+# Versión combinada de prompt para trazabilidad. Incluye el modelo: un mismo
+# prompt sobre modelos distintos produce titulares distintos, así que sin él
+# `prompt_version` no basta para reproducir un post histórico.
 _PROMPT_VERSION = (
     f"headline={HEADLINE_PROMPT_VERSION}/validator={VALIDATOR_PROMPT_VERSION}"
+    f"/model={MODEL}"
 )
 
 

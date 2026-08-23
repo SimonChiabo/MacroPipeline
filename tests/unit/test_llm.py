@@ -82,6 +82,23 @@ def test_generate_headline_strips_partial_bold(mock_anthropic):
     assert "*" not in headline
 
 
+def test_generate_headline_warns_over_length(mock_anthropic):
+    """El límite de 120 chars es de producto (ADR-003) pero nada lo aplica:
+    al menos tiene que quedar registrado cuando el modelo se pasa."""
+    long_headline = "S" * 130
+    mock_instance = mock_anthropic.return_value
+    mock_response = MagicMock()
+    mock_response.content = [TextBlock(type="text", text=long_headline)]
+    mock_instance.messages.create.return_value = mock_response
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        with patch("macro_pipeline.llm.client.logger") as mock_logger:
+            headline = LLMClient().generate_headline("SP500 Return: 2.5%")
+
+    assert headline == long_headline
+    mock_logger.warning.assert_called_once_with("headline_over_length", length=130)
+
+
 def test_validator_agent_approved(mock_anthropic):
     # Setup mock
     mock_instance = mock_anthropic.return_value
