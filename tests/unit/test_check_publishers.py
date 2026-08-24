@@ -145,11 +145,19 @@ def test_a_commented_declaration_is_not_required_in_env(check_publishers, tmp_pa
 def test_runs_against_the_real_repo_files(check_publishers):
     """Humo sobre los ficheros de verdad: se parsean y devuelven hallazgos.
 
-    A proposito NO se exige cero deriva. Hoy hay dos variables opcionales sin
-    poner en el `.env` (`STATE_DB_PATH`, `ALLOW_MOCK_DATA`) y decidir que hacer
-    con ellas es de Simon, no de un test. El chequeo es una herramienta que
-    informa; convertirlo en un gate que falla por una decision pendiente es
-    como se consigue que alguien lo desactive.
+    A proposito NO se exige cero deriva. Convertir esto en un gate de deriva
+    cero es la misma trampa que ya se evito en el codigo de salida del
+    script: la primera variable que se agregue al `.env` antes de
+    documentarla rompe los tests locales, y asi es como alguien termina
+    desactivando el chequeo.
+
+    Lo que si se fija son las decisiones ya tomadas, una por variable.
+    `STATE_DB_PATH` y `ALLOW_MOCK_DATA` se decidieron el 2026-08-24
+    (ver `docs/superpowers/specs/`): la primera queda declarada comentada en
+    el ejemplo, porque su default —`~/.macropipeline/state.db`— ya es
+    absoluto y ajeno al CWD, que es la mitigacion que promete ADR-007; la
+    segunda va explicita en el `.env`, porque decide si se puede publicar con
+    datos sinteticos y eso no deberia depender de un default del codigo.
     """
     real = ROOT / ".env"
     if not real.exists():
@@ -162,6 +170,12 @@ def test_runs_against_the_real_repo_files(check_publishers):
     assert all(motivo in motivos_validos for _, motivo in hallazgos)
     # La que motivo todo esto ya esta cargada y no puede volver a faltar.
     assert ("TELEGRAM_ALLOWED_USER_ID", "ausente") not in hallazgos
+    # Decididas el 2026-08-24. Se mira solo el nombre y no el motivo: da
+    # igual si reaparecen como 'ausente', 'placeholder' o 'sin documentar',
+    # las tres significan que la decision se deshizo.
+    nombres = [name for name, _ in hallazgos]
+    assert "STATE_DB_PATH" not in nombres
+    assert "ALLOW_MOCK_DATA" not in nombres
 
 
 def test_report_prints_every_finding_with_its_reason(
