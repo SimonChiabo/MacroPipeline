@@ -19,7 +19,29 @@ MODEL = "claude-haiku-4-5"
 # volumen de la regla numérica, se añade el contexto que solo conoce el
 # autor (canal, lector, listón de tono) y se quita "impactante", que
 # empujaba justo al tono que el validador rechaza.
-HEADLINE_PROMPT_VERSION = "v1.2"
+# v1.3: el "úsalos tal cual" de v1.2 se leía como "úsalos todos". Con el
+# bloque macro completo (IPC + desempleo + treasury) el modelo intentaba
+# meter cuatro series en 120 caracteres y perdía las etiquetas por el
+# camino: publicaba el desempleo como IPC. Medido con llamadas reales,
+# 4/6 y 3/6 titulares mal etiquetados con v1.2 contra 0/6 con esta
+# redacción y 0/6 con el prompt v1.1 anterior; el validador los rechazaba
+# y el pipeline caía al texto genérico. Aislado a esa sola cláusula: se
+# reescribe, no se toca nada más del prompt.
+# v1.4: `temperature` baja de 0.2 a 0.0. v1.3 dejó un ~2-3% residual de mal
+# etiquetado (una recurrencia en 41 generaciones), y a 0.2 la misma semana
+# daba hasta 4 titulares distintos. El pipeline genera un titular por semana:
+# esa variedad no la ve nadie y cuesta reproducibilidad. A 0.0 salieron 8/8
+# idénticos en dos semanas de datos distintas, así que una forma de datos que
+# rompa el etiquetado falla siempre en el nightly en vez de una vez cada
+# tantas. No garantiza que el titular sea correcto —garantiza que sea el
+# mismo—, que es lo que hace útil al contract test.
+HEADLINE_PROMPT_VERSION = "v1.4"
+
+# Titular de emergencia cuando la llamada a Anthropic falla. Es una constante
+# y no un literal enterrado en el `except` porque el contract test necesita
+# distinguir "el modelo escribió esto" de "la llamada murió": ambas cosas
+# devuelven un string plausible.
+FALLBACK_HEADLINE = "Cierre Semanal: Resumen del Mercado"
 
 
 class LLMClient:
@@ -52,9 +74,10 @@ class LLMClient:
             "Escribe en español, en una sola línea de máximo 120 "
             "caracteres.\n"
             "Los números del resumen ya vienen calculados y verificados: "
-            "úsalos tal cual y no añadas ninguna cifra que no aparezca en "
-            "él. Un número inventado en un post financiero no se puede "
-            "corregir una vez publicado.\n"
+            "cópialos exactamente como aparecen y no añadas ninguna cifra "
+            "que no esté en él. No hace falta citarlos todos; en 120 "
+            "caracteres entran dos o tres. Un número inventado en un post "
+            "financiero no se puede corregir una vez publicado.\n"
             "Devuelve texto plano: sin markdown, sin asteriscos y sin "
             "comillas envolviendo el titular."
         )
@@ -68,7 +91,10 @@ class LLMClient:
                 # anthropic 1.x sacó `temperature` de la firma de
                 # `messages.create()`, pero la API de Haiku 4.5 lo sigue
                 # aceptando: `extra_body` se mezcla tal cual en el JSON.
-                extra_body={"temperature": 0.2},
+                # 0.0 y no 0.2: ver v1.4 arriba. Un titular por semana no
+                # necesita variedad, y sin ella el nightly deja de ser
+                # estocástico.
+                extra_body={"temperature": 0.0},
                 system=system_prompt,
                 messages=[
                     {
@@ -100,7 +126,7 @@ class LLMClient:
             )
         except Exception as e:
             logger.warning("anthropic_api_failed_using_mock_headline", error=str(e))
-            headline = "Cierre Semanal: Resumen del Mercado"
+            headline = FALLBACK_HEADLINE
 
         # Limpieza básica de envoltorios. Haiku 4.5 tiende a devolver el
         # titular en negrita markdown (`**...**`), que Haiku 3 no ponía y

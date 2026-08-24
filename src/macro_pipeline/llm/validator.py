@@ -21,6 +21,16 @@ logger = structlog.get_logger(__name__)
 # rechazar titulares correctos, y la tool pasa a `strict`.
 VALIDATOR_PROMPT_VERSION = "v1.2"
 
+# Los dos veredictos que el agente fabrica sin haber llegado al modelo. Son
+# constantes y no literales enterrados en los `return` porque un rechazo real
+# y una llamada muerta son indistinguibles desde fuera: ambos devuelven
+# `approved=False`. El contract test mira estos prefijos para saber si el
+# validador rechazó de verdad o si la API se cayó y el fallback lo tapó.
+TOOL_FAILURE_REASON = (
+    "Fallo sistémico: El LLM no utilizó el esquema estructurado requerido."
+)
+API_ERROR_REASON_PREFIX = "Error interno al conectar con LLM:"
+
 
 class ValidatorAgent:
     """
@@ -136,17 +146,11 @@ class ValidatorAgent:
 
             # Fallback de seguridad si no usó la tool adecuadamente
             logger.error("validator_agent_failed_tool_use")
-            return {
-                "approved": False,
-                "reason": (
-                    "Fallo sistémico: El LLM no utilizó el esquema "
-                    "estructurado requerido."
-                ),
-            }
+            return {"approved": False, "reason": TOOL_FAILURE_REASON}
 
         except Exception as e:
             logger.error("validator_agent_api_error", error=str(e))
             return {
                 "approved": False,
-                "reason": f"Error interno al conectar con LLM: {e}",
+                "reason": f"{API_ERROR_REASON_PREFIX} {e}",
             }

@@ -40,3 +40,19 @@ def fred_client():
     from macro_pipeline.data.fred_client import FREDClient
 
     return FREDClient(api_key=require_api_key("FRED_API_KEY"))
+
+
+@pytest.fixture(scope="session")
+def llm_client():
+    """Cliente de Anthropic real, contra la API de producción."""
+    from macro_pipeline.llm.client import LLMClient
+
+    return LLMClient(api_key=require_api_key("ANTHROPIC_API_KEY"))
+
+
+@pytest.fixture(scope="session")
+def validator_agent(llm_client):
+    """Agente validador real (ADR-001), montado sobre el cliente de sesión."""
+    from macro_pipeline.llm.validator import ValidatorAgent
+
+    return ValidatorAgent(llm_client)

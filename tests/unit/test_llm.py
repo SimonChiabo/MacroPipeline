@@ -4,8 +4,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from anthropic.types import TextBlock, ToolUseBlock
 
-from macro_pipeline.llm.client import LLMClient
-from macro_pipeline.llm.validator import ValidatorAgent
+from macro_pipeline.llm.client import FALLBACK_HEADLINE, LLMClient
+from macro_pipeline.llm.validator import (
+    API_ERROR_REASON_PREFIX,
+    TOOL_FAILURE_REASON,
+    ValidatorAgent,
+)
 
 
 @pytest.fixture
@@ -154,3 +158,67 @@ def test_validator_agent_rejected_hallucination(mock_anthropic):
 
     assert result["approved"] is False
     assert "5%" in result["reason"]
+
+
+# ── Caminos de fallback ────────────────────────────────────────────────────
+# Los tres `except` que convierten un fallo de la API en algo que se parece a
+# un pipeline sano. Son el motivo de que un modelo retirado pasara meses
+# invisible, y son lo que los contract tests miran para no darse por buenos
+# con la API caída. Aquí se fija la forma exacta de cada uno; que además
+# lleguen al modelo lo comprueba `tests/contract/test_llm_contract.py`.
+
+
+def test_generate_headline_falls_back_when_the_api_fails(mock_anthropic):
+    """Un fallo de red devuelve el titular de emergencia, no una excepción."""
+    mock_instance = mock_anthropic.return_value
+    mock_instance.messages.create.side_effect = RuntimeError("connection reset")
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        headline = LLMClient().generate_headline("SP500 Return: 2.5%")
+
+    assert headline == FALLBACK_HEADLINE
+
+
+def test_generate_headline_falls_back_on_non_text_first_block(mock_anthropic):
+    """Un bloque `thinking` o `tool_use` primero no trae titular que extraer."""
+    mock_instance = mock_anthropic.return_value
+    mock_response = MagicMock()
+    mock_response.content = [
+        ToolUseBlock(type="tool_use", id="toolu_x", name="lo_que_sea", input={})
+    ]
+    mock_instance.messages.create.return_value = mock_response
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        headline = LLMClient().generate_headline("SP500 Return: 2.5%")
+
+    assert headline == FALLBACK_HEADLINE
+
+
+def test_validator_rejects_when_the_api_fails(mock_anthropic):
+    """Un error de API rechaza —cerrando hacia el lado seguro— pero se tiene
+    que poder distinguir de un rechazo del modelo: el prefijo es el contrato
+    del que dependen los contract tests."""
+    mock_instance = mock_anthropic.return_value
+    mock_instance.messages.create.side_effect = RuntimeError("HTTP 400")
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        result = ValidatorAgent(LLMClient()).review_draft("Borrador", "Fuente")
+
+    assert result["approved"] is False
+    assert result["reason"].startswith(API_ERROR_REASON_PREFIX)
+    assert "HTTP 400" in result["reason"]
+
+
+def test_validator_rejects_when_the_model_skips_the_tool(mock_anthropic):
+    """Sin `tool_use` en la respuesta no hay veredicto: se rechaza y se dice
+    que el fallo fue sistémico, no del borrador."""
+    mock_instance = mock_anthropic.return_value
+    mock_response = MagicMock()
+    mock_response.content = [TextBlock(type="text", text="Me parece bien.")]
+    mock_instance.messages.create.return_value = mock_response
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        result = ValidatorAgent(LLMClient()).review_draft("Borrador", "Fuente")
+
+    assert result["approved"] is False
+    assert result["reason"] == TOOL_FAILURE_REASON
