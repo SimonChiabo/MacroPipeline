@@ -179,6 +179,35 @@ def test_runs_against_the_real_repo_files(check_publishers):
     assert "ALLOW_MOCK_DATA" not in nombres
 
 
+def test_the_example_keeps_the_two_decided_declarations(check_publishers):
+    """El `.env.example` sigue declarando cada variable como se decidio.
+
+    Existe por donde NO corre el test de arriba: se salta entero cuando no
+    hay `.env`, y en CI no hay `.env`. O sea que la mitad de la decision que
+    vive en un fichero commiteado —como esta declarada cada variable en el
+    ejemplo— no la miraba nadie fuera de la maquina de Simon.
+
+    Aca no se toca el `.env`: solo el ejemplo, que si esta en git. Esto no
+    reabre lo de exigir cero deriva; fija dos declaraciones concretas, no una
+    politica.
+
+    Las dos mitades importan, y por motivos distintos. Descomentar
+    `STATE_DB_PATH` la vuelve exigible y el chequeo empieza a pedir una ruta
+    de maquina que nadie quiso poner. Comentar `ALLOW_MOCK_DATA` es peor y
+    mas silencioso: deja de exigirse en el `.env`, y la bandera que bloquea
+    publicar con datos sinteticos vuelve a depender del default del codigo
+    sin que nada lo diga.
+    """
+    ejemplo = ROOT / ".env.example"
+
+    declaradas = check_publishers._parse_env_file(ejemplo)
+    comentadas = check_publishers._commented_names(ejemplo)
+
+    assert "STATE_DB_PATH" in comentadas
+    assert "STATE_DB_PATH" not in declaradas
+    assert declaradas.get("ALLOW_MOCK_DATA") == "false"
+
+
 def test_report_prints_every_finding_with_its_reason(
     check_publishers, tmp_path, capsys
 ):
