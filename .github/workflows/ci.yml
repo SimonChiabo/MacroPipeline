@@ -23,14 +23,17 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      # `scripts/` entra en los tres gates: quedaba fuera, y el chequeo de
+      # deriva de `.env` que vive ahi ya tiene tests. Codigo sin gate es
+      # codigo que solo se revisa cuando alguien se acuerda.
       - name: Ruff lint
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ scripts/
 
       - name: Ruff format check
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ scripts/
 
       - name: Mypy type check
-        run: mypy src/
+        run: mypy src/ scripts/
 
   unit-tests:
     name: Unit Tests
