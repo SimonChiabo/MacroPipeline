@@ -155,7 +155,8 @@ def test_runs_against_the_real_repo_files(check_publishers):
     `STATE_DB_PATH` y `ALLOW_MOCK_DATA` se decidieron el 2026-08-24
     (ver `docs/superpowers/specs/`): la primera queda declarada comentada en
     el ejemplo, porque su default —`~/.macropipeline/state.db`— ya es
-    absoluto y ajeno al CWD, que es la mitigacion que promete ADR-007; la
+    absoluto y ajeno al CWD (ADR-007 pide que la variable sea configurable,
+    que es cosa distinta: para eso alcanza con que exista); la
     segunda va explicita en el `.env`, porque decide si se puede publicar con
     datos sinteticos y eso no deberia depender de un default del codigo.
     """

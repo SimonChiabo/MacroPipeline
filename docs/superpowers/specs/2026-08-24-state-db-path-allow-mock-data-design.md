@@ -26,8 +26,11 @@ Tres hechos que cambian el planteo con el que empezo la tarea:
 3. **Los dos defaults del codigo ya son el valor correcto.**
    `ALLOW_MOCK_DATA` cae en `"false"` (`orchestration/main.py:88`), igual que el
    ejemplo. `STATE_DB_PATH` cae en `~/.macropipeline/state.db`
-   (`storage/state.py:16`), que ya es absoluta y ajena al CWD — exactamente la
-   mitigacion que ADR-007 promete. Escribir cualquiera de las dos en `.env` con
+   (`storage/state.py:16`), que ya es absoluta y ajena al CWD — eso es lo que
+   cierra el bug de la base relativa al directorio de trabajo. ADR-007 pide
+   aparte que la variable sea configurable, para poder apuntar a un fichero
+   migrado si se cambia de maquina; es una promesa distinta, y le alcanza con
+   que la variable exista. Escribir cualquiera de las dos en `.env` con
    su valor actual no cambia ninguna linea de comportamiento.
 
 De ahi que esto no sea una decision de configuracion sino una sobre el
