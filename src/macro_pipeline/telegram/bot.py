@@ -95,6 +95,30 @@ class TelegramBot:
             logger.error("telegram_send_failed", error=str(e))
             raise TelegramBotError(f"Error enviando mensaje a Telegram: {e}") from e
 
+    def send_alert(self, text: str) -> bool:
+        """
+        Envía un aviso al operador: algo que hay que saber, no que aprobar.
+        Por eso va sin botones inline y no devuelve `message_id`.
+
+        Nunca levanta. El aviso llega después de que la publicación ya se
+        decidió, así que tumbar la run semanal porque Telegram está caído
+        sería peor que el problema que se avisa. Devuelve si se entregó —un
+        `False` queda en los logs— en vez de tragárselo en silencio: una
+        alerta que nunca llegó no se puede ver igual que una entregada.
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/sendMessage",
+                json={"chat_id": self.chat_id, "text": text},
+                timeout=10,
+            )
+            response.raise_for_status()
+            logger.info("telegram_alert_sent")
+            return True
+        except Exception as e:
+            logger.error("telegram_alert_failed", error=str(e))
+            return False
+
     def wait_for_approval(self, message_id: int, timeout_seconds: int = 600) -> bool:
         """
         Realiza Long-Polling esperando que el usuario presione un botón.

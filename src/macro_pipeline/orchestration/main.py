@@ -282,6 +282,19 @@ class MacroOrchestrator:
                         logger.error(
                             "draft_rejected_by_ai", reason=review.get("reason")
                         )
+                        # El log solo no alcanza: el operador recibe igual la
+                        # peticion de aprobacion y el bloque generico se parece
+                        # bastante a un cierre normal, asi que un fallo de la
+                        # capa LLM puede repetirse semanas sin que nadie lo
+                        # note. Es lo que paso con el reetiquetado que encontro
+                        # el contract test (ver ADR-001). El aviso va antes de
+                        # pedir aprobacion para que llegue en ese orden.
+                        self.telegram.send_alert(
+                            "⚠️ El validador rechazó el titular generado; se "
+                            "publica el bloque genérico.\n\n"
+                            f"Motivo: {review.get('reason')}\n\n"
+                            f"Titular descartado: {headline}"
+                        )
                         headline = (
                             f"📊 Cierre de Mercado Semanal:\n"
                             f"S&P500: {data.sp500_weekly_return * 100:+.2f}%\n"

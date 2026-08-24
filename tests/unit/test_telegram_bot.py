@@ -80,3 +80,38 @@ def test_wait_for_approval_success(mock_post, mock_get, tg_env):
     # Deberían haber 2 posts de mantenimiento
     # (answerCallbackQuery y editMessageReplyMarkup)
     assert mock_post.call_count == 2
+
+
+@patch("requests.post")
+def test_send_alert_posts_a_plain_message(mock_post, tg_env):
+    """El aviso va por `sendMessage` y sin botones: no es algo que aprobar."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"result": {"message_id": 99}}
+    mock_response.raise_for_status.return_value = None
+    mock_post.return_value = mock_response
+
+    with patch.dict(os.environ, tg_env):
+        entregado = TelegramBot().send_alert("El validador rechazó el titular")
+
+    assert entregado is True
+    endpoint, kwargs = mock_post.call_args[0][0], mock_post.call_args[1]
+    assert endpoint.endswith("/sendMessage")
+    assert "El validador rechazó el titular" in kwargs["json"]["text"]
+    assert "reply_markup" not in kwargs["json"]
+
+
+@patch("requests.post")
+def test_send_alert_does_not_raise_when_telegram_fails(mock_post, tg_env):
+    """Un aviso que no se entrega no puede tirar abajo la run.
+
+    El aviso es informativo: la publicación de la semana ya se decidió. Si
+    Telegram esta caido, se devuelve False y queda en los logs, pero el
+    pipeline sigue. Devolver un bool y no tragarse el fallo en silencio es lo
+    que permite que quien llame sepa que el aviso no llego.
+    """
+    mock_post.side_effect = RuntimeError("connection reset")
+
+    with patch.dict(os.environ, tg_env):
+        entregado = TelegramBot().send_alert("Da igual el texto")
+
+    assert entregado is False

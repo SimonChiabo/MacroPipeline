@@ -92,3 +92,51 @@ def test_run_without_macro_persists_none(snapshot):
 
     orch.state.mark_as_published.assert_called_once()
     assert orch.state.mark_as_published.call_args.kwargs["macro"] is None
+
+
+def test_validator_rejection_alerts_the_operator(snapshot):
+    """Un rechazo del validador tiene que avisar, no solo quedar en el log.
+
+    Cuando el validador rechaza, el pipeline sustituye el titular por el bloque
+    generico y sigue: el operador recibe la peticion de aprobacion habitual y
+    nada le dice que la capa LLM fallo. Es el modo de fallo que encontramos el
+    2026-08-24 (el generador etiquetaba el desempleo como IPC), y podia repetirse
+    semanas sin que nadie se enterara.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+    orch = _build_orchestrator(data)
+    orch.validator_agent.review_draft.return_value = {
+        "approved": False,
+        "reason": "El borrador cita un 4,2% que en la fuente es el desempleo.",
+    }
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_called_once()
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "desempleo" in aviso, "el aviso tiene que llevar el motivo del rechazo"
+    assert "Titular de prueba" in aviso, "y el titular que se descarto"
+
+
+def test_no_alert_when_the_validator_approves(snapshot):
+    """Sin rechazo no hay aviso: un aviso por run seria ruido y se ignoraria."""
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+    orch = _build_orchestrator(data)
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_not_called()
