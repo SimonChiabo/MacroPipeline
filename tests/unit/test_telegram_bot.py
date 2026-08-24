@@ -3,12 +3,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from macro_pipeline.telegram.bot import TelegramBot
+from macro_pipeline.telegram.bot import TelegramBot, TelegramBotError
 
 
 @pytest.fixture
 def tg_env():
-    return {"TELEGRAM_BOT_TOKEN": "test_token", "TELEGRAM_CHAT_ID": "123456789"}
+    """Entorno minimo, con la guarda de operador explicitamente apagada.
+
+    `TELEGRAM_ALLOWED_USER_ID` va vacia a proposito y no ausente: `patch.dict`
+    anade sobre el entorno real, y `tests/contract/conftest.py` hace
+    `load_dotenv` al importarse —aunque los contract tests esten
+    deseleccionados—, asi que el `.env` del desarrollador se colaba y el
+    resultado dependia de si tenia la variable puesta. Los tests que si
+    ejercitan la guarda la sobreescriben.
+    """
+    return {
+        "TELEGRAM_BOT_TOKEN": "test_token",
+        "TELEGRAM_CHAT_ID": "123456789",
+        "TELEGRAM_ALLOWED_USER_ID": "",
+    }
 
 
 def test_telegram_init_missing_keys():
@@ -115,3 +128,69 @@ def test_send_alert_does_not_raise_when_telegram_fails(mock_post, tg_env):
         entregado = TelegramBot().send_alert("Da igual el texto")
 
     assert entregado is False
+
+
+@patch("requests.get")
+@patch("requests.post")
+def test_wait_for_approval_ignores_an_unauthorized_user(mock_post, mock_get, tg_env):
+    """El boton de otro no aprueba.
+
+    `TELEGRAM_ALLOWED_USER_ID` es lo unico que separa el HITL de ADR-004 de
+    "cualquiera en el chat puede publicar en X y LinkedIn". Estuvo apagada en
+    el `.env` real hasta el 2026-08-24 —solo lo decia un `logger.warning` al
+    arrancar— y no tenia ni un test. Este es ese test.
+    """
+    mock_get_response = MagicMock()
+    mock_get_response.json.return_value = {
+        "result": [
+            {
+                "update_id": 100,
+                "callback_query": {
+                    "id": "cb1",
+                    "data": "approve_draft",
+                    "from": {"id": 999999999},  # no es el operador autorizado
+                    "message": {"message_id": 42},
+                },
+            }
+        ]
+    }
+    mock_get_response.raise_for_status.return_value = None
+    mock_get.return_value = mock_get_response
+    mock_post.return_value = MagicMock()
+
+    # El callback no autorizado se ignora, asi que nadie contesta y la espera
+    # se agota. `wait_for_approval` senaliza eso levantando —el orquestador lo
+    # atrapa y cierra la run como expirada—, no devolviendo False.
+    with patch.dict(os.environ, {**tg_env, "TELEGRAM_ALLOWED_USER_ID": "8331472255"}):
+        bot = TelegramBot()
+        with pytest.raises(TelegramBotError, match="timeout"):
+            bot.wait_for_approval(42, timeout_seconds=1)
+
+
+@patch("requests.get")
+@patch("requests.post")
+def test_wait_for_approval_accepts_the_authorized_user(mock_post, mock_get, tg_env):
+    """Y el del operador si: la guarda no puede bloquear a quien debe aprobar."""
+    mock_get_response = MagicMock()
+    mock_get_response.json.return_value = {
+        "result": [
+            {
+                "update_id": 100,
+                "callback_query": {
+                    "id": "cb1",
+                    "data": "approve_draft",
+                    "from": {"id": 8331472255},
+                    "message": {"message_id": 42},
+                },
+            }
+        ]
+    }
+    mock_get_response.raise_for_status.return_value = None
+    mock_get.return_value = mock_get_response
+    mock_post.return_value = MagicMock()
+
+    with patch.dict(os.environ, {**tg_env, "TELEGRAM_ALLOWED_USER_ID": "8331472255"}):
+        bot = TelegramBot()
+        aprobado = bot.wait_for_approval(42, timeout_seconds=1)
+
+    assert aprobado is True

@@ -38,6 +38,95 @@ def _is_placeholder(value: str) -> bool:
     return value.startswith("your_") or value.endswith("tu_id_de_linkedin")
 
 
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Nombre -> valor de un fichero .env. Ignora comentarios y líneas vacías.
+
+    `partition` y no `split`: hay valores que llevan `=` dentro
+    (`OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ...`).
+    """
+    pairs: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        pairs[name.strip()] = value.strip()
+    return pairs
+
+
+def _commented_names(path: Path) -> set[str]:
+    """Nombres declarados pero comentados (`# VAR=ejemplo`): opcionales."""
+    names: set[str] = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line.startswith("#"):
+            continue
+        candidato = line.lstrip("#").strip()
+        name, sep, _ = candidato.partition("=")
+        name = name.strip()
+        if sep and name.replace("_", "").isalnum() and name.isupper():
+            names.add(name)
+    return names
+
+
+def compare_env_files(example_path: Path, env_path: Path) -> list[tuple[str, str]]:
+    """Deriva entre `.env.example` y `.env`, como (variable, motivo).
+
+    Existe por `TELEGRAM_ALLOWED_USER_ID`: declarada en el ejemplo y marcada
+    como CRÍTICA, implementada en el código, y ausente del `.env` real durante
+    meses. Sin ella el HITL de ADR-004 acepta el botón de cualquiera en el
+    chat, y lo único que lo decía era un `logger.warning` al arrancar.
+
+    Se miran las dos direcciones. Una variable que está en el `.env` y no en
+    el ejemplo no rompe nada hoy, pero es como se fabrica el problema para el
+    siguiente que clone el repo: copia el ejemplo y le falta.
+    """
+    ejemplo = _parse_env_file(example_path)
+    real = _parse_env_file(env_path)
+    # El ejemplo documenta las opcionales comentandolas con un valor de
+    # muestra (`# LINKEDIN_TOKEN_ISSUED=2026-05-15`). Esas cuentan como
+    # documentadas pero no se exigen: no estar en el `.env` es lo normal.
+    documentadas = ejemplo.keys() | _commented_names(example_path)
+
+    hallazgos: list[tuple[str, str]] = []
+    for name in ejemplo:
+        if name not in real:
+            hallazgos.append((name, "ausente"))
+        elif _is_placeholder(real[name]):
+            hallazgos.append((name, "placeholder"))
+    hallazgos.extend(
+        (name, "sin documentar") for name in real if name not in documentadas
+    )
+    return hallazgos
+
+
+def report_env_drift(example_path: Path, env_path: Path) -> None:
+    """Imprime la deriva entre los dos ficheros. No decide el código de salida.
+
+    El código de salida del script significa "las credenciales de publicación
+    sirven". Una variable opcional sin poner en el `.env` no es eso, y un
+    chequeo que pone el script en rojo por una decisión pendiente termina
+    desactivado. Se informa y decide quien lee.
+    """
+    print("\n-- .env vs .env.example ---------------------------")
+    if not env_path.exists():
+        print(f"{WARN} No hay .env local: nada que comparar.")
+        return
+
+    hallazgos = compare_env_files(example_path, env_path)
+    if not hallazgos:
+        print(f"{OK} Sin deriva entre .env y .env.example.")
+        return
+
+    explicacion = {
+        "ausente": "declarada en .env.example y sin poner en .env",
+        "placeholder": "sigue con el valor de ejemplo",
+        "sin documentar": "esta en .env pero .env.example no la menciona",
+    }
+    for name, motivo in hallazgos:
+        print(f"{WARN} {name}: {motivo} ({explicacion[motivo]})")
+
+
 def _check_present(names: tuple[str, ...]) -> list[str]:
     """Devuelve los nombres que faltan o siguen con el placeholder."""
     missing = []
@@ -161,6 +250,7 @@ def check_linkedin() -> bool:
 
 def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
+    report_env_drift(ROOT / ".env.example", ROOT / ".env")
     x_ok = check_x()
     linkedin_ok = check_linkedin()
 
