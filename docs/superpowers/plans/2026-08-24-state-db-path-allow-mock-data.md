@@ -58,7 +58,8 @@ def test_runs_against_the_real_repo_files(check_publishers):
     `STATE_DB_PATH` y `ALLOW_MOCK_DATA` se decidieron el 2026-08-24
     (ver `docs/superpowers/specs/`): la primera queda declarada comentada en
     el ejemplo, porque su default —`~/.macropipeline/state.db`— ya es
-    absoluto y ajeno al CWD, que es la mitigacion que promete ADR-007; la
+    absoluto y ajeno al CWD (ADR-007 pide que la variable sea configurable,
+    que es cosa distinta: para eso alcanza con que exista); la
     segunda va explicita en el `.env`, porque decide si se puede publicar con
     datos sinteticos y eso no deberia depender de un default del codigo.
     """
@@ -108,9 +109,11 @@ por:
 ```
 # --- Estado local (SQLite) ---
 # Opcional, y sin poner a proposito (decidido el 2026-08-24). Si no se
-# define, usa ~/.macropipeline/state.db: ruta absoluta y ajena al CWD, que es
-# la mitigacion que promete ADR-007. Definirla solo si el estado tiene que
-# vivir en otro sitio.
+# define, usa ~/.macropipeline/state.db: absoluta y ajena al CWD, que es lo
+# que cierra el bug de la base relativa al directorio de trabajo. ADR-007
+# pide aparte que sea configurable, para poder apuntar a un fichero migrado
+# si se cambia de maquina: por eso la variable existe y se declara aca
+# aunque no se use. Definirla solo en ese caso.
 # OJO: definirla en blanco (`STATE_DB_PATH=`) no es lo mismo que no
 # definirla. sqlite3.connect("") abre una base temporal que se borra al
 # cerrar, asi que la deduplicacion se resetea en cada run sin decir nada.
