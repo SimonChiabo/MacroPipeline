@@ -20,10 +20,22 @@ tri-estado (listo / apagado / roto) viven en un modulo nuevo y chico,
 
 **Comandos del proyecto** (desde la raiz del repo, PowerShell o bash):
 
-- Tests rapidos: `pytest tests/unit tests/integration -q`
-- Un test: `pytest tests/unit/test_publisher_flags.py::test_name -v`
-- Tipos: `mypy src scripts`
-- Formato y lint: `ruff format --check .` y `ruff check .`
+**Usar siempre el interprete del `.venv`, nunca el `python` del PATH.** El Python
+global de esta maquina tiene `pandas` y `structlog` pero no `anthropic`,
+`playwright` ni `boto3`, y no tiene el paquete instalado en editable. Con el
+global, `mypy src` inventa dos errores `no-any-return` (los tipos del SDK de
+Anthropic caen a `Any` por `ignore_missing_imports`) y cualquier test que importe
+`MacroOrchestrator` ni siquiera colecta. En el `.venv` los mismos comandos dan
+`Success: no issues found in 30 source files` y 138 tests en verde.
+
+- Tests rapidos: `./.venv/Scripts/python.exe -m pytest tests/unit tests/integration -q`
+- Un test: `./.venv/Scripts/python.exe -m pytest tests/unit/test_publisher_flags.py::test_name -v`
+- Tipos: `./.venv/Scripts/python.exe -m mypy src scripts`
+- Formato y lint: `./.venv/Scripts/python.exe -m ruff format --check .` y
+  `./.venv/Scripts/python.exe -m ruff check .`
+
+Donde el resto del plan diga `pytest`, `mypy` o `ruff` a secas, se entiende
+`./.venv/Scripts/python.exe -m <lo que sea>`.
 
 Los contract tests estan deseleccionados por defecto (`addopts = "-m 'not contract'"`);
 nada de este plan los toca.
