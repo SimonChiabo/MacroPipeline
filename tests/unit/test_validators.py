@@ -34,6 +34,10 @@ weekly_close:
   sp500_return_max: 0.25
   nasdaq_return_min: -0.30
   nasdaq_return_max: 0.30
+  sp500_close_min: 2000
+  sp500_close_max: 30000
+  nasdaq_close_min: 5000
+  nasdaq_close_max: 100000
 
 macro_release:
   gdp_growth_max_abs: 0.15
@@ -89,6 +93,53 @@ def test_validate_weekly_close_anomaly(engine):
     )
     with pytest.raises(ValidationError, match="Retorno del SP500 0.5 fuera del rango"):
         engine.validate_weekly_close(data)
+
+
+def test_validate_weekly_close_rejects_an_etf_scale_level(engine):
+    """El caso que motivo la regla: SPY publicado como cierre del S&P 500.
+
+    El pipeline pide a FMP `^GSPC` y cae a Alpha Vantage con `SPY`. Los dos
+    devuelven un `close` correcto, pero a escalas distintas: 765,72 es el ETF
+    y 7.657,71 el indice, el mismo dia. El nivel se guarda venga de donde
+    venga y se publica rotulado "SP500: Cierre", asi que por la ruta de
+    fallback se publicaria el numero del instrumento equivocado. Ninguna de
+    las dos APIs esta incumpliendo nada: por eso el control vive aca y no en
+    un contract test.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=765.72,  # SPY real del 2026-08-21
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+    )
+    with pytest.raises(ValidationError, match="Cierre de SP500"):
+        engine.validate_weekly_close(data)
+
+
+def test_validate_weekly_close_rejects_an_etf_scale_nasdaq(engine):
+    """Lo mismo para el NASDAQ: QQQ ronda los 600, el indice los 26.000."""
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=7657.71,
+        sp500_weekly_return=0.012,
+        nasdaq_close=612.40,  # QQQ, no ^IXIC
+        nasdaq_weekly_return=0.019,
+    )
+    with pytest.raises(ValidationError, match="Cierre de NASDAQ"):
+        engine.validate_weekly_close(data)
+
+
+def test_validate_weekly_close_accepts_index_scale_levels(engine):
+    """Los niveles reales de los indices pasan: el rango es ancho a proposito."""
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=7657.71,
+        sp500_weekly_return=0.012,
+        nasdaq_close=26029.15,
+        nasdaq_weekly_return=0.019,
+    )
+    assert engine.validate_weekly_close(data) is True
 
 
 def test_validate_macro_release_success(engine):

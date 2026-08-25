@@ -79,6 +79,36 @@ class ValidationEngine:
                 "rango permitido."
             )
 
+        # Validar niveles de cierre. Un `close` correcto del instrumento
+        # equivocado (el ETF en vez del indice) pasa todos los demas controles:
+        # el retorno es invariante de escala y el esquema solo exige `gt=0`.
+        niveles = [
+            (
+                "SP500",
+                data.sp500_close,
+                rules.get("sp500_close_min", 0.0),
+                rules.get("sp500_close_max", float("inf")),
+            ),
+            (
+                "NASDAQ",
+                data.nasdaq_close,
+                rules.get("nasdaq_close_min", 0.0),
+                rules.get("nasdaq_close_max", float("inf")),
+            ),
+        ]
+        for label, value, minimo, maximo in niveles:
+            if not (minimo <= value <= maximo):
+                logger.error(
+                    "validation_failed",
+                    reason="close_level_out_of_bounds",
+                    indicator=label,
+                    value=value,
+                )
+                raise ValidationError(
+                    f"Cierre de {label} {value} fuera del rango permitido "
+                    f"[{minimo}, {maximo}]: puede venir de otro instrumento."
+                )
+
         logger.info("weekly_close_validated", date=data.date.isoformat())
         return True
 

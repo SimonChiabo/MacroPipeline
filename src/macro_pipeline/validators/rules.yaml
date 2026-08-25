@@ -7,6 +7,17 @@ weekly_close:
   nasdaq_return_min: -0.30
   nasdaq_return_max: 0.30
 
+  # Niveles de cierre. El pipeline pide a FMP `^GSPC`/`^IXIC` (indices) y cae a
+  # Alpha Vantage con `SPY`/`QQQ` (ETFs, ~10x mas chicos), pero guarda el nivel
+  # venga de donde venga y lo publica rotulado "SP500: Cierre". Estos rangos son
+  # lo unico que impide publicar 765,72 como cierre del S&P 500.
+  # Anchos a proposito: detectan un cambio de instrumento o de unidad, no la
+  # fluctuacion normal del mercado.
+  sp500_close_min: 2000
+  sp500_close_max: 30000
+  nasdaq_close_min: 5000
+  nasdaq_close_max: 100000
+
 macro_snapshot:
   # Rangos de cordura para el bloque macro que acompaña al cierre semanal.
   cpi_yoy_min: -0.05         # Deflación peor al -5% interanual: error de datos
