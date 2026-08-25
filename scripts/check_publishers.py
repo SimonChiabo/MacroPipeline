@@ -1,10 +1,11 @@
 """Verifica las credenciales de X y LinkedIn sin publicar nada.
 
 El pipeline solo comprueba que las variables *existan*: con los placeholders de
-`.env.example` cargados, `publishers_ready` puede quedar en True y el fallo
-aparecer recién después de que un humano aprobó el post en Telegram. Este
-script hace la pregunta que importa —¿estas credenciales sirven para publicar?—
-contra endpoints de solo lectura.
+`.env.example` cargados una red queda marcada como lista y el fallo aparece
+recién después de que un humano aprobó el post en Telegram. Este script hace la
+pregunta que importa —¿estas credenciales sirven para publicar?— contra
+endpoints de solo lectura. Una red apagada con `PUBLISH_X=false` o
+`PUBLISH_LINKEDIN=false` no se verifica y no afecta el código de salida.
 
     python scripts/check_publishers.py
 
@@ -21,6 +22,12 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
+
+from macro_pipeline.publishers.flags import (
+    PUBLISH_LINKEDIN_VAR,
+    PUBLISH_X_VAR,
+    publisher_enabled,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -251,15 +258,39 @@ def check_linkedin() -> bool:
 def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
-    x_ok = check_x()
-    linkedin_ok = check_linkedin()
+
+    x_on = publisher_enabled(PUBLISH_X_VAR)
+    linkedin_on = publisher_enabled(PUBLISH_LINKEDIN_VAR)
+
+    # Una red apagada no se chequea y no cuenta para el código de salida: no
+    # tiene credenciales que sirvan ni que dejen de servir, porque no publica.
+    if x_on:
+        x_ok = check_x()
+    else:
+        print("\n-- X ----------------------------------------------")
+        print(f"{OK} Apagada por {PUBLISH_X_VAR}=false: no se verifica.")
+        x_ok = True
+
+    if linkedin_on:
+        linkedin_ok = check_linkedin()
+    else:
+        print("\n-- LinkedIn ---------------------------------------")
+        print(f"{OK} Apagada por {PUBLISH_LINKEDIN_VAR}=false: no se verifica.")
+        linkedin_ok = True
 
     print("\n-- Resultado --------------------------------------")
-    print(f"X:        {'listo' if x_ok else 'NO listo'}")
-    print(f"LinkedIn: {'listo' if linkedin_ok else 'NO listo'}")
+    print(f"X:        {'apagada' if not x_on else 'listo' if x_ok else 'NO listo'}")
+    print(
+        f"LinkedIn: "
+        f"{'apagada' if not linkedin_on else 'listo' if linkedin_ok else 'NO listo'}"
+    )
+    if not x_on and not linkedin_on:
+        print("\nLas dos redes están apagadas: el pipeline no va a publicar")
+        print("en ninguna parte y aborta antes de tocar el estado.")
+        return 0
     if x_ok and linkedin_ok:
-        print("\npublishers_ready va a quedar en True y la publicación real")
-        print("puede ejercitarse de punta a punta.")
+        print("\nLa publicación real puede ejercitarse de punta a punta en las")
+        print("redes encendidas.")
         return 0
     return 1
 

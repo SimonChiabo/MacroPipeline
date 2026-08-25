@@ -244,3 +244,43 @@ def test_report_does_not_decide_the_exit_code(check_publishers, tmp_path):
     ejemplo, real = _escribir(tmp_path, "A=your_a\n", "B=x\n")
 
     assert check_publishers.report_env_drift(ejemplo, real) is None
+
+
+def test_a_disabled_network_cannot_turn_the_script_red(
+    check_publishers, monkeypatch, capsys
+):
+    """El codigo de salida significa "las credenciales de publicacion sirven".
+
+    Una red apagada no tiene credenciales que sirvan ni que dejen de servir: no
+    participa. Un gate que se pone rojo por una decision tomada a proposito
+    termina desactivado, que es el mismo motivo por el que la deriva de `.env`
+    informa en vez de bloquear.
+    """
+    monkeypatch.setenv("PUBLISH_X", "false")
+    monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
+    monkeypatch.setattr(check_publishers, "report_env_drift", lambda *a, **k: None)
+
+    assert check_publishers.main() == 0
+
+    salida = capsys.readouterr().out
+    assert "apagada" in salida.lower()
+
+
+def test_a_disabled_network_is_not_even_checked(check_publishers, monkeypatch):
+    """No se contacta la API de una red que no se va a usar.
+
+    Se mockea `check_x` y no `requests.get`: `check_x` autentica con
+    `OAuth1Session.get`, asi que un test que vigile `requests.get` pasaria
+    igual con el bug puesto.
+    """
+    llamadas = []
+    monkeypatch.setenv("PUBLISH_X", "false")
+    monkeypatch.setattr(check_publishers, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(
+        check_publishers, "check_x", lambda: llamadas.append("x") or True
+    )
+    monkeypatch.setattr(check_publishers, "check_linkedin", lambda: True)
+
+    check_publishers.main()
+
+    assert llamadas == []
