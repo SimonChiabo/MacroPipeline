@@ -8,13 +8,10 @@ siete clientes.
 
 import os
 from collections.abc import Callable
-from typing import TypeVar
 
 import structlog
 
 logger = structlog.get_logger(__name__)
-
-T = TypeVar("T")
 
 PUBLISH_X_VAR = "PUBLISH_X"
 PUBLISH_LINKEDIN_VAR = "PUBLISH_LINKEDIN"
