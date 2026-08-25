@@ -70,23 +70,50 @@ Un abort **nunca** debe dejar la fila en `in_progress`. Es el mismo razonamiento
 del fix de `publishers_ready` (`5ba7997`): si no se publicó, el estado no debe
 afirmar lo contrario ni impedir el reintento.
 
+### El tercer eje: lo declarado opcional no degrada
+
+La formulación obvia —*un componente sin configurar no alerta*— **no sobrevive
+al inventario**, y por eso queda escrita como descartada: para X y LinkedIn una
+credencial faltante **sí** alerta. Con el eje puesto en "credencial presente"
+eso sería una contradicción.
+
+No lo es:
+
+> **Un componente declarado opcional, cuando no está configurado, no participa
+> — y no participar no es degradar.** Un componente necesario al que le faltan
+> credenciales es un fallo.
+
+"Declarado opcional" no es una opinión sobre cada componente: **ADR-007 lo dice
+de R2, y del bloque macro lo dice el criterio con el que abre esta Decisión**
+—los índices son el contenido principal y un cierre semanal sin bloque macro
+sigue siendo un cierre semanal correcto—. Publicar, en cambio, es el propósito del
+pipeline. El eje se apoya en declaraciones que ya existen, y por eso es
+verificable en vez de retórico — de un componente nuevo se puede preguntar "¿lo
+declara opcional algún ADR?" y la respuesta no depende de quién conteste.
+
+De acá sale que **FRED sin key, R2 sin configurar y una red apagada por bandera
+son la misma cosa**: no participan, y no gastan una alerta. Los tres fallando
+*estando configurados* sí alertan.
+
 ### La política, por componente
 
 | Componente | Fallo | Política | Estado que deja |
 |---|---|---|---|
-| FRED (bloque macro) | Sin key, API caída, serie corta, dato rancio o fuera de rango | **Degrada** — `macro=None` | — |
+| FRED (bloque macro) | Sin key | **No participa** — opcional sin configurar (criterio de este ADR), sin alerta | — |
+| FRED (bloque macro) | API caída, serie corta, dato rancio o cifra fuera de rango | **Degrada** — `macro=None`, con alerta que nombra la causa | — |
 | FMP (índices) | API caída | **Degrada** a Alpha Vantage… que hoy aborta (ver divergencia 4) | — |
 | Alpha Vantage (índices) | API caída | **Aborta** — sin fuente de datos real no se publica | `failed` |
 | Mock Data | `ALLOW_MOCK_DATA=false` | **Aborta** — cifras sintéticas no se publican | `failed` |
 | Cálculo del retorno | Menos de 6 filas, o sin dato de hace 5 días hábiles | **Aborta** | `failed` |
 | Anthropic (generador) | API caída | **Degrada** — bloque genérico, con alerta que nombre la causa real | — |
 | Anthropic (validador) | Rechazo del titular | **Degrada** — bloque genérico + alerta | — |
-| `ValidationEngine` | Cifra fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001 | `failed` |
+| `ValidationEngine` | Cifra **del cierre semanal** fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001 | `failed` |
 | Playwright (render) | Plantilla ausente o render fallido | **Aborta** — no hay imagen que publicar | `failed` |
 | Telegram (aprobación) | Envío fallido | **Aborta** — ADR-004 exige aprobación humana | `failed` |
 | Telegram (aprobación) | Timeout de 1h | **Aborta** | `expired` |
 | Telegram (`send_alert`) | Envío fallido | **Degrada** — devuelve `False`, nunca levanta | — |
-| R2 | Sin configurar **o** subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
+| R2 | Sin configurar | **No participa** — opcional sin configurar (ADR-007), sin alerta | — |
+| R2 | Subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
 | X / LinkedIn | Credenciales ausentes en **una** de las dos | **Degrada** — publica en la otra, con alerta antes de pedir aprobación | `published` |
 | X / LinkedIn | Credenciales ausentes en **las dos** | **Aborta** antes del lock, con alerta | Ninguna fila |
 | X / LinkedIn | Apagada con `PUBLISH_X` / `PUBLISH_LINKEDIN` en `false` | **No es un fallo** — no se construye, no publica y **no alerta** | — |
@@ -110,11 +137,13 @@ y decía "el validador rechazó el titular" también cuando lo que murió fue la
 API, porque el `except` del validador devuelve `approved=False` igual que un
 rechazo real (`llm/validator.py:151-155`). Arreglado en `f53a755`.
 
-**R2 fallando degrada igual que R2 sin configurar.** ADR-007 ya dice que "el
+**R2 configurado y fallando degrada, no aborta.** ADR-007 ya dice que "el
 pipeline funciona sin R2, solo sin snapshots remotos". Que el componente
 declarado opcional sea fatal *justo cuando está configurado* es la política al
 revés, y además abortaba en el peor momento: después de que el humano aprobó y
-antes de publicar en ninguna red. Arreglado en `d187d81`.
+antes de publicar en ninguna red. Arreglado en `d187d81`. R2 **sin configurar**
+es el otro caso y no es el mismo: por el tercer eje no participa, así que no
+degrada y su fila no lleva aviso.
 
 **Toda excepción marca `failed`.** Es lo que hace alcanzable la reconciliación
 parcial que el orquestador promete en su docstring (`MacroOrchestrator`, «Idempotencia parcial»).
@@ -168,8 +197,9 @@ queda fijada es **si llega una alerta, es porque algo se rompió**.
 - La política no se hace cumplir sola. Hoy vive en esta tabla y en el código;
   nada impide que la próxima decisión local vuelva a divergir.
 
-**Tres limitaciones que esta revisión no arregla, y que hasta ahora no estaban
-escritas en ningún lado:**
+**Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado.
+Ninguna se arregla acá: la (c) se cerró con el código del 2026-08-25 y queda
+como registro, y las otras tres siguen abiertas:**
 
 **(a) La alerta de degradación promete de más en dos casos.** Va antes de pedir
 aprobación (a propósito: quien aprueba tiene que saber que el cierre sale en
@@ -187,14 +217,34 @@ parcial, se pueden perder.** Si `mark_x_published` falla después de que
 que el reintento republica en X. Esta política se apoya en los `post_id` sin
 decir que tienen esa ventana.
 
-**(c) La regla "toda degradación alerta" no se cumple para FRED.** El bloque
-macro se cae en silencio: `_fetch_macro_snapshot` solo hace `logger.warning`,
-nunca `send_alert` (`main.py`, `_fetch_macro_snapshot`). Una semana sin contexto macro es
-exactamente el caso invisible-y-repetible que la regla existe para evitar, y
-hoy nada se lo dice al operador. Queda como pregunta abierta para Simon, no
-como decisión tomada acá: si el bloque macro es lo bastante secundario como
-para que la regla necesite un carve-out para degradaciones que solo cuestan
-contexto, o si el camino de FRED necesita su propia alerta.
+**(c) La regla "toda degradación alerta" no se cumplía para FRED.** — *Cerrada
+el 2026-08-25.* El bloque macro se caía en silencio por tres caminos que
+`_fetch_macro_snapshot` no distinguía. Dos de ellos —la API/serie/frescura y el
+validador rechazando la cifra— son fallos y ahora alertan con la causa real; el
+tercero, FRED sin key, no es un fallo sino un opcional sin configurar, y sigue
+en silencio por el tercer eje de arriba.
+
+Lo que la pregunta destapó fue más grande que FRED: la respuesta correcta ya se
+cumplía en R2 y en los publicadores por decisiones locales que nadie había
+escrito como política, y dos filas de esta misma tabla mentían sobre el código
+—la de R2 afirmaba un aviso que no se manda, y la del `ValidationEngine`
+prometía un abort para la cifra macro que el código, con razón, degrada—. Es el
+mismo patrón que motivó este ADR.
+
+**(d) A un componente necesario sin credenciales no se entera nadie.** El eje de
+arriba dice que un componente necesario al que le faltan credenciales es un
+fallo, y para X y LinkedIn el código lo trata como tal: alerta —y si no queda
+ninguna red viva, aborta antes del lock—. Para FMP, Alpha Vantage, Anthropic y
+Telegram —y para un `PUBLISH_X` o
+un `PUBLISH_LINKEDIN` con un valor que no es `true` ni `false`— el `ValueError`
+sale de `MacroOrchestrator.__init__` sin que nadie lo atrape: la run muere antes
+de entrar en `run_weekly_close`, así que no hay alerta, no hay fila de estado y
+la semana siguiente vuelve a pasar lo mismo, también en silencio. Es el caso
+invisible-y-repetible que la regla "toda degradación alerta" existe para evitar,
+esta vez del lado de los aborts. Avisar no sería gratis: `LLMClient` se
+construye antes que `TelegramBot`, así que hoy el canal de aviso todavía no
+existe cuando revienta el primero, y cuando la credencial que falta es la del
+propio Telegram no hay canal de aviso ninguno. **Queda sin decidir.**
 
 **Lo que esta política no cubre:** un componente que falla *silenciosamente*
 devolviendo datos plausibles pero equivocados. Ninguna rama de degradar/abortar
