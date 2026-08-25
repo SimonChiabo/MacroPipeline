@@ -22,18 +22,22 @@ jobs:
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
 
-          # Obligatorias las dos APIs que hoy tienen contract tests: FRED y
-          # Anthropic. Cuando lleguen los de FMP y Alpha Vantage, sus keys se
-          # agregan aca (mientras tanto, `conftest.py` igual falla ruidosamente
-          # en CI si falta una credencial que un test si pide).
+          # Las cuatro APIs que hoy tienen contract tests. `conftest.py` igual
+          # falla ruidosamente en CI si falta una credencial que un test pide,
+          # pero este paso corre antes de instalar nada y las nombra todas de
+          # una en vez de morir en la primera.
           missing=""
           [ -n "${FRED_API_KEY}" ] || missing="${missing} FRED_API_KEY"
           [ -n "${ANTHROPIC_API_KEY}" ] || missing="${missing} ANTHROPIC_API_KEY"
+          [ -n "${FMP_API_KEY}" ] || missing="${missing} FMP_API_KEY"
+          [ -n "${ALPHA_VANTAGE_API_KEY}" ] || missing="${missing} ALPHA_VANTAGE_API_KEY"
 
           if [ -n "${missing}" ]; then
             {
@@ -85,7 +89,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
-        run: pytest tests/contract/ -v --timeout=30 -m contract
+        run: |
+          # `pipefail` o el `tee` se traga el codigo de salida de pytest y el
+          # job sale en verde con los tests fallando.
+          set -o pipefail
+          pytest tests/contract/ -v --timeout=30 -m contract | tee pytest-output.txt
 
       # El resumen del run es el canal que no puede fallar: no depende de
       # ninguna credencial y queda en la pagina del workflow.
@@ -116,10 +124,20 @@ jobs:
           fi
 
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Un rate limit de Alpha Vantage y un cambio de schema ponen los dos
+          # el nightly en rojo, pero solo uno pide tocar codigo. La alerta lo
+          # dice para no tener que entrar al run para averiguarlo.
+          if grep -q "AV_RATE_LIMIT" pytest-output.txt 2>/dev/null; then
+            texto="⚠️ Contract tests en rojo: Alpha Vantage respondió rate limit, así que su contrato quedó sin verificar. NO es un cambio de API: basta con relanzar. ${run_url}"
+          else
+            texto="⚠️ Contract Tests fallaron. Revisar cambios de API. Workflow: ${run_url}"
+          fi
+
           status=$(curl -sS -o /dev/null -w '%{http_code}' \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d text="⚠️ Contract Tests fallaron. Revisar cambios de API. Workflow: ${run_url}")
+            -d text="${texto}")
 
           if [ "${status}" != "200" ]; then
             echo "::error title=Alerta de Telegram no entregada::sendMessage devolvio HTTP ${status}. Revisar TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID."

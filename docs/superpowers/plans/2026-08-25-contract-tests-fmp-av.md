@@ -510,7 +510,11 @@ def test_marker(monkeypatch):
     )
     from tests.contract import test_av_contract as mod
 
-    with pytest.raises(Exception) as exc:
+    # `pytest.raises(Exception)` NO sirve acá: `pytest.fail()` levanta
+    # `Failed`, que hereda de `BaseException` y no de `Exception`, asi que no
+    # lo captura. `pytest.fail.Exception` es la forma publica de referirse a
+    # esa clase. (Verificado en pytest 9.0.3 durante la implementacion.)
+    with pytest.raises(pytest.fail.Exception) as exc:
         mod.spy_daily.__wrapped__(cliente)
     assert "AV_RATE_LIMIT" in str(exc.value)
 ```
