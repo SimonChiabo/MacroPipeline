@@ -96,7 +96,8 @@ tocar algo o alcanza con relanzar el workflow.
 3. `tests/unit/test_validators.py`: casos para los dos rangos nuevos, incluido
    el caso que motivo todo (un nivel a escala de ETF se rechaza).
 4. `tests/contract/conftest.py`: fixtures `fmp_client` y `av_client` via
-   `require_api_key`, y `av_spy_daily` de sesion (una llamada).
+   `require_api_key`, mas una fixture `spy_daily` de sesion en el fichero de
+   AV (una sola llamada, compartida por todos sus asserts).
 5. `tests/contract/test_fmp_contract.py`: `^GSPC` y `^IXIC` no vacios, `close`
    numerico, **`len(df) >= 6`** (el requisito duro de `main.py:152`, el
    analogo del test de lookback de FRED), rangos de plausibilidad, frescura
