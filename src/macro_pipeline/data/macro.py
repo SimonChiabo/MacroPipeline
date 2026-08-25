@@ -6,6 +6,7 @@ from typing import Any, Protocol
 import pandas as pd
 import structlog
 
+from macro_pipeline.observability.redaction import redact
 from macro_pipeline.validators.schemas import MacroSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -143,7 +144,11 @@ def safe_build_macro_snapshot(
     try:
         return build_macro_snapshot(fred, today=today), None
     except Exception as e:
-        motivo = f"{type(e).__name__}: {e}"
+        # FRED lleva la api_key como query param, y `str()` de un HTTPError
+        # incluye la URL entera. `motivo` viaja tal cual hasta el aviso de
+        # Telegram, así que se redacta acá — antes de que el secreto entre al
+        # estado del orquestador — y no en el punto de envío.
+        motivo = redact(f"{type(e).__name__}: {e}")
         logger.warning(
             "macro_snapshot_unavailable", error=str(e), error_type=type(e).__name__
         )

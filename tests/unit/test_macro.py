@@ -165,6 +165,31 @@ def test_the_reason_distinguishes_a_dead_fred_from_a_short_series():
     assert motivo_caido != motivo_corto
 
 
+def test_safe_build_macro_snapshot_redacts_a_credential_in_the_reason():
+    """La URL de FRED lleva la api_key en la query string.
+
+    `str(HTTPError)` la incluye entera, y ese texto es lo que viaja tal cual
+    hasta el aviso de Telegram. Si el motivo no se redacta acá, la key queda
+    en el historial del chat en texto plano.
+    """
+
+    class LeakyFred:
+        def get_series_observations(self, series_id, **kwargs):
+            raise FREDClientError(
+                "Error al obtener datos de FRED: 401 Client Error: "
+                "Unauthorized for url: "
+                "https://api.stlouisfed.org/fred/series/observations"
+                "?series_id=CPIAUCSL&api_key=FAKESECRET1234567890&file_type=json"
+            )
+
+    snapshot, motivo = safe_build_macro_snapshot(LeakyFred(), today=date(2026, 8, 9))
+
+    assert snapshot is None
+    assert motivo is not None
+    assert "FAKESECRET1234567890" not in motivo
+    assert "***REDACTED***" in motivo
+
+
 def test_safe_build_macro_snapshot_returns_snapshot_on_success(fake_fred):
     snap, motivo = safe_build_macro_snapshot(fake_fred, today=date(2026, 8, 9))
 
