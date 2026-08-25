@@ -52,11 +52,15 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      # Los unit tests mockean todas las dependencias externas.
-      # No se necesitan credenciales reales.
-      - name: Run unit tests with coverage
+      # Unit e integration mockean todas las dependencias externas: ninguno
+      # necesita credenciales reales (verificado corriendolos con el entorno
+      # limpio). `tests/integration/` quedaba fuera del gate, asi que sus
+      # tests —los unicos que ejercitan el orquestador de punta a punta— no
+      # corrian en CI: el que atrapa que una run sin publicadores no puede
+      # marcarse como publicada vive ahi.
+      - name: Run unit and integration tests with coverage
         run: |
-          pytest tests/unit/ -v \
+          pytest tests/unit/ tests/integration/ -v \
             --cov=src/macro_pipeline \
             --cov-report=term-missing \
             --cov-report=xml \

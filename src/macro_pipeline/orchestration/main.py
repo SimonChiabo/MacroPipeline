@@ -214,6 +214,30 @@ class MacroOrchestrator:
                     logger.info("event_already_published_skipping", event_id=event_id)
                     return
 
+                # ── Sin publicadores no hay cierre semanal ─────────────────────
+                # Va antes del lock y antes de tocar el estado: si no se puede
+                # publicar, todo lo que sigue —renderizar, llamar al LLM, pedir
+                # aprobación a un humano— es trabajo tirado, y terminaba peor
+                # que tirado. `mark_as_published` estaba al mismo nivel que el
+                # `if self.publishers_ready`, no dentro, así que la run se
+                # cerraba marcando como publicado un evento que no se publicó
+                # en ninguna red; la semana siguiente `is_published` lo daba por
+                # hecho y ese cierre no salía nunca. Un `logger.warning` al
+                # arrancar era lo único que lo decía.
+                # No se toca el estado a propósito: sin fila, la próxima run
+                # reintenta sola.
+                if not self.publishers_ready:
+                    logger.error("publishers_not_ready_aborting", event_id=event_id)
+                    self.telegram.send_alert(
+                        "⚠️ El cierre semanal no se ejecutó: falta alguna "
+                        "credencial de X o LinkedIn y los clientes de "
+                        "publicación no se pudieron construir.\n\n"
+                        "No se publicó nada y el evento queda sin marcar, así "
+                        "que la próxima run lo reintenta. Verificar con "
+                        "`python scripts/check_publishers.py`."
+                    )
+                    return
+
                 # ── Locking ligero: evitar runs simultáneas ────────────────────
                 if self.state.is_in_progress(event_id):
                     logger.warning(

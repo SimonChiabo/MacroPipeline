@@ -33,8 +33,18 @@ def _build_orchestrator(data: WeeklyCloseData) -> MacroOrchestrator:
     orch = MacroOrchestrator.__new__(MacroOrchestrator)
     orch.tracer = None
     orch.r2_ready = False
-    orch.publishers_ready = False
     orch._allow_mock = False
+
+    # Con publicadores: el camino normal. Antes esto era False, que era un
+    # atajo para no mockear los dos clientes —no una afirmacion de que la run
+    # deba llegar hasta el final sin publicadores—, y de paso dejaba los
+    # cuatro tests de aca corriendo por el camino roto: sin publicar nada y
+    # marcando el evento como publicado igual.
+    orch.publishers_ready = True
+    orch.x_client = MagicMock()
+    orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
+    orch.linkedin = MagicMock()
+    orch.linkedin.post_text.return_value = {"id": "li-456"}
 
     orch.state = MagicMock()
     orch.state.is_published.return_value = False
@@ -123,6 +133,61 @@ def test_validator_rejection_alerts_the_operator(snapshot):
     aviso = orch.telegram.send_alert.call_args[0][0]
     assert "desempleo" in aviso, "el aviso tiene que llevar el motivo del rechazo"
     assert "Titular de prueba" in aviso, "y el titular que se descarto"
+
+
+def test_a_run_without_publishers_is_not_marked_as_published(snapshot):
+    """Sin clientes de publicacion, el evento NO puede quedar como publicado.
+
+    `publishers_ready` es False cuando falta una credencial de X o LinkedIn.
+    Hasta el 2026-08-25 el bloque de publicacion estaba dentro de ese `if`
+    pero `mark_as_published` quedaba fuera, al mismo nivel: el pipeline
+    renderizaba, pedia aprobacion, el humano aprobaba, no se publicaba nada
+    en ninguna red, y el evento quedaba marcado como publicado con headline y
+    metadatos completos. La run siguiente veia `is_published() == True` y lo
+    salteaba, asi que el cierre de esa semana no salia nunca.
+
+    Lo unico que lo decia era un `logger.warning` al arrancar.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+    orch = _build_orchestrator(data)
+    orch.publishers_ready = False
+
+    orch.run_weekly_close()
+
+    orch.state.mark_as_published.assert_not_called()
+
+
+def test_a_run_without_publishers_does_not_bother_the_operator(snapshot):
+    """Y no le pide aprobacion a un humano para algo que no puede publicar.
+
+    Pedirla es peor que inutil: el operador aprueba, no pasa nada, y la unica
+    senial de que el pipeline estaba roto es que el post nunca aparece. El
+    aviso reemplaza a la peticion de aprobacion, no se suma a ella.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+    orch = _build_orchestrator(data)
+    orch.publishers_ready = False
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_approval_request.assert_not_called()
+    orch.telegram.send_alert.assert_called_once()
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "credencial" in aviso.lower() or "publicaci" in aviso.lower()
 
 
 def test_no_alert_when_the_validator_approves(snapshot):
