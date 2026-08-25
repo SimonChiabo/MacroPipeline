@@ -1,6 +1,7 @@
 # ADR-009: Política de degradación — qué fallo degrada y qué fallo aborta
 
-**Estado:** Aceptado (documenta lo vigente y deja decididas tres divergencias, cuyo arreglo queda pendiente, 2026-08-25)
+**Estado:** Aceptado (2026-08-25). Las tres divergencias que documentaba se
+arreglaron el mismo dia; la seccion final las conserva como registro.
 **Fecha:** 2026-08-25
 **Decisores:** Simon Chiabo
 
@@ -88,36 +89,36 @@ afirmar lo contrario ni impedir el reintento.
 | X / LinkedIn | Credenciales ausentes | **Aborta** antes del lock, con alerta | Ninguna fila |
 | X / LinkedIn | Publicación fallida | **Aborta** — `post_id` de lo que sí salió persistido | `failed` |
 
-La columna de estado dice lo que la política exige, **no lo que el código hace
-hoy**. El único abort que hoy sale realmente antes del lock es el de
-credenciales de publicación (`orchestration/main.py:229`, y `mark_in_progress`
-está en la línea 248). El único que hoy deja un estado terminal correcto es el
-timeout de Telegram, que llama a `mark_expired` (`orchestration/main.py:344`).
-Los otros siete aborts de la tabla —incluidos los tres de la fase de datos, que
-ocurren en la línea 261— salen por excepción y dejan la fila trabada en
-`in_progress`: es la divergencia 3, y no alcanza solo a la fase de publicación.
+La columna de estado se cumple desde el 2026-08-25. Cuando se escribió esta
+tabla solo dos aborts la respetaban —el de credenciales de publicación, que sale
+antes del lock, y el timeout de Telegram, que llama a `mark_expired`—; los otros
+siete salían por excepción y dejaban la fila trabada en `in_progress` (era la
+divergencia 3). Hoy el `except` general marca `failed`, y cada camino de salida
+tiene un test que verifica el estado que deja
+(`tests/integration/test_orchestrator_exit_states.py`).
 
 Tres casos merecen la razón explícita, porque son los que se decidieron hoy:
 
 **La API de Anthropic caída degrada.** El bloque genérico lleva las cifras
 reales —las pone el pipeline, no el modelo—, así que lo que se pierde es
 redacción, no información. ADR-001 define la capa LLM como auxiliar y esto es
-la consecuencia de esa definición. **Pero la alerta tiene que decir la verdad:**
-hoy dice "el validador rechazó el titular" también cuando lo que murió fue la
+la consecuencia de esa definición. **Pero la alerta tiene que decir la verdad**,
+y decía "el validador rechazó el titular" también cuando lo que murió fue la
 API, porque el `except` del validador devuelve `approved=False` igual que un
-rechazo real (`llm/validator.py:151-155`).
+rechazo real (`llm/validator.py:151-155`). Arreglado en `f53a755`.
 
 **R2 fallando degrada igual que R2 sin configurar.** ADR-007 ya dice que "el
 pipeline funciona sin R2, solo sin snapshots remotos". Que el componente
 declarado opcional sea fatal *justo cuando está configurado* es la política al
-revés, y hoy además aborta en el peor momento: después de que el humano aprobó
-y antes de publicar en ninguna red.
+revés, y además abortaba en el peor momento: después de que el humano aprobó y
+antes de publicar en ninguna red. Arreglado en `d187d81`.
 
 **Toda excepción marca `failed`.** Es lo que hace alcanzable la reconciliación
 parcial que el orquestador promete en su docstring (`orchestration/main.py:42-43`).
 El coste aceptado: un reintento tras una publicación a medias se apoya en los
 `post_id` persistidos para no republicar en X lo que ya salió. Ese mecanismo ya
-existe (`orchestration/main.py:251-253`, `363-383`); hoy es código muerto.
+existía y era código muerto; desde `1dc6fac` se ejecuta, y hay un test que lo
+recorre de punta a punta con un `StateDB` real.
 
 ---
 
@@ -127,10 +128,12 @@ existe (`orchestration/main.py:251-253`, `363-383`); hoy es código muerto.
 
 - La pregunta "¿qué pasa si falla X?" tiene una respuesta en un solo lugar, y
   un criterio que permite responderla para un componente que todavía no existe.
-- Las tres divergencias que el inventario destapó pasan a ser trabajo con
-  nombre, en vez de comportamiento que nadie decidió.
+- Las tres divergencias que el inventario destapó pasaron a ser trabajo con
+  nombre en vez de comportamiento que nadie decidió, y de ahí a arregladas el
+  mismo día. Escribir el inventario fue lo que las encontró.
 - La regla "un abort nunca deja `in_progress`" es verificable con un test por
-  cada camino de salida, cosa que "degrada o aborta" a secas no era.
+  cada camino de salida, cosa que "degrada o aborta" a secas no era. Esos tests
+  existen desde `1dc6fac` (`tests/integration/test_orchestrator_exit_states.py`).
 
 **Negativas:**
 
@@ -149,46 +152,70 @@ contract tests (ADR-008) y los rangos de plausibilidad, no este ADR.
 
 ---
 
-## Divergencias entre esta política y el código (2026-08-25)
+## Divergencias entre esta política y el código
 
-Las cuatro están verificadas contra el código en la fecha del ADR. Las tres
-primeras son trabajo pendiente; la cuarta es una consecuencia aceptada.
+Las cuatro se verificaron contra el código el 2026-08-25, el día del ADR. Las
+tres primeras eran trabajo pendiente y se arreglaron ese mismo día; quedan
+escritas porque el modo de fallo que cada una describe es más fácil de volver a
+introducir que de encontrar. La cuarta sigue siendo una consecuencia aceptada.
 
-**1. La alerta miente cuando muere la API de Anthropic.**
-`orchestration/main.py:316-321` emite siempre "El validador rechazó el titular
+**1. La alerta mentía cuando moría la API de Anthropic.** — *Cerrada en
+`f53a755`.*
+`orchestration/main.py` emitía siempre "El validador rechazó el titular
 generado". Con la API caída el generador devuelve `FALLBACK_HEADLINE`
 (`llm/client.py:127-129`) y el validador devuelve `approved=False` con
-`API_ERROR_REASON_PREFIX` (`llm/validator.py:151-155`): la degradación es
-correcta, el diagnóstico no. Las constantes para distinguirlo ya existen y son
-públicas justamente para esto — el contract test las usa.
+`API_ERROR_REASON_PREFIX` (`llm/validator.py:151-155`): la degradación era
+correcta, el diagnóstico no, y mandaba a revisar un prompt sano. Ahora se mira
+el motivo y hay un texto por causa.
 
-**2. R2 configurado y fallando aborta después de la aprobación humana.**
-`orchestration/main.py:352-354` llama a `upload_image` sin protección y
-`storage/r2_client.py:68-70` levanta `R2ClientError`. La excepción sale por el
-`except` general y la run muere con el humano ya habiendo aprobado y sin nada
-publicado. Debe degradar y avisar.
+Escribiendo el arreglo apareció un cuarto caso que ningún inventario tenía, y
+es el más silencioso de todos: **cuando quien muere es el generador, no había
+alerta ninguna.** `FALLBACK_HEADLINE` no lleva ninguna cifra, así que el
+validador —que busca cifras inventadas— lo aprueba, no hay rechazo que
+detectar, y el pipeline publicaba "Cierre Semanal: Resumen del Mercado" a
+secas. Es decir que la premisa con la que este ADR acepta degradar ahí —"el
+bloque genérico lleva las cifras reales, las pone el pipeline"— sólo era cierta
+por el camino del rechazo. Ahora también por este.
 
-**3. Toda excepción posterior a `mark_in_progress` deja la fila trabada.**
-`mark_x_published` y `mark_linkedin_published` (`storage/state.py:135`, `144`)
-actualizan solo la columna del `post_id`, **no `status`**. El `except` general
-del orquestador (`orchestration/main.py:404-408`) loggea y re-levanta sin tocar
-el estado. Resultado: la fila queda en `in_progress` para siempre y el reintento
-del mismo `event_id` muere en el guard de `orchestration/main.py:242-246` con un
+**2. R2 configurado y fallando abortaba después de la aprobación humana.** —
+*Cerrada en `d187d81`.*
+`orchestration/main.py` llamaba a `upload_image` sin protección y
+`storage/r2_client.py:68-70` levanta `R2ClientError`. La excepción salía por el
+`except` general y la run moría con el humano ya habiendo aprobado y sin nada
+publicado. Ahora degrada y avisa, con un `except` ancho a propósito:
+`upload_image` sólo convierte `ClientError`, así que un corte de red llega como
+`EndpointConnectionError` de botocore y atrapar sólo lo nuestro habría dejado
+abierto justo el fallo más probable.
+
+**3. Toda excepción posterior a `mark_in_progress` dejaba la fila trabada.** —
+*Cerrada en `1dc6fac`.*
+`mark_x_published` y `mark_linkedin_published` actualizan sólo la columna del
+`post_id`, **no `status`**, y el `except` general del orquestador loggeaba y
+re-levantaba sin tocar el estado. La fila quedaba en `in_progress` para siempre
+y el reintento del mismo `event_id` moría en el guard de duplicados con un
 `pipeline_already_running_skipping`. **La idempotencia parcial que promete el
-docstring de `orchestration/main.py:42-43` es hoy inalcanzable**, y el código de
-reconciliación de las líneas 251-253 y 363-383 nunca se ejecuta.
+docstring de `orchestration/main.py:42-43` era inalcanzable**, y el código de
+reconciliación que lee los `post_id` nunca se ejecutaba.
 
-No es un problema de la fase de publicación: el lock se toma en la línea 248 y
-la fase de datos empieza en la 261, así que el abort por Alpha Vantage caída, el
-del Mock Data bloqueado y el de datos insuficientes para el retorno también
-dejan la fila trabada. La única salida que hoy marca bien es el timeout de
-Telegram (`mark_expired`, línea 344).
+No era un problema de la fase de publicación: el lock se toma antes de la fase
+de datos, así que el abort por Alpha Vantage caída, el del Mock Data bloqueado y
+el de datos insuficientes para el retorno también dejaban la fila trabada. La
+única salida que marcaba bien era el timeout de Telegram.
 
-Un detalle del arreglo, para no tropezar con él: `mark_in_progress` es
-`INSERT OR IGNORE` (`storage/state.py:105-112`), así que sobre una fila que ya
-existe con estado `expired` o `failed` **el lock no se re-arma** — el reintento
-corre sin lock. Marcar `failed` en el `except` cierra el bloqueo pero deja esa
-segunda mitad abierta.
+El arreglo tiene tres piezas, y las dos últimas no son obvias:
+
+- El `except` general llama a `mark_failed`. Como es un `UPDATE` acotado sirve
+  para las tres situaciones sin preguntar en cuál estamos: si el abort fue
+  anterior al lock no hay fila y no se crea ninguna.
+- `mark_in_progress` era `INSERT OR IGNORE`, así que sobre una fila `failed` o
+  `expired` el lock **no se re-armaba** y el reintento corría sin lock. Ahora
+  re-arma, con un `WHERE` estrecho que no reabre una fila `published` ni pisa
+  los `post_id` —que es lo que lee la reconciliación tres líneas después—.
+- `mark_failed` ignora las filas `published`. Con "toda excepción marca
+  `failed`" el manejador corre también para lo que reviente *después* de
+  publicar, y desmarcar ahí sería peor que el fallo original: la run siguiente
+  vería `is_published() == False` y publicaría el mismo cierre por segunda vez
+  en X y LinkedIn.
 
 **4. Consecuencia aceptada: la ruta de Alpha Vantage ya no puede publicar.**
 El ETL pide a FMP `^GSPC` (índice, ~7.657) y cae a AV con `SPY` (ETF, ~765). El
@@ -211,7 +238,7 @@ sería una degradación real en vez de un abort— quedó propuesto y sin hacer.
   degradar de abortar.
 - **ADR-004** es la razón de que el fallo de Telegram en la fase de aprobación
   aborte y no degrade: sin humano no hay publicación durante el primer mes.
-- **ADR-007** declara R2 opcional; la divergencia 2 es el código no cumpliendo
+- **ADR-007** declara R2 opcional; la divergencia 2 era el código no cumpliendo
   esa declaración.
 - **ADR-008** cubre el hueco que esta política deja: los fallos silenciosos.
 - **ADR-002** queda tocado de refilón: la idempotencia que promete depende de
