@@ -10,8 +10,18 @@ from macro_pipeline.data.av_client import AlphaVantageClient
 from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.fred_client import FREDClient
 from macro_pipeline.data.macro import safe_build_macro_snapshot
-from macro_pipeline.llm.client import HEADLINE_PROMPT_VERSION, MODEL, LLMClient
-from macro_pipeline.llm.validator import VALIDATOR_PROMPT_VERSION, ValidatorAgent
+from macro_pipeline.llm.client import (
+    FALLBACK_HEADLINE,
+    HEADLINE_PROMPT_VERSION,
+    MODEL,
+    LLMClient,
+)
+from macro_pipeline.llm.validator import (
+    API_ERROR_REASON_PREFIX,
+    TOOL_FAILURE_REASON,
+    VALIDATOR_PROMPT_VERSION,
+    ValidatorAgent,
+)
 from macro_pipeline.observability.logger import setup_observability
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
 from macro_pipeline.publishers.x_client import XClient
@@ -304,10 +314,58 @@ class MacroOrchestrator:
                     headline = self.llm.generate_headline(data_str)
                     review = self.validator_agent.review_draft(headline, data_str)
                     validator_approved = bool(review.get("approved"))
+                    review_reason = str(review.get("reason", ""))
+                    generator_fell_back = headline == FALLBACK_HEADLINE
 
-                    if not validator_approved:
+                    # Tres degradaciones distintas terminaban en el mismo
+                    # aviso, y el aviso nombraba la unica que no siempre era.
+                    # El `except` del agente validador devuelve
+                    # `approved=False` igual que un rechazo real, asi que sin
+                    # mirar el motivo no se distingue un prompt malo de la API
+                    # caida — y esa es la diferencia entre tocar codigo y
+                    # relanzar.
+                    if generator_fell_back:
+                        # El generador murio. Es el caso mas silencioso de los
+                        # tres: su fallback no lleva ninguna cifra, asi que el
+                        # validador —que busca cifras inventadas— lo aprueba,
+                        # no habia rechazo, no habia aviso, y se publicaba
+                        # "Cierre Semanal: Resumen del Mercado" a secas.
+                        degradation = (
+                            "⚠️ El generador de titulares no respondió (la API "
+                            "de Anthropic falló); se publica el bloque "
+                            "genérico con las cifras reales."
+                        )
+                        degradation_cause = "generador_caido"
+                    elif not validator_approved and (
+                        review_reason.startswith(API_ERROR_REASON_PREFIX)
+                        or review_reason == TOOL_FAILURE_REASON
+                    ):
+                        degradation = (
+                            "⚠️ El validador no llegó a revisar el titular (la "
+                            "API de Anthropic falló); se publica el bloque "
+                            f"genérico.\n\n"
+                            f"Motivo: {review_reason}\n\n"
+                            f"Titular sin verificar: {headline}"
+                        )
+                        degradation_cause = "validador_no_respondio"
+                    elif not validator_approved:
+                        degradation = (
+                            "⚠️ El validador rechazó el titular generado; se "
+                            f"publica el bloque genérico.\n\n"
+                            f"Motivo: {review_reason}\n\n"
+                            f"Titular descartado: {headline}"
+                        )
+                        degradation_cause = "titular_rechazado"
+                    else:
+                        degradation = ""
+                        degradation_cause = ""
+
+                    if degradation:
                         logger.error(
-                            "draft_rejected_by_ai", reason=review.get("reason")
+                            "llm_layer_degraded",
+                            cause=degradation_cause,
+                            approved=validator_approved,
+                            reason=review_reason,
                         )
                         # El log solo no alcanza: el operador recibe igual la
                         # peticion de aprobacion y el bloque generico se parece
@@ -316,12 +374,7 @@ class MacroOrchestrator:
                         # note. Es lo que paso con el reetiquetado que encontro
                         # el contract test (ver ADR-001). El aviso va antes de
                         # pedir aprobacion para que llegue en ese orden.
-                        self.telegram.send_alert(
-                            "⚠️ El validador rechazó el titular generado; se "
-                            "publica el bloque genérico.\n\n"
-                            f"Motivo: {review.get('reason')}\n\n"
-                            f"Titular descartado: {headline}"
-                        )
+                        self.telegram.send_alert(degradation)
                         headline = (
                             f"📊 Cierre de Mercado Semanal:\n"
                             f"S&P500: {data.sp500_weekly_return * 100:+.2f}%\n"

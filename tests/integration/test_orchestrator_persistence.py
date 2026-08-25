@@ -12,6 +12,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from macro_pipeline.llm.client import FALLBACK_HEADLINE
+from macro_pipeline.llm.validator import (
+    API_ERROR_REASON_PREFIX,
+    TOOL_FAILURE_REASON,
+)
 from macro_pipeline.orchestration.main import MacroOrchestrator
 from macro_pipeline.storage.r2_client import R2ClientError
 from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
@@ -278,3 +283,104 @@ def test_a_failing_r2_upload_alerts_the_operator(snapshot):
     aviso = orch.telegram.send_alert.call_args[0][0]
     assert "R2" in aviso
     assert "AccessDenied" in aviso, "el aviso tiene que llevar la causa real"
+
+
+# ── La alerta tiene que decir que fallo (ADR-009, divergencia 1) ─────────────
+
+
+def _data(snapshot) -> WeeklyCloseData:
+    return WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        f"{API_ERROR_REASON_PREFIX} Connection error.",
+        TOOL_FAILURE_REASON,
+    ],
+    ids=["api_caida", "no_uso_la_tool"],
+)
+def test_the_alert_does_not_blame_the_validator_when_it_never_reviewed(
+    snapshot, reason
+):
+    """Un validador que no pudo revisar no es un validador que rechazo.
+
+    El `except` del agente devuelve `approved=False` igual que un rechazo real
+    (por eso el control negativo del contract test existe), asi que la alerta
+    decia "el validador rechazo el titular" tambien cuando lo que murio fue la
+    API. La degradacion era correcta; el diagnostico mandaba al operador a
+    revisar un prompt que no tenia nada malo.
+    """
+    orch = _build_orchestrator(_data(snapshot))
+    orch.validator_agent.review_draft.return_value = {
+        "approved": False,
+        "reason": reason,
+    }
+
+    orch.run_weekly_close()
+
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "rechaz" not in aviso.lower(), "no hubo rechazo: hubo un fallo tecnico"
+    assert "Anthropic" in aviso
+
+
+def test_a_real_rejection_still_names_the_validator(snapshot):
+    """Y el rechazo de verdad sigue diciendose rechazo: el operador decide
+    distinto segun cual de los dos sea."""
+    orch = _build_orchestrator(_data(snapshot))
+    orch.validator_agent.review_draft.return_value = {
+        "approved": False,
+        "reason": "El borrador cita un 4,2% que en la fuente es el desempleo.",
+    }
+
+    orch.run_weekly_close()
+
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "rechaz" in aviso.lower()
+    assert "desempleo" in aviso
+
+
+def test_a_dead_generator_alerts_even_if_the_validator_approves(snapshot):
+    """El fallo mas silencioso de los tres: nadie avisaba.
+
+    Con la API caida el generador devuelve `FALLBACK_HEADLINE`, un titular sin
+    ninguna cifra. El validador —que revisa que no haya cifras inventadas— lo
+    aprueba sin problema, asi que no habia rechazo, no habia alerta, y el
+    pipeline publicaba "Cierre Semanal: Resumen del Mercado" a secas. Es
+    exactamente la degradacion invisible que ADR-009 existe para evitar.
+    """
+    orch = _build_orchestrator(_data(snapshot))
+    orch.llm.generate_headline.return_value = FALLBACK_HEADLINE
+    orch.validator_agent.review_draft.return_value = {"approved": True}
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_called_once()
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "Anthropic" in aviso
+    assert "rechaz" not in aviso.lower()
+
+
+def test_a_dead_generator_publishes_the_generic_block_with_the_real_figures(snapshot):
+    """Y se publica el bloque generico, que si lleva las cifras.
+
+    ADR-009 acepta que la API caida degrade porque "lo que se pierde es
+    redaccion, no informacion" — las cifras las pone el pipeline. Publicar
+    `FALLBACK_HEADLINE` tal cual perdia tambien la informacion.
+    """
+    orch = _build_orchestrator(_data(snapshot))
+    orch.llm.generate_headline.return_value = FALLBACK_HEADLINE
+
+    orch.run_weekly_close()
+
+    publicado = orch.x_client.post_tweet.call_args[0][0]
+    assert "+1.20%" in publicado
+    assert "+1.90%" in publicado
+    assert publicado == orch.linkedin.post_text.call_args[0][0]
