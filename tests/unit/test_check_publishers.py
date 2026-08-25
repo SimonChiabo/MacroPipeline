@@ -275,7 +275,8 @@ def test_a_disabled_network_cannot_turn_the_script_red(
     assert check_publishers.main() == 0
 
     salida = capsys.readouterr().out
-    assert "apagada" in salida.lower()
+    assert "X:        apagada" in salida
+    assert "LinkedIn: apagada" in salida
 
 
 def test_a_disabled_network_is_not_even_checked(check_publishers, monkeypatch):
@@ -296,3 +297,22 @@ def test_a_disabled_network_is_not_even_checked(check_publishers, monkeypatch):
     check_publishers.main()
 
     assert llamadas == []
+
+
+def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
+    check_publishers, monkeypatch, capsys
+):
+    """El unico sitio donde el valor malo no debe salir por traceback.
+
+    El orquestador se muere loudly a proposito; este script existe para
+    decirle a un humano que tiene mal configurado, y todos sus otros caminos
+    de fallo imprimen una linea legible.
+    """
+    monkeypatch.setenv("PUBLISH_X", "yes")
+    monkeypatch.setattr(check_publishers, "report_env_drift", lambda *a, **k: None)
+
+    assert check_publishers.main() == 1
+
+    salida = capsys.readouterr().out
+    assert "PUBLISH_X" in salida
+    assert "yes" in salida

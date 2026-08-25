@@ -259,8 +259,15 @@ def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
 
-    x_on = publisher_enabled(PUBLISH_X_VAR)
-    linkedin_on = publisher_enabled(PUBLISH_LINKEDIN_VAR)
+    try:
+        x_on = publisher_enabled(PUBLISH_X_VAR)
+        linkedin_on = publisher_enabled(PUBLISH_LINKEDIN_VAR)
+    except ValueError as e:
+        # El unico sitio donde el valor malo no sale por traceback: este script
+        # existe para decirle a un humano que tiene mal configurado, y el
+        # orquestador ya se muere solo si la bandera no se entiende.
+        print(f"{FAIL} {e}")
+        return 1
 
     # Una red apagada no se chequea y no cuenta para el código de salida: no
     # tiene credenciales que sirvan ni que dejen de servir, porque no publica.
