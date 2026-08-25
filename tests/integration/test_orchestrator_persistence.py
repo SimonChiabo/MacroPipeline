@@ -145,7 +145,7 @@ def test_validator_rejection_alerts_the_operator(snapshot):
 def test_a_run_without_publishers_is_not_marked_as_published(snapshot):
     """Sin clientes de publicacion, el evento NO puede quedar como publicado.
 
-    `publishers_ready` es False cuando falta una credencial de X o LinkedIn.
+    `publishers_ready` era False cuando faltaba una credencial de X o LinkedIn.
     Hasta el 2026-08-25 el bloque de publicacion estaba dentro de ese `if`
     pero `mark_as_published` quedaba fuera, al mismo nivel: el pipeline
     renderizaba, pedia aprobacion, el humano aprobaba, no se publicaba nada

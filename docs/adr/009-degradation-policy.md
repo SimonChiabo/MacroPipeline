@@ -136,12 +136,12 @@ salido.
 
 **Un apagado deliberado no alerta.** `PUBLISH_X=false` y `PUBLISH_LINKEDIN=false`
 apagan una red a propósito: no se construye el cliente, no se publica, y no se
-manda nada a Telegram. Es la única excepción a la regla de que toda degradación
-alerta, y la razón es la misma que sostiene la regla: alertar existe para que
-una publicación degradada no pase inadvertida, y una decisión propia no pasa
-inadvertida. Un aviso semanal por una pausa que pediste es el ruido que hace que
-se deje de leer el aviso que importa. La distinción que queda fijada es **si
-llega una alerta, es porque algo se rompió**.
+manda nada a Telegram. No es una excepción a la regla de que toda degradación
+alerta: es que apagar una red no es una degradación. La regla existe porque el
+lector no distingue una publicación degradada de una normal, y una decisión
+propia no necesita que se la avisen. Un aviso semanal por una pausa que pediste
+es el ruido que hace que se deje de leer el aviso que importa. La distinción que
+queda fijada es **si llega una alerta, es porque algo se rompió**.
 
 ---
 
@@ -168,7 +168,7 @@ llega una alerta, es porque algo se rompió**.
 - La política no se hace cumplir sola. Hoy vive en esta tabla y en el código;
   nada impide que la próxima decisión local vuelva a divergir.
 
-**Dos limitaciones que esta revisión no arregla, y que hasta ahora no estaban
+**Tres limitaciones que esta revisión no arregla, y que hasta ahora no estaban
 escritas en ningún lado:**
 
 **(a) La alerta de degradación promete de más en dos casos.** Va antes de pedir
@@ -186,6 +186,15 @@ parcial, se pueden perder.** Si `mark_x_published` falla después de que
 `post_tweet` salió bien, el tweet existe y el registro de que existe no, así
 que el reintento republica en X. Esta política se apoya en los `post_id` sin
 decir que tienen esa ventana.
+
+**(c) La regla "toda degradación alerta" no se cumple para FRED.** El bloque
+macro se cae en silencio: `_fetch_macro_snapshot` solo hace `logger.warning`,
+nunca `send_alert` (`main.py:136-157`). Una semana sin contexto macro es
+exactamente el caso invisible-y-repetible que la regla existe para evitar, y
+hoy nada se lo dice al operador. Queda como pregunta abierta para Simon, no
+como decisión tomada acá: si el bloque macro es lo bastante secundario como
+para que la regla necesite un carve-out para degradaciones que solo cuestan
+contexto, o si el camino de FRED necesita su propia alerta.
 
 **Lo que esta política no cubre:** un componente que falla *silenciosamente*
 devolviendo datos plausibles pero equivocados. Ninguna rama de degradar/abortar
