@@ -86,14 +86,20 @@ No lo es:
 "Declarado opcional" no es una opinión sobre cada componente: **ADR-007 lo dice
 de R2, y del bloque macro lo dice el criterio con el que abre esta Decisión**
 —los índices son el contenido principal y un cierre semanal sin bloque macro
-sigue siendo un cierre semanal correcto—. Publicar, en cambio, es el propósito del
-pipeline. El eje se apoya en declaraciones que ya existen, y por eso es
+sigue siendo un cierre semanal correcto—. Publicar, en cambio, es el propósito
+del pipeline. El eje se apoya en declaraciones que ya existen, y por eso es
 verificable en vez de retórico — de un componente nuevo se puede preguntar "¿lo
 declara opcional algún ADR?" y la respuesta no depende de quién conteste.
 
-De acá sale que **FRED sin key, R2 sin configurar y una red apagada por bandera
-son la misma cosa**: no participan, y no gastan una alerta. Los tres fallando
-*estando configurados* sí alertan.
+De acá sale que **FRED sin key y R2 sin configurar son la misma cosa**: no
+participan, y no gastan una alerta. Los dos fallando *estando configurados* sí
+alertan.
+
+Una red apagada por bandera termina en el mismo silencio, pero **no por este
+eje**: publicar no lo declara opcional ningún ADR, y una red apagada no está sin
+configurar sino apagada a propósito. Llega ahí por su propio argumento —*Un
+apagado deliberado no alerta*, más abajo—, y que los dos caminos coincidan es lo
+que hace que la tabla no tenga que distinguirlos.
 
 ### La política, por componente
 
@@ -116,7 +122,7 @@ son la misma cosa**: no participan, y no gastan una alerta. Los tres fallando
 | R2 | Subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
 | X / LinkedIn | Credenciales ausentes en **una** de las dos | **Degrada** — publica en la otra, con alerta antes de pedir aprobación | `published` |
 | X / LinkedIn | Credenciales ausentes en **las dos** | **Aborta** antes del lock, con alerta | Ninguna fila |
-| X / LinkedIn | Apagada con `PUBLISH_X` / `PUBLISH_LINKEDIN` en `false` | **No es un fallo** — no se construye, no publica y **no alerta** | — |
+| X / LinkedIn | Apagada con `PUBLISH_X` / `PUBLISH_LINKEDIN` en `false` | **No es un fallo** — no se construye, no publica y **no alerta** | — (Ninguna fila si están apagadas las dos) |
 | X / LinkedIn | Publicación fallida | **Aborta** — `post_id` de lo que sí salió persistido | `failed` |
 
 La columna de estado se cumple desde el 2026-08-25. Cuando se escribió esta
@@ -234,17 +240,25 @@ mismo patrón que motivó este ADR.
 **(d) A un componente necesario sin credenciales no se entera nadie.** El eje de
 arriba dice que un componente necesario al que le faltan credenciales es un
 fallo, y para X y LinkedIn el código lo trata como tal: alerta —y si no queda
-ninguna red viva, aborta antes del lock—. Para FMP, Alpha Vantage, Anthropic y
-Telegram —y para un `PUBLISH_X` o
-un `PUBLISH_LINKEDIN` con un valor que no es `true` ni `false`— el `ValueError`
-sale de `MacroOrchestrator.__init__` sin que nadie lo atrape: la run muere antes
-de entrar en `run_weekly_close`, así que no hay alerta, no hay fila de estado y
-la semana siguiente vuelve a pasar lo mismo, también en silencio. Es el caso
-invisible-y-repetible que la regla "toda degradación alerta" existe para evitar,
-esta vez del lado de los aborts. Avisar no sería gratis: `LLMClient` se
-construye antes que `TelegramBot`, así que hoy el canal de aviso todavía no
-existe cuando revienta el primero, y cuando la credencial que falta es la del
-propio Telegram no hay canal de aviso ninguno. **Queda sin decidir.**
+ninguna red viva, aborta antes del lock—. Para FMP, Alpha Vantage y Telegram —y
+para un `PUBLISH_X` o un `PUBLISH_LINKEDIN` con un valor que no es `true` ni
+`false`— el `ValueError` sale de `MacroOrchestrator.__init__` sin que nadie lo
+atrape: la run muere antes de entrar en `run_weekly_close`, así que no hay
+alerta, no hay fila de estado y la semana siguiente vuelve a pasar lo mismo,
+también en silencio. Es el caso invisible-y-repetible que la regla "toda degradación
+alerta" existe para evitar, esta vez del lado de los aborts. Avisar no sería
+gratis: `FMPClient` y `AlphaVantageClient` se construyen antes que
+`TelegramBot`, así que cuando revienta uno de ellos el canal de aviso todavía no
+existe, y cuando la credencial que falta es la del propio Telegram no hay canal
+ninguno — salvo el de las banderas, que revienta después de que `TelegramBot` ya
+existe y para el que avisar sale casi gratis. **Anthropic no entra en esta
+lista, y su caso es otro:** sin `ANTHROPIC_API_KEY` el constructor también
+levanta, pero la tabla de arriba dice que la capa LLM **degrada**
+—`generate_headline` atrapa la API caída y publica el bloque genérico con las
+cifras reales—, así que lo que diverge ahí no es que falte el aviso sino que el
+constructor trate como fatal a un componente que esta política declara
+degradable; envolverlo como este mismo `__init__` ya envuelve a `FREDClient` y a
+`R2Client` no necesitaría alerta ninguna. **Queda sin decidir.**
 
 **Lo que esta política no cubre:** un componente que falla *silenciosamente*
 devolviendo datos plausibles pero equivocados. Ninguna rama de degradar/abortar
