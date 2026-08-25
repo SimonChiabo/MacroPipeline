@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -41,10 +41,10 @@ jobs:
     needs: lint-and-type-check
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -66,10 +66,15 @@ jobs:
             --cov-report=xml \
             --cov-fail-under=60
 
+      # Este paso fallaba en *todas* las runs con `Token required - not valid
+      # tokenless upload` y el job salia verde igual: la cobertura no se subia
+      # desde hacia meses y nadie lo veia. Dos cambios: el token entra como
+      # input (`env: CODECOV_TOKEN` llegaba vacio porque el secret no existia)
+      # y `fail_ci_if_error` pasa a `true`. Poner `false` ahi es exactamente lo
+      # que dejo el gate mintiendo en verde; si Codecov se cae, relanzar.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
