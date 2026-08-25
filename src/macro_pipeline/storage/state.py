@@ -103,11 +103,30 @@ class StateDB:
         return row is not None and row[0] == "in_progress"
 
     def mark_in_progress(self, event_id: str) -> None:
+        """Toma el lock del evento, tambien si una run anterior lo dejo cerrado.
+
+        El `INSERT OR IGNORE` solo cubre la primera run: sobre una fila que ya
+        existe no hace nada. Desde que toda excepcion marca `failed` (ADR-009)
+        la fila existe en cada reintento, asi que hace falta el `UPDATE` o el
+        reintento correria sin lock.
+
+        El `WHERE` es deliberadamente estrecho: solo `failed` y `expired`. Una
+        fila `published` no se reabre —seria borrar la unica marca de que ese
+        cierre ya salio— y una `in_progress` no se toca, que es lo que hace que
+        `is_in_progress` siga sirviendo de guarda contra runs simultaneas.
+        Las columnas de `post_id` quedan como estan a proposito: son lo que lee
+        la reconciliacion para saber que canal saltarse.
+        """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO published_events "
                 "(event_id, status, created_at) VALUES (?, 'in_progress', ?)",
                 (event_id, datetime.utcnow()),
+            )
+            conn.execute(
+                "UPDATE published_events SET status = 'in_progress' "
+                "WHERE event_id = ? AND status IN ('failed', 'expired')",
+                (event_id,),
             )
         logger.info("event_marked_in_progress", event_id=event_id)
 
@@ -225,9 +244,19 @@ class StateDB:
     # ── Fallos y expiración ───────────────────────────────────────────────────
 
     def mark_failed(self, event_id: str, reason: str = "") -> None:
+        """Cierra la run como fallida sin crear fila ni desmarcar una publicada.
+
+        Es un `UPDATE` a secas para las dos direcciones: si el abort ocurrio
+        antes del lock no hay fila y no se inventa ninguna (primera forma de
+        abort de ADR-009), y si la excepcion llego *despues* de publicar, el
+        `AND status != 'published'` evita el peor resultado posible — que la
+        run siguiente vea `is_published() == False` y publique ese mismo cierre
+        por segunda vez en X y LinkedIn.
+        """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "UPDATE published_events SET status = 'failed' WHERE event_id = ?",
+                "UPDATE published_events SET status = 'failed' "
+                "WHERE event_id = ? AND status != 'published'",
                 (event_id,),
             )
         logger.warning("event_marked_failed", event_id=event_id, reason=reason)

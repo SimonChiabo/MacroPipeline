@@ -122,3 +122,101 @@ def test_second_publish_overwrites_macro_columns(db, snapshot):
 
     assert state["cpi_yoy"] is None
     assert state["dgs10_as_of"] is None
+
+
+# ── El lock y los estados terminales (ADR-009, divergencia 3) ────────────────
+
+
+def test_mark_in_progress_rearms_the_lock_over_a_failed_row(db):
+    """Un reintento tras un fallo tiene que volver a tomar el lock.
+
+    `mark_in_progress` era `INSERT OR IGNORE` a secas: sobre una fila que ya
+    existe no hace nada. Mientras el unico estado terminal alcanzable era
+    `expired` daba igual, porque casi ninguna salida marcaba nada; en cuanto
+    toda excepcion pasa a marcar `failed` (ADR-009), la fila existe siempre y
+    el reintento correria **sin lock**, que es justo lo que el lock evita: dos
+    runs simultaneas publicando el mismo cierre dos veces.
+    """
+    db.mark_in_progress("weekly_close_2026-08-21")
+    db.mark_failed("weekly_close_2026-08-21", reason="fmp_caido")
+    assert not db.is_in_progress("weekly_close_2026-08-21")
+
+    db.mark_in_progress("weekly_close_2026-08-21")
+
+    assert db.is_in_progress("weekly_close_2026-08-21")
+
+
+def test_mark_in_progress_rearms_the_lock_over_an_expired_row(db):
+    """Lo mismo para el timeout de Telegram, que marca `expired`."""
+    db.mark_in_progress("weekly_close_2026-08-21")
+    db.mark_expired("weekly_close_2026-08-21")
+
+    db.mark_in_progress("weekly_close_2026-08-21")
+
+    assert db.is_in_progress("weekly_close_2026-08-21")
+
+
+def test_rearming_the_lock_preserves_the_post_ids(db):
+    """Re-armar el lock no puede borrar lo que ya se publico.
+
+    Es la mitad que hace posible la idempotencia parcial: el reintento lee
+    `x_post_id` y `linkedin_post_id` inmediatamente despues de tomar el lock
+    para saber que canal saltarse. Si el re-armado los pisara, republicaria en
+    X un cierre que ya salio.
+    """
+    db.mark_in_progress("weekly_close_2026-08-21")
+    db.mark_x_published("weekly_close_2026-08-21", "x-123")
+    db.mark_failed("weekly_close_2026-08-21", reason="linkedin_caido")
+
+    db.mark_in_progress("weekly_close_2026-08-21")
+
+    state = db.get_publication_state("weekly_close_2026-08-21")
+    assert state["status"] == "in_progress"
+    assert state["x_post_id"] == "x-123"
+    assert state["linkedin_post_id"] is None
+
+
+def test_mark_in_progress_never_reopens_a_published_row(db):
+    """Sobre un evento ya publicado el lock no se re-arma: se queda publicado.
+
+    El orquestador no llega aca —`is_published` corta antes— pero si alguna vez
+    lo hiciera, reabrir la fila borraria la unica marca de que ese cierre ya
+    salio y la run siguiente lo publicaria de nuevo.
+    """
+    db.mark_in_progress("weekly_close_2026-08-21")
+    db.mark_as_published("weekly_close_2026-08-21", headline="Cierre semanal")
+
+    db.mark_in_progress("weekly_close_2026-08-21")
+
+    state = db.get_publication_state("weekly_close_2026-08-21")
+    assert state["status"] == "published"
+    assert state["headline"] == "Cierre semanal"
+
+
+def test_mark_failed_does_not_undo_a_published_row(db):
+    """Una excepcion despues de publicar no puede desmarcar la publicacion.
+
+    Con "toda excepcion marca `failed`" (ADR-009) el `except` general del
+    orquestador corre tambien para lo que reviente *despues* de
+    `mark_as_published`. Marcar `failed` ahi seria peor que el fallo original:
+    la run siguiente veria `is_published() == False` y publicaria el mismo
+    cierre por segunda vez en X y LinkedIn.
+    """
+    db.mark_in_progress("weekly_close_2026-08-21")
+    db.mark_as_published("weekly_close_2026-08-21", headline="Cierre semanal")
+
+    db.mark_failed("weekly_close_2026-08-21", reason="reviento el logger")
+
+    assert db.is_published("weekly_close_2026-08-21")
+
+
+def test_mark_failed_on_an_event_that_never_started_creates_no_row(db):
+    """Un abort anterior al lock no deja fila, y `mark_failed` no la inventa.
+
+    Es lo que sostiene la primera forma de abort de ADR-009 ("aborta antes del
+    lock -> ninguna fila -> la proxima run reintenta sola"): el `except`
+    general llama a `mark_failed` sin saber si el lock llego a tomarse.
+    """
+    db.mark_failed("weekly_close_2026-08-21", reason="reviento is_published")
+
+    assert db.get_publication_state("weekly_close_2026-08-21") == {}

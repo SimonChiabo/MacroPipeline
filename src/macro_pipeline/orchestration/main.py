@@ -205,10 +205,13 @@ class MacroOrchestrator:
             else nullcontext()
         )
 
+        # Fuera del `try`: el `except` general lo necesita para cerrar la fila,
+        # y una variable que puede estar sin asignar ahi seria un fallo dentro
+        # del manejador de fallos.
+        event_id = f"weekly_close_{date.today()}"
+
         with span_ctx as span:
             try:
-                event_id = f"weekly_close_{date.today()}"
-
                 # ── Guardia de duplicados ──────────────────────────────────────
                 if self.state.is_published(event_id):
                     logger.info("event_already_published_skipping", event_id=event_id)
@@ -403,6 +406,16 @@ class MacroOrchestrator:
 
             except Exception as e:
                 logger.error("pipeline_failed_critically", error=str(e))
+                # Toda excepcion deja un estado terminal (ADR-009). Sin esto la
+                # fila se quedaba en `in_progress` para siempre y el reintento
+                # del mismo `event_id` moria en el guard de duplicados de mas
+                # arriba: ese cierre no salia nunca y la idempotencia parcial
+                # que promete el docstring era inalcanzable.
+                # `mark_failed` es un UPDATE acotado, asi que sirve para las
+                # tres situaciones sin preguntar en cual estamos: si el abort
+                # fue anterior al lock no hay fila y no se crea ninguna, y si
+                # la excepcion llego despues de publicar no desmarca nada.
+                self.state.mark_failed(event_id, reason=str(e))
                 if span and hasattr(span, "record_exception"):
                     span.record_exception(e)
                 raise

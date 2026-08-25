@@ -1,0 +1,181 @@
+"""Ninguna salida del orquestador puede dejar la fila trabada en `in_progress`.
+
+ADR-009 fija que un abort termina de una de dos formas —sin fila, o con un
+estado terminal (`failed` / `expired`)— y que la tercera, quedar trabado, no se
+acepta: el reintento del mismo `event_id` se salta en silencio en el guard de
+`main.py` y ese cierre no sale nunca.
+
+A diferencia de `test_orchestrator_persistence.py`, aca el `StateDB` es real y
+sobre un fichero temporal. Es lo unico que permite verificar la afirmacion que
+mas importa —que un reintento tras una publicacion a medias solo publica el
+canal que falto— porque esa depende de lo que quedo *escrito* entre las dos
+runs, no de con que argumentos se llamo a un mock.
+"""
+
+from datetime import date
+from unittest.mock import MagicMock
+
+import pytest
+
+from macro_pipeline.orchestration.main import MacroOrchestrator
+from macro_pipeline.storage.state import StateDB
+from macro_pipeline.telegram.bot import TelegramBotError
+from macro_pipeline.validators.schemas import WeeklyCloseData
+
+EVENT_ID = f"weekly_close_{date.today()}"
+
+
+@pytest.fixture
+def state(tmp_path):
+    return StateDB(db_path=str(tmp_path / "state.db"))
+
+
+@pytest.fixture
+def data():
+    return WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=None,
+    )
+
+
+def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestrator:
+    """Orquestador con estado real y todo lo demas mockeado."""
+    orch = MacroOrchestrator.__new__(MacroOrchestrator)
+    orch.tracer = None
+    orch.r2_ready = False
+    orch._allow_mock = False
+
+    orch.publishers_ready = True
+    orch.x_client = MagicMock()
+    orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
+    orch.linkedin = MagicMock()
+    orch.linkedin.post_text.return_value = {"id": "li-456"}
+
+    orch.state = state
+
+    orch.validator_engine = MagicMock()
+    orch.renderer = MagicMock()
+    orch.renderer.render_weekly_close.return_value = b"fake-png"
+
+    orch.llm = MagicMock()
+    orch.llm.generate_headline.return_value = "Titular de prueba"
+    orch.validator_agent = MagicMock()
+    orch.validator_agent.review_draft.return_value = {"approved": True}
+
+    orch.telegram = MagicMock()
+    orch.telegram.send_approval_request.return_value = 42
+    orch.telegram.wait_for_approval.return_value = True
+
+    orch._fetch_weekly_close = MagicMock(return_value=(data, "fmp"))
+    return orch
+
+
+def test_a_failure_in_the_data_phase_leaves_the_row_failed(data, state):
+    """El lock se toma antes de la fase de datos, asi que este era el caso peor.
+
+    Alpha Vantage caida, Mock Data bloqueado y datos insuficientes para el
+    retorno salen los tres por excepcion desde la misma linea, y hasta hoy los
+    tres dejaban la fila trabada para siempre.
+    """
+    orch = _build_orchestrator(data, state)
+    orch._fetch_weekly_close.side_effect = RuntimeError("todas las fuentes fallaron")
+
+    with pytest.raises(RuntimeError):
+        orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "failed"
+    assert not state.is_in_progress(EVENT_ID)
+
+
+def test_a_failure_while_publishing_keeps_the_post_id_of_what_did_go_out(data, state):
+    """Si X publico y LinkedIn revento, el `post_id` de X tiene que sobrevivir.
+
+    Es la mitad que hace segura la marca `failed`: sin el `post_id` persistido,
+    el reintento republicaria en X un cierre que ya salio.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.linkedin.post_text.side_effect = RuntimeError("LinkedIn 503")
+
+    with pytest.raises(RuntimeError):
+        orch.run_weekly_close()
+
+    row = state.get_publication_state(EVENT_ID)
+    assert row["status"] == "failed"
+    assert row["x_post_id"] == "x-123"
+    assert row["linkedin_post_id"] is None
+
+
+def test_the_retry_after_a_partial_publication_only_publishes_what_is_missing(
+    data, state
+):
+    """La idempotencia parcial del docstring, ejercitada de punta a punta.
+
+    Era codigo muerto: la fila quedaba en `in_progress` y la segunda run moria
+    en el guard de duplicados antes de leer los `post_id`. Con el estado
+    terminal y el lock re-armandose, el reintento salta X y publica solo
+    LinkedIn.
+    """
+    primera = _build_orchestrator(data, state)
+    primera.linkedin.post_text.side_effect = RuntimeError("LinkedIn 503")
+    with pytest.raises(RuntimeError):
+        primera.run_weekly_close()
+
+    segunda = _build_orchestrator(data, state)
+
+    segunda.run_weekly_close()
+
+    segunda.x_client.post_tweet.assert_not_called()
+    segunda.linkedin.post_text.assert_called_once()
+    row = state.get_publication_state(EVENT_ID)
+    assert row["status"] == "published"
+    assert row["x_post_id"] == "x-123"
+    assert row["linkedin_post_id"] == "li-456"
+
+
+def test_a_human_rejection_leaves_the_row_failed(data, state):
+    orch = _build_orchestrator(data, state)
+    orch.telegram.wait_for_approval.return_value = False
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "failed"
+
+
+def test_a_telegram_timeout_leaves_the_row_expired(data, state):
+    orch = _build_orchestrator(data, state)
+    orch.telegram.wait_for_approval.side_effect = TelegramBotError("timeout")
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "expired"
+
+
+def test_a_run_without_publishers_leaves_no_row_at_all(data, state):
+    """El abort anterior al lock: sin fila, la proxima run reintenta sola."""
+    orch = _build_orchestrator(data, state)
+    orch.publishers_ready = False
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID) == {}
+
+
+def test_an_expired_run_can_be_retried(data, state):
+    """Tras un timeout de Telegram, la run siguiente vuelve a tomar el lock.
+
+    `mark_expired` existia desde el principio, pero `mark_in_progress` era
+    `INSERT OR IGNORE`: el reintento encontraba la fila `expired`, no re-armaba
+    nada y corria sin lock.
+    """
+    primera = _build_orchestrator(data, state)
+    primera.telegram.wait_for_approval.side_effect = TelegramBotError("timeout")
+    primera.run_weekly_close()
+
+    segunda = _build_orchestrator(data, state)
+    segunda.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "published"
