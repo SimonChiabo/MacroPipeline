@@ -354,7 +354,27 @@ class MacroOrchestrator:
 
                     image_url = None
                     if self.r2_ready:
-                        image_url = self.r2.upload_image(image_bytes, f"{event_id}.png")
+                        try:
+                            image_url = self.r2.upload_image(
+                                image_bytes, f"{event_id}.png"
+                            )
+                        # Ancho a proposito: `upload_image` solo convierte
+                        # `ClientError` en `R2ClientError`, asi que un corte de
+                        # red sale como `EndpointConnectionError` de botocore y
+                        # atrapar solo lo nuestro dejaria abierto justo el
+                        # fallo mas probable. R2 es opcional (ADR-007) y nada
+                        # de lo que sigue depende de `image_url`: la unica
+                        # forma de que un componente opcional tumbe la run
+                        # —encima despues de que el humano aprobo y antes de
+                        # publicar en ninguna red— es un bug, no una politica.
+                        except Exception as e:
+                            logger.error("r2_upload_failed_degrading", error=str(e))
+                            self.telegram.send_alert(
+                                "⚠️ La subida del snapshot a R2 falló; el "
+                                "cierre se publica igual, sin copia remota de "
+                                "la imagen.\n\n"
+                                f"Motivo: {e}"
+                            )
 
                     if self.publishers_ready:
                         with (

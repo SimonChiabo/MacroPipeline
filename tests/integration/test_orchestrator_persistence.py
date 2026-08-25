@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from macro_pipeline.orchestration.main import MacroOrchestrator
+from macro_pipeline.storage.r2_client import R2ClientError
 from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
 
 
@@ -205,3 +206,75 @@ def test_no_alert_when_the_validator_approves(snapshot):
     orch.run_weekly_close()
 
     orch.telegram.send_alert.assert_not_called()
+
+
+# ── R2 es opcional tambien cuando esta configurado (ADR-009, divergencia 2) ──
+
+
+def _with_failing_r2(orch: MacroOrchestrator, error: Exception) -> MacroOrchestrator:
+    orch.r2_ready = True
+    orch.r2 = MagicMock()
+    orch.r2.upload_image.side_effect = error
+    return orch
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        R2ClientError("Error subiendo a R2: AccessDenied"),
+        # `upload_image` solo convierte `ClientError` en `R2ClientError`; un
+        # corte de red llega como `EndpointConnectionError` de botocore y sale
+        # crudo. Atrapar solo `R2ClientError` dejaria abierto justo el fallo
+        # mas probable.
+        ConnectionError("Could not connect to the endpoint URL"),
+    ],
+    ids=["r2_client_error", "red_caida"],
+)
+def test_a_failing_r2_upload_does_not_stop_the_publication(snapshot, error):
+    """R2 caido degrada, no aborta — y menos despues de la aprobacion humana.
+
+    ADR-007 declara R2 opcional ("el pipeline funciona sin R2, solo sin
+    snapshots remotos") y el codigo lo cumplia solo cuando R2 no estaba
+    configurado: configurado y fallando mataba la run con el humano ya habiendo
+    aprobado y sin nada publicado en ninguna red. Era la politica al reves.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+    orch = _with_failing_r2(_build_orchestrator(data), error)
+
+    orch.run_weekly_close()
+
+    orch.x_client.post_tweet.assert_called_once()
+    orch.linkedin.post_text.assert_called_once()
+    orch.state.mark_as_published.assert_called_once()
+    assert orch.state.mark_as_published.call_args.kwargs["image_url"] is None
+
+
+def test_a_failing_r2_upload_alerts_the_operator(snapshot):
+    """Toda degradacion alerta: si no, el snapshot deja de subirse en silencio.
+
+    Nada en el post publicado cambia cuando R2 falla, asi que sin aviso la
+    unica senial seria que el bucket se queda vacio, y a eso no lo mira nadie.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=5100.0,
+        sp500_weekly_return=0.012,
+        nasdaq_close=16000.0,
+        nasdaq_weekly_return=0.019,
+        macro=snapshot,
+    )
+    orch = _with_failing_r2(_build_orchestrator(data), R2ClientError("AccessDenied"))
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_called_once()
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "R2" in aviso
+    assert "AccessDenied" in aviso, "el aviso tiene que llevar la causa real"
