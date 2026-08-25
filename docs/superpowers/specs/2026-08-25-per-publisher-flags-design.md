@@ -1,7 +1,8 @@
 # Banderas de publicacion por red
 
 **Fecha:** 2026-08-25
-**Estado:** Aprobado, sin implementar
+**Estado:** Implementado el 2026-08-25 (plan
+`docs/superpowers/plans/2026-08-25-per-publisher-flags.md`)
 **Cierra:** el punto 8 del backlog — `publishers_ready` es una sola bandera para
 los dos clientes, asi que si uno falla al construirse el otro tampoco publica.
 **Agrega:** un interruptor deliberado por red, que no estaba en el pendiente

@@ -19,7 +19,7 @@ falla se publica igual?", y la respuesta honesta es que **nunca hubo un
 momento**. Había cinco decisiones locales tomadas en commits distintos, cada una
 razonable por separado y ninguna escrita como política:
 
-- FRED caído o rancio deja `macro=None` (`orchestration/main.py:90-111`,
+- FRED caído o rancio deja `macro=None` (`orchestration/main.py`, `_fetch_macro_snapshot`,
   `data/macro.py:129-144`).
 - El validador rechazando el titular publica un bloque genérico y avisa
   (`orchestration/main.py:305-326`, commit `2eb1a6c`).
@@ -117,7 +117,7 @@ revés, y además abortaba en el peor momento: después de que el humano aprobó
 antes de publicar en ninguna red. Arreglado en `d187d81`.
 
 **Toda excepción marca `failed`.** Es lo que hace alcanzable la reconciliación
-parcial que el orquestador promete en su docstring (`orchestration/main.py:42-43`).
+parcial que el orquestador promete en su docstring (`MacroOrchestrator`, «Idempotencia parcial»).
 El coste aceptado: un reintento tras una publicación a medias se apoya en los
 `post_id` persistidos para no republicar en X lo que ya salió. Ese mecanismo ya
 existía y era código muerto; desde `1dc6fac` se ejecuta, y hay un test que lo
@@ -189,7 +189,7 @@ decir que tienen esa ventana.
 
 **(c) La regla "toda degradación alerta" no se cumple para FRED.** El bloque
 macro se cae en silencio: `_fetch_macro_snapshot` solo hace `logger.warning`,
-nunca `send_alert` (`main.py:136-157`). Una semana sin contexto macro es
+nunca `send_alert` (`main.py`, `_fetch_macro_snapshot`). Una semana sin contexto macro es
 exactamente el caso invisible-y-repetible que la regla existe para evitar, y
 hoy nada se lo dice al operador. Queda como pregunta abierta para Simon, no
 como decisión tomada acá: si el bloque macro es lo bastante secundario como
@@ -245,7 +245,7 @@ abierto justo el fallo más probable.
 re-levantaba sin tocar el estado. La fila quedaba en `in_progress` para siempre
 y el reintento del mismo `event_id` moría en el guard de duplicados con un
 `pipeline_already_running_skipping`. **La idempotencia parcial que promete el
-docstring de `orchestration/main.py:42-43` era inalcanzable**, y el código de
+docstring de `MacroOrchestrator` («Idempotencia parcial») era inalcanzable**, y el código de
 reconciliación que lee los `post_id` nunca se ejecutaba.
 
 No era un problema de la fase de publicación: el lock se toma antes de la fase
