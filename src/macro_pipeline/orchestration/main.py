@@ -151,7 +151,7 @@ class MacroOrchestrator:
 
         Escribe `self.macro_error` con el motivo cuando el fallo **es** un
         fallo, y lo deja en None cuando FRED simplemente no está configurado:
-        ADR-001 declara opcional al bloque macro, y un componente opcional que
+        ADR-009 declara opcional al bloque macro, y un componente opcional que
         no participa no está degradando. Avisar cada semana de una
         configuración permanente es el ruido que hace que se deje de leer el
         aviso que importa.
@@ -474,7 +474,7 @@ class MacroOrchestrator:
                 # Mismo lugar y mismo motivo que los dos avisos de arriba: quien
                 # aprueba tiene que saber que ese cierre sale con menos.
                 # `macro_error` está cargado sólo cuando el bloque macro se
-                # rompió. FRED sin key no llega acá con motivo: ADR-001 lo
+                # rompió. FRED sin key no llega acá con motivo: ADR-009 lo
                 # declara opcional, y un opcional sin configurar no participa —
                 # no degrada, así que no hay nada que avisar.
                 if self.macro_error:

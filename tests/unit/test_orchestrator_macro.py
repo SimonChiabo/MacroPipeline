@@ -1,7 +1,7 @@
 """Las tres causas por las que el bloque macro no llega, y cual es un fallo.
 
 `_fetch_macro_snapshot` devolvia `None` para las tres sin distinguirlas, y las
-tres solo loggeaban. Dos son fallos y una es una configuracion: ADR-001 declara
+tres solo loggeaban. Dos son fallos y una es una configuracion: ADR-009 declara
 opcional al bloque macro, y un opcional sin configurar no participa — no
 degrada. Avisar todas las semanas de una configuracion permanente es el ruido
 que hace que se deje de leer el aviso que importa.
