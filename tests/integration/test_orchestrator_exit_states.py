@@ -300,9 +300,10 @@ def test_a_disabled_network_never_warns(data, state):
 
     assert state.get_publication_state(EVENT_ID)["status"] == "published"
     # `assert_not_called` a secas y no un filtro por texto: vale porque el
-    # fixture aprueba el titular y deja `r2_ready` en False, asi que la unica
-    # alerta posible en esta run seria la del publicador. Si eso cambia en el
-    # fixture, este test empieza a fallar — que es la direccion correcta.
+    # fixture aprueba el titular, deja `r2_ready` en False y `macro_error` en
+    # None, asi que la unica alerta posible en esta run seria la del
+    # publicador. Si eso cambia en el fixture, este test empieza a fallar —
+    # que es la direccion correcta.
     orch.telegram.send_alert.assert_not_called()
 
 

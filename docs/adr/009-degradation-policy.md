@@ -20,7 +20,7 @@ momento**. Había cinco decisiones locales tomadas en commits distintos, cada un
 razonable por separado y ninguna escrita como política:
 
 - FRED caído o rancio deja `macro=None` (`orchestration/main.py`, `_fetch_macro_snapshot`,
-  `data/macro.py:129-144`).
+  `data/macro.py:safe_build_macro_snapshot`).
 - El validador rechazando el titular publica un bloque genérico y avisa
   (`orchestration/main.py:305-326`, commit `2eb1a6c`).
 - R2 sin configurar publica sin snapshot remoto (`orchestration/main.py:72-77`,
