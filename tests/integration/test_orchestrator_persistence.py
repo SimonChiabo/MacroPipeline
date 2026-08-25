@@ -46,8 +46,6 @@ def _build_orchestrator(data: WeeklyCloseData) -> MacroOrchestrator:
     # red lista obliga a poner un cliente. Es a proposito: el atajo de setear
     # la bandera a mano es como el bug de `5ba7997` estuvo escondido detras de
     # cuatro tests verdes.
-    orch.x_enabled = True
-    orch.linkedin_enabled = True
     orch.x_error = None
     orch.linkedin_error = None
     orch.x_client = MagicMock()

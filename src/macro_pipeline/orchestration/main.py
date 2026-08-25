@@ -96,11 +96,11 @@ class MacroOrchestrator:
         # falta alguna de sus cuatro credenciales y `LinkedInClient` si falta
         # alguna de sus dos, asi que un solo `try` compartido dejaba que
         # cualquiera de las seis apagara las dos redes.
-        self.x_enabled = publisher_enabled(PUBLISH_X_VAR)
-        self.linkedin_enabled = publisher_enabled(PUBLISH_LINKEDIN_VAR)
-        self.x_client, self.x_error = build_publisher("x", XClient, self.x_enabled)
+        x_enabled = publisher_enabled(PUBLISH_X_VAR)
+        linkedin_enabled = publisher_enabled(PUBLISH_LINKEDIN_VAR)
+        self.x_client, self.x_error = build_publisher("x", XClient, x_enabled)
         self.linkedin, self.linkedin_error = build_publisher(
-            "linkedin", LinkedInClient, self.linkedin_enabled
+            "linkedin", LinkedInClient, linkedin_enabled
         )
 
         # Guardia de Mock Data: por defecto bloqueado en producción
@@ -277,15 +277,19 @@ class MacroOrchestrator:
                 # No se toca el estado a propósito: sin fila, la próxima run
                 # reintenta sola.
                 if not (self.x_ready or self.linkedin_ready):
-                    if not self.x_enabled and not self.linkedin_enabled:
-                        # Las dos apagadas a propósito: no hay nada que avisar.
+                    # Sin fallos y sin redes listas solo puede significar que
+                    # estan las dos apagadas a proposito: `build_publisher`
+                    # devuelve motivo `None` para una red apagada. Una sola
+                    # fuente de verdad, para que no puedan divergir.
+                    fallos = self._publisher_failures()
+                    if not fallos:
                         logger.info("no_publishers_enabled", event_id=event_id)
                         return
                     logger.error("publishers_not_ready_aborting", event_id=event_id)
                     self.telegram.send_alert(
                         "⚠️ El cierre semanal no se ejecutó: no hay ninguna red "
                         "en condiciones de publicar.\n\n"
-                        f"{self._publisher_failures()}\n\n"
+                        f"{fallos}\n\n"
                         "No se publicó nada y el evento queda sin marcar, así "
                         "que la próxima run lo reintenta. Verificar con "
                         "`python scripts/check_publishers.py`."
@@ -440,7 +444,7 @@ class MacroOrchestrator:
                         f"⚠️ El cierre semanal sale solo en {viva}: el cliente "
                         f"de {caida} no se pudo construir.\n\n"
                         f"Motivo: {self.x_error or self.linkedin_error}\n\n"
-                        "El cierre se publica igual. Verificar con "
+                        "El cierre se publica igual si lo aprobás. Verificar con "
                         "`python scripts/check_publishers.py`."
                     )
 

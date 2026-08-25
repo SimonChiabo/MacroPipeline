@@ -49,8 +49,6 @@ def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestra
     orch.r2_ready = False
     orch._allow_mock = False
 
-    orch.x_enabled = True
-    orch.linkedin_enabled = True
     orch.x_error = None
     orch.linkedin_error = None
     orch.x_client = MagicMock()
@@ -178,9 +176,7 @@ def test_a_run_with_both_publishers_disabled_says_nothing(data, state):
     dejen de leer las alertas, y entonces la que importa se pierde.
     """
     orch = _build_orchestrator(data, state)
-    orch.x_enabled = False
     orch.x_client = None
-    orch.linkedin_enabled = False
     orch.linkedin = None
 
     orch.run_weekly_close()
@@ -193,7 +189,6 @@ def test_a_run_with_both_publishers_disabled_says_nothing(data, state):
 def test_one_disabled_and_one_broken_alerts_only_about_the_broken_one(data, state):
     """No publica nadie, asi que aborta; pero solo una de las dos es un fallo."""
     orch = _build_orchestrator(data, state)
-    orch.x_enabled = False
     orch.x_client = None
     orch.linkedin = None
     orch.linkedin_error = "Faltan credenciales de LinkedIn."
@@ -255,10 +250,40 @@ def test_the_degraded_run_warns_before_asking_for_approval(data, state):
     orch.run_weekly_close()
 
     llamadas = [c[0] for c in orch.telegram.mock_calls]
-    assert llamadas.index("send_alert") < llamadas.index("send_approval_request")
+    # Por contenido y no por posicion: el primer `send_alert` es el del
+    # publicador solo porque el fixture aprueba el titular y deja `r2_ready`
+    # en False. Un cambio ahi haria que esto empezara a medir otra alerta sin
+    # avisar.
+    idx_aviso = next(
+        i
+        for i, c in enumerate(orch.telegram.mock_calls)
+        if c[0] == "send_alert" and "sale solo en" in c[1][0]
+    )
+    assert idx_aviso < llamadas.index("send_approval_request")
     aviso = orch.telegram.send_alert.call_args[0][0]
-    assert "LinkedIn" in aviso
+    assert "sale solo en X" in aviso
+    assert "el cliente de LinkedIn no se pudo construir" in aviso
     assert "Faltan credenciales de LinkedIn." in aviso
+
+
+def test_a_broken_x_still_publishes_on_linkedin(data, state):
+    """El espejo del test de arriba, y no es redundante: sin el, la rama
+    `x_error` de los dos ternarios de la alerta no la ejercita nadie y
+    invertirlos deja la suite entera en verde.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.x_client = None
+    orch.x_error = "Faltan credenciales de X API."
+
+    orch.run_weekly_close()
+
+    fila = state.get_publication_state(EVENT_ID)
+    assert fila["status"] == "published"
+    assert fila["linkedin_post_id"] == "li-456"
+    assert not fila["x_post_id"]
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "sale solo en LinkedIn" in aviso
+    assert "el cliente de X no se pudo construir" in aviso
 
 
 def test_a_disabled_network_never_warns(data, state):
@@ -268,10 +293,13 @@ def test_a_disabled_network_never_warns(data, state):
     false la run es verde y silenciosa en vez de degradada con alerta.
     """
     orch = _build_orchestrator(data, state)
-    orch.linkedin_enabled = False
     orch.linkedin = None
 
     orch.run_weekly_close()
 
     assert state.get_publication_state(EVENT_ID)["status"] == "published"
+    # `assert_not_called` a secas y no un filtro por texto: vale porque el
+    # fixture aprueba el titular y deja `r2_ready` en False, asi que la unica
+    # alerta posible en esta run seria la del publicador. Si eso cambia en el
+    # fixture, este test empieza a fallar — que es la direccion correcta.
     orch.telegram.send_alert.assert_not_called()
