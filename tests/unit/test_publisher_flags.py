@@ -53,3 +53,15 @@ def test_anything_else_raises_instead_of_guessing(monkeypatch, value):
         publisher_enabled(PUBLISH_X_VAR)
     assert PUBLISH_X_VAR in str(exc.value)
     assert value in str(exc.value)
+
+
+def test_the_error_shows_what_the_operator_actually_typed(monkeypatch):
+    """`!r` esta para que se vea el espacio de mas; normalizar antes lo anula.
+
+    El typo mas dificil de ver a ojo en un `.env` es un espacio o un CRLF
+    pegado al final de la linea, y era justo el que el mensaje escondia.
+    """
+    monkeypatch.setenv(PUBLISH_X_VAR, "  Yes  ")
+    with pytest.raises(ValueError) as exc:
+        publisher_enabled(PUBLISH_X_VAR)
+    assert "'  Yes  '" in str(exc.value)

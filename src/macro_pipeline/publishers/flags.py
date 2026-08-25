@@ -19,10 +19,12 @@ def publisher_enabled(var: str) -> bool:
     pipeline antes de que estas banderas existieran.
 
     Cualquier valor que no sea `true` o `false` levanta `ValueError` a
-    proposito. Ver el docstring de `tests/unit/test_publisher_flags.py`: las
-    dos formas de adivinar son silenciosas y las dos hacen dano.
+    proposito, mostrando lo que el operador realmente tipeo. Ver el docstring
+    de `tests/unit/test_publisher_flags.py`: las dos formas de adivinar son
+    silenciosas y las dos hacen dano.
     """
-    raw = os.environ.get(var, "").strip().lower()
+    original = os.environ.get(var, "")
+    raw = original.strip().lower()
     if not raw:
         return True
     if raw == "true":
@@ -30,5 +32,5 @@ def publisher_enabled(var: str) -> bool:
     if raw == "false":
         return False
     raise ValueError(
-        f"{var}={raw!r} no es un valor valido: se espera 'true' o 'false'."
+        f"{var}={original!r} no es un valor valido: se espera 'true' o 'false'."
     )
