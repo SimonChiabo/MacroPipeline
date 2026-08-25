@@ -208,6 +208,18 @@ def test_the_example_keeps_the_two_decided_declarations(check_publishers):
     assert declaradas.get("ALLOW_MOCK_DATA") == "false"
 
 
+def test_the_example_declares_both_publish_flags(check_publishers):
+    """Explícitas y no heredadas del default, igual que `ALLOW_MOCK_DATA`.
+
+    Deciden si se publica. Una bandera que decide eso no debería depender de un
+    default del código: hay que poder leer el `.env` y saber qué va a pasar.
+    """
+    ejemplo = check_publishers._parse_env_file(ROOT / ".env.example")
+
+    assert ejemplo.get("PUBLISH_X") == "true"
+    assert ejemplo.get("PUBLISH_LINKEDIN") == "true"
+
+
 def test_report_prints_every_finding_with_its_reason(
     check_publishers, tmp_path, capsys
 ):
