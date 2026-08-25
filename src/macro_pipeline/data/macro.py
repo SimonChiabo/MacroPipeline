@@ -128,17 +128,23 @@ def build_macro_snapshot(
 
 def safe_build_macro_snapshot(
     fred: SeriesProvider, today: date | None = None
-) -> MacroSnapshot | None:
+) -> tuple[MacroSnapshot | None, str | None]:
     """
-    Versión tolerante a fallos: devuelve None en lugar de propagar.
+    Versión tolerante a fallos: devuelve `(snapshot, motivo)` en vez de propagar.
 
     El bloque macro es complementario al cierre de mercado. Que FRED esté caído
     o que una serie venga corta no debe abortar la publicación semanal.
+
+    El motivo se devuelve además de loggearse porque es lo único que puede
+    nombrar la causa real en la alerta de Telegram, y se arma acá porque acá es
+    donde la excepción existe. Un aviso que no distingue "FRED caído" de "serie
+    corta" manda a mirar el lugar equivocado — misma lección que `f53a755`.
     """
     try:
-        return build_macro_snapshot(fred, today=today)
+        return build_macro_snapshot(fred, today=today), None
     except Exception as e:
+        motivo = f"{type(e).__name__}: {e}"
         logger.warning(
             "macro_snapshot_unavailable", error=str(e), error_type=type(e).__name__
         )
-        return None
+        return None, motivo

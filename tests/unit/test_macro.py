@@ -117,7 +117,12 @@ def test_safe_build_macro_snapshot_returns_none_when_fred_fails():
         def get_series_observations(self, series_id, **kwargs):
             raise FREDClientError("FRED caído")
 
-    assert safe_build_macro_snapshot(BoomFred(), today=date(2026, 8, 9)) is None
+    snapshot, motivo = safe_build_macro_snapshot(BoomFred(), today=date(2026, 8, 9))
+
+    assert snapshot is None
+    assert motivo is not None
+    assert "FRED caído" in motivo, "el motivo tiene que llevar el error real"
+    assert "FREDClientError" in motivo, "y el tipo, para saber dónde mirar"
 
 
 def test_safe_build_macro_snapshot_returns_none_on_insufficient_history():
@@ -129,11 +134,40 @@ def test_safe_build_macro_snapshot_returns_none_on_insufficient_history():
         }
     )
 
-    assert safe_build_macro_snapshot(short, today=date(2026, 8, 9)) is None
+    snapshot, motivo = safe_build_macro_snapshot(short, today=date(2026, 8, 9))
+
+    assert snapshot is None
+    assert motivo is not None
+
+
+def test_the_reason_distinguishes_a_dead_fred_from_a_short_series():
+    """Dos fallos distintos no pueden dar el mismo aviso.
+
+    Es la leccion de `f53a755`: la alerta de la capa LLM culpaba al prompt
+    tambien cuando lo que moria era la API, y mandaba a revisar un prompt sano.
+    """
+
+    class BoomFred:
+        def get_series_observations(self, series_id, **kwargs):
+            raise FREDClientError("FRED caído")
+
+    short = FakeFred(
+        {
+            CPI_SERIES: _series([("2026-06-01", 309.0)]),
+            UNRATE_SERIES: _series([("2026-07-01", 4.1)]),
+            DGS10_SERIES: _series([("2026-08-06", 4.69)]),
+        }
+    )
+
+    _, motivo_caido = safe_build_macro_snapshot(BoomFred(), today=date(2026, 8, 9))
+    _, motivo_corto = safe_build_macro_snapshot(short, today=date(2026, 8, 9))
+
+    assert motivo_caido != motivo_corto
 
 
 def test_safe_build_macro_snapshot_returns_snapshot_on_success(fake_fred):
-    snap = safe_build_macro_snapshot(fake_fred, today=date(2026, 8, 9))
+    snap, motivo = safe_build_macro_snapshot(fake_fred, today=date(2026, 8, 9))
 
     assert snap is not None
     assert snap.unemployment_rate == pytest.approx(4.1)
+    assert motivo is None, "el camino feliz no deja motivo cargado"
