@@ -81,6 +81,11 @@ class MacroOrchestrator:
             logger.warning("fred_not_configured", reason=str(e))
             self.fred = None
 
+        # Motivo por el que el bloque macro no llegó, o None. Mismo rol que
+        # `x_error` / `linkedin_error`: lo escribe quien detecta el fallo y lo
+        # lee la alerta. Declarado acá para que exista desde el minuto cero.
+        self.macro_error: str | None = None
+
         self.llm = LLMClient()
         self.validator_agent = ValidatorAgent(self.llm)
         self.renderer = PlaywrightEngine()
@@ -143,18 +148,32 @@ class MacroOrchestrator:
         Devuelve None ante cualquier problema (sin key, API caída, serie corta,
         dato rancio o fuera de rango). El cierre semanal se publica igual: los
         índices son el contenido principal, el macro es contexto.
+
+        Escribe `self.macro_error` con el motivo cuando el fallo **es** un
+        fallo, y lo deja en None cuando FRED simplemente no está configurado:
+        ADR-001 declara opcional al bloque macro, y un componente opcional que
+        no participa no está degradando. Avisar cada semana de una
+        configuración permanente es el ruido que hace que se deje de leer el
+        aviso que importa.
         """
+        # Se limpia siempre, y no solo se escribe en los caminos malos: un
+        # reintento dentro del mismo proceso heredaría el motivo de la run
+        # anterior y avisaría de algo ya resuelto.
+        self.macro_error = None
+
         if self.fred is None:
             return None
 
-        snapshot = safe_build_macro_snapshot(self.fred)
+        snapshot, motivo = safe_build_macro_snapshot(self.fred)
         if snapshot is None:
+            self.macro_error = motivo
             return None
 
         try:
             self.validator_engine.validate_macro_snapshot(snapshot)
         except ValidationError as e:
             logger.warning("macro_snapshot_rejected_by_validator", reason=str(e))
+            self.macro_error = f"El validador rechazó la cifra macro: {e}"
             return None
 
         return snapshot
