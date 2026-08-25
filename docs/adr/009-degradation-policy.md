@@ -1,6 +1,6 @@
 # ADR-009: Política de degradación — qué fallo degrada y qué fallo aborta
 
-**Estado:** Aceptado (documenta lo vigente y corrige tres divergencias, 2026-08-25)
+**Estado:** Aceptado (documenta lo vigente y deja decididas tres divergencias, cuyo arreglo queda pendiente, 2026-08-25)
 **Fecha:** 2026-08-25
 **Decisores:** Simon Chiabo
 
@@ -74,8 +74,9 @@ afirmar lo contrario ni impedir el reintento.
 |---|---|---|---|
 | FRED (bloque macro) | Sin key, API caída, serie corta, dato rancio o fuera de rango | **Degrada** — `macro=None` | — |
 | FMP (índices) | API caída | **Degrada** a Alpha Vantage… que hoy aborta (ver divergencia 4) | — |
-| Alpha Vantage (índices) | API caída | **Aborta** — sin fuente de datos real no se publica | Ninguna fila (pre-lock) |
-| Mock Data | `ALLOW_MOCK_DATA=false` | **Aborta** — cifras sintéticas no se publican | Ninguna fila (pre-lock) |
+| Alpha Vantage (índices) | API caída | **Aborta** — sin fuente de datos real no se publica | `failed` |
+| Mock Data | `ALLOW_MOCK_DATA=false` | **Aborta** — cifras sintéticas no se publican | `failed` |
+| Cálculo del retorno | Menos de 6 filas, o sin dato de hace 5 días hábiles | **Aborta** | `failed` |
 | Anthropic (generador) | API caída | **Degrada** — bloque genérico, con alerta que nombre la causa real | — |
 | Anthropic (validador) | Rechazo del titular | **Degrada** — bloque genérico + alerta | — |
 | `ValidationEngine` | Cifra fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001 | `failed` |
@@ -86,6 +87,15 @@ afirmar lo contrario ni impedir el reintento.
 | R2 | Sin configurar **o** subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
 | X / LinkedIn | Credenciales ausentes | **Aborta** antes del lock, con alerta | Ninguna fila |
 | X / LinkedIn | Publicación fallida | **Aborta** — `post_id` de lo que sí salió persistido | `failed` |
+
+La columna de estado dice lo que la política exige, **no lo que el código hace
+hoy**. El único abort que hoy sale realmente antes del lock es el de
+credenciales de publicación (`orchestration/main.py:229`, y `mark_in_progress`
+está en la línea 248). El único que hoy deja un estado terminal correcto es el
+timeout de Telegram, que llama a `mark_expired` (`orchestration/main.py:344`).
+Los otros siete aborts de la tabla —incluidos los tres de la fase de datos, que
+ocurren en la línea 261— salen por excepción y dejan la fila trabada en
+`in_progress`: es la divergencia 3, y no alcanza solo a la fase de publicación.
 
 Tres casos merecen la razón explícita, porque son los que se decidieron hoy:
 
@@ -167,6 +177,12 @@ del mismo `event_id` muere en el guard de `orchestration/main.py:242-246` con un
 `pipeline_already_running_skipping`. **La idempotencia parcial que promete el
 docstring de `orchestration/main.py:42-43` es hoy inalcanzable**, y el código de
 reconciliación de las líneas 251-253 y 363-383 nunca se ejecuta.
+
+No es un problema de la fase de publicación: el lock se toma en la línea 248 y
+la fase de datos empieza en la 261, así que el abort por Alpha Vantage caída, el
+del Mock Data bloqueado y el de datos insuficientes para el retorno también
+dejan la fila trabada. La única salida que hoy marca bien es el timeout de
+Telegram (`mark_expired`, línea 344).
 
 Un detalle del arreglo, para no tropezar con él: `mark_in_progress` es
 `INSERT OR IGNORE` (`storage/state.py:105-112`), así que sobre una fila que ya
