@@ -56,12 +56,13 @@ errónea no se puede corregir una vez emitida.
 ### El segundo eje: qué estado deja un abort
 
 "Aborta" no es una sola cosa. Un abort que no toca el estado se reintenta solo;
-uno que deja la fila trabada exige intervención manual. La política fija **tres**
-formas de terminar sin publicar:
+uno que deja la fila trabada exige intervención manual. La política fija
+**cuatro** formas de terminar sin publicar:
 
 | Forma | Estado que deja | Consecuencia |
 |---|---|---|
 | Aborta antes del lock | Ninguna fila | La próxima run reintenta sola |
+| Aborta antes del lock, en silencio | Ninguna fila | La próxima run vuelve a no publicar, también en silencio, hasta que se vuelva a encender la bandera |
 | Aborta con estado terminal | `failed` o `expired` | La próxima run reintenta; el motivo queda registrado |
 | Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta en silencio |
 
@@ -86,7 +87,9 @@ afirmar lo contrario ni impedir el reintento.
 | Telegram (aprobación) | Timeout de 1h | **Aborta** | `expired` |
 | Telegram (`send_alert`) | Envío fallido | **Degrada** — devuelve `False`, nunca levanta | — |
 | R2 | Sin configurar **o** subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
-| X / LinkedIn | Credenciales ausentes | **Aborta** antes del lock, con alerta | Ninguna fila |
+| X / LinkedIn | Credenciales ausentes en **una** de las dos | **Degrada** — publica en la otra, con alerta antes de pedir aprobación | `published` |
+| X / LinkedIn | Credenciales ausentes en **las dos** | **Aborta** antes del lock, con alerta | Ninguna fila |
+| X / LinkedIn | Apagada con `PUBLISH_X` / `PUBLISH_LINKEDIN` en `false` | **No es un fallo** — no se construye, no publica y **no alerta** | — |
 | X / LinkedIn | Publicación fallida | **Aborta** — `post_id` de lo que sí salió persistido | `failed` |
 
 La columna de estado se cumple desde el 2026-08-25. Cuando se escribió esta
@@ -97,7 +100,7 @@ divergencia 3). Hoy el `except` general marca `failed`, y cada camino de salida
 tiene un test que verifica el estado que deja
 (`tests/integration/test_orchestrator_exit_states.py`).
 
-Tres casos merecen la razón explícita, porque son los que se decidieron hoy:
+Cinco casos merecen la razón explícita, porque son los que se decidieron hoy:
 
 **La API de Anthropic caída degrada.** El bloque genérico lleva las cifras
 reales —las pone el pipeline, no el modelo—, así que lo que se pierde es
@@ -119,6 +122,26 @@ El coste aceptado: un reintento tras una publicación a medias se apoya en los
 `post_id` persistidos para no republicar en X lo que ya salió. Ese mecanismo ya
 existía y era código muerto; desde `1dc6fac` se ejecuta, y hay un test que lo
 recorre de punta a punta con un `StateDB` real.
+
+**Una red de publicación caída degrada; solo aborta si no queda ninguna.**
+Es lo que el criterio ya predice: que falte la credencial de LinkedIn no hace
+que ninguna cifra sea incorrecta y no impide publicar — impide publicar *en una
+red*. Hasta el 2026-08-25 una sola bandera `publishers_ready` cubría los dos
+clientes, así que un `ValueError` de cualquiera de las seis credenciales apagaba
+las dos. La run degradada termina en `published`, no en `failed`: fue un éxito
+con menos alcance. Se descartó publicar en una red y dejar la fila `failed` para
+reintentar la otra, porque el `event_id` lleva la fecha y el reintento solo
+reconcilia el mismo día: al día siguiente republicaría en la red que sí había
+salido.
+
+**Un apagado deliberado no alerta.** `PUBLISH_X=false` y `PUBLISH_LINKEDIN=false`
+apagan una red a propósito: no se construye el cliente, no se publica, y no se
+manda nada a Telegram. Es la única excepción a la regla de que toda degradación
+alerta, y la razón es la misma que sostiene la regla: alertar existe para que
+una publicación degradada no pase inadvertida, y una decisión propia no pasa
+inadvertida. Un aviso semanal por una pausa que pediste es el ruido que hace que
+se deje de leer el aviso que importa. La distinción que queda fijada es **si
+llega una alerta, es porque algo se rompió**.
 
 ---
 
@@ -144,6 +167,25 @@ recorre de punta a punta con un `StateDB` real.
   el texto genérico publicándose 9 de cada 10 semanas.
 - La política no se hace cumplir sola. Hoy vive en esta tabla y en el código;
   nada impide que la próxima decisión local vuelva a divergir.
+
+**Dos limitaciones que esta revisión no arregla, y que hasta ahora no estaban
+escritas en ningún lado:**
+
+**(a) La alerta de degradación promete de más en dos casos.** Va antes de pedir
+aprobación (a propósito: quien aprueba tiene que saber que el cierre sale en
+una sola red), así que dice "el cierre se publica igual si lo aprobás" incluso
+cuando el humano después rechaza o la aprobación expira, y también cuando la
+red viva ya había publicado más temprano el mismo día — en ese caso la run no
+publica nada y sin embargo la alerta anunció una publicación degradada. La
+mitad accionable del aviso —la credencial está rota, corré
+`check_publishers.py`— es verdadera en todos los casos. La misma propiedad la
+tiene la alerta de la capa LLM.
+
+**(b) Los `post_id` persistidos, en los que se apoya la reconciliación
+parcial, se pueden perder.** Si `mark_x_published` falla después de que
+`post_tweet` salió bien, el tweet existe y el registro de que existe no, así
+que el reintento republica en X. Esta política se apoya en los `post_id` sin
+decir que tienen esa ventana.
 
 **Lo que esta política no cubre:** un componente que falla *silenciosamente*
 devolviendo datos plausibles pero equivocados. Ninguna rama de degradar/abortar

@@ -56,7 +56,10 @@ class MacroOrchestrator:
     Garantías:
     - Mock Data bloqueado en producción (ALLOW_MOCK_DATA=false).
     - Idempotencia parcial: si X publicó pero LinkedIn falló, el re-run
-      solo publica LinkedIn.
+      solo publica LinkedIn (mismo día: el `event_id` lleva la fecha).
+    - Una red por bandera: si falta una credencial de X, LinkedIn publica
+      igual, y al revés. `PUBLISH_X` / `PUBLISH_LINKEDIN` apagan una red a
+      propósito, en silencio.
     - post_ids persistidos inmediatamente tras cada canal.
     - Estados explícitos: in_progress, published, failed, expired.
     """
