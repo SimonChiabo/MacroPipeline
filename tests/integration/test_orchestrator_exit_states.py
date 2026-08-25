@@ -49,7 +49,10 @@ def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestra
     orch.r2_ready = False
     orch._allow_mock = False
 
-    orch.publishers_ready = True
+    orch.x_enabled = True
+    orch.linkedin_enabled = True
+    orch.x_error = None
+    orch.linkedin_error = None
     orch.x_client = MagicMock()
     orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
     orch.linkedin = MagicMock()
@@ -154,14 +157,53 @@ def test_a_telegram_timeout_leaves_the_row_expired(data, state):
     assert state.get_publication_state(EVENT_ID)["status"] == "expired"
 
 
-def test_a_run_without_publishers_leaves_no_row_at_all(data, state):
+def test_a_run_with_both_publishers_broken_leaves_no_row_at_all(data, state):
     """El abort anterior al lock: sin fila, la proxima run reintenta sola."""
     orch = _build_orchestrator(data, state)
-    orch.publishers_ready = False
+    orch.x_client = None
+    orch.x_error = "Faltan credenciales de X API."
+    orch.linkedin = None
+    orch.linkedin_error = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
     assert state.get_publication_state(EVENT_ID) == {}
+    orch.telegram.send_alert.assert_called_once()
+
+
+def test_a_run_with_both_publishers_disabled_says_nothing(data, state):
+    """Las dos apagadas a proposito: sin fila y sin alerta.
+
+    Avisarte de tu propia decision cada semana es el ruido que hace que se
+    dejen de leer las alertas, y entonces la que importa se pierde.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.x_enabled = False
+    orch.x_client = None
+    orch.linkedin_enabled = False
+    orch.linkedin = None
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID) == {}
+    orch.telegram.send_alert.assert_not_called()
+    orch.telegram.send_approval_request.assert_not_called()
+
+
+def test_one_disabled_and_one_broken_alerts_only_about_the_broken_one(data, state):
+    """No publica nadie, asi que aborta; pero solo una de las dos es un fallo."""
+    orch = _build_orchestrator(data, state)
+    orch.x_enabled = False
+    orch.x_client = None
+    orch.linkedin = None
+    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID) == {}
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "LinkedIn" in aviso
+    assert "X:" not in aviso, "una red apagada no se menciona como fallo"
 
 
 def test_an_expired_run_can_be_retried(data, state):

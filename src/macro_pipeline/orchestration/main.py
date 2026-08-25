@@ -23,6 +23,12 @@ from macro_pipeline.llm.validator import (
     ValidatorAgent,
 )
 from macro_pipeline.observability.logger import setup_observability
+from macro_pipeline.publishers.flags import (
+    PUBLISH_LINKEDIN_VAR,
+    PUBLISH_X_VAR,
+    build_publisher,
+    publisher_enabled,
+)
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
 from macro_pipeline.publishers.x_client import XClient
 from macro_pipeline.render.playwright_engine import PlaywrightEngine
@@ -86,16 +92,46 @@ class MacroOrchestrator:
             logger.warning("r2_not_configured", reason=str(e))
             self.r2_ready = False
 
-        try:
-            self.x_client = XClient()
-            self.linkedin = LinkedInClient()
-            self.publishers_ready = True
-        except ValueError as e:
-            logger.warning("publishers_not_configured", reason=str(e))
-            self.publishers_ready = False
+        # Una bandera por red, y no una para las dos: `XClient` levanta si
+        # falta alguna de sus cuatro credenciales y `LinkedInClient` si falta
+        # alguna de sus dos, asi que un solo `try` compartido dejaba que
+        # cualquiera de las seis apagara las dos redes.
+        self.x_enabled = publisher_enabled(PUBLISH_X_VAR)
+        self.linkedin_enabled = publisher_enabled(PUBLISH_LINKEDIN_VAR)
+        self.x_client, self.x_error = build_publisher("x", XClient, self.x_enabled)
+        self.linkedin, self.linkedin_error = build_publisher(
+            "linkedin", LinkedInClient, self.linkedin_enabled
+        )
 
         # Guardia de Mock Data: por defecto bloqueado en producción
         self._allow_mock = os.environ.get("ALLOW_MOCK_DATA", "false").lower() == "true"
+
+    @property
+    def x_ready(self) -> bool:
+        """Derivada del cliente y no un atributo aparte, a proposito.
+
+        Un atributo puede desincronizarse del cliente, y peor: un test puede
+        ponerlo a mano para saltearse el mockeo. Es exactamente como el bug de
+        `5ba7997` —publicar nada y marcar el evento como publicado— vivio
+        detras de cuatro tests de integracion en verde.
+        """
+        return self.x_client is not None
+
+    @property
+    def linkedin_ready(self) -> bool:
+        return self.linkedin is not None
+
+    def _publisher_failures(self) -> str:
+        """Las redes rotas y su motivo, para el texto de la alerta.
+
+        Una red apagada no aparece: no tiene motivo porque no es un fallo.
+        """
+        fallos = []
+        if self.x_error:
+            fallos.append(f"X: {self.x_error}")
+        if self.linkedin_error:
+            fallos.append(f"LinkedIn: {self.linkedin_error}")
+        return "\n".join(fallos)
 
     def _fetch_macro_snapshot(self) -> MacroSnapshot | None:
         """
@@ -227,24 +263,29 @@ class MacroOrchestrator:
                     logger.info("event_already_published_skipping", event_id=event_id)
                     return
 
-                # ── Sin publicadores no hay cierre semanal ─────────────────────
+                # ── Sin ninguna red no hay cierre semanal ──────────────────────
                 # Va antes del lock y antes de tocar el estado: si no se puede
                 # publicar, todo lo que sigue —renderizar, llamar al LLM, pedir
                 # aprobación a un humano— es trabajo tirado, y terminaba peor
                 # que tirado. `mark_as_published` estaba al mismo nivel que el
                 # `if self.publishers_ready`, no dentro, así que la run se
                 # cerraba marcando como publicado un evento que no se publicó
-                # en ninguna red; la semana siguiente `is_published` lo daba por
-                # hecho y ese cierre no salía nunca. Un `logger.warning` al
-                # arrancar era lo único que lo decía.
+                # en ninguna red (`5ba7997`).
+                # Basta con **una** red viva: que falte la credencial de una no
+                # es motivo para no publicar en la otra (ADR-009 — se degrada
+                # cuando el fallo solo cuesta contexto).
                 # No se toca el estado a propósito: sin fila, la próxima run
                 # reintenta sola.
-                if not self.publishers_ready:
+                if not (self.x_ready or self.linkedin_ready):
+                    if not self.x_enabled and not self.linkedin_enabled:
+                        # Las dos apagadas a propósito: no hay nada que avisar.
+                        logger.info("no_publishers_enabled", event_id=event_id)
+                        return
                     logger.error("publishers_not_ready_aborting", event_id=event_id)
                     self.telegram.send_alert(
-                        "⚠️ El cierre semanal no se ejecutó: falta alguna "
-                        "credencial de X o LinkedIn y los clientes de "
-                        "publicación no se pudieron construir.\n\n"
+                        "⚠️ El cierre semanal no se ejecutó: no hay ninguna red "
+                        "en condiciones de publicar.\n\n"
+                        f"{self._publisher_failures()}\n\n"
                         "No se publicó nada y el evento queda sin marcar, así "
                         "que la próxima run lo reintenta. Verificar con "
                         "`python scripts/check_publishers.py`."
@@ -429,7 +470,7 @@ class MacroOrchestrator:
                                 f"Motivo: {e}"
                             )
 
-                    if self.publishers_ready:
+                    if self.x_ready or self.linkedin_ready:
                         with (
                             self.tracer.start_as_current_span("publish")
                             if self.tracer
