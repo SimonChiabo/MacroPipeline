@@ -51,6 +51,7 @@ def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestra
 
     orch.x_error = None
     orch.linkedin_error = None
+    orch.macro_error = None
     orch.x_client = MagicMock()
     orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
     orch.linkedin = MagicMock()
@@ -302,4 +303,68 @@ def test_a_disabled_network_never_warns(data, state):
     # fixture aprueba el titular y deja `r2_ready` en False, asi que la unica
     # alerta posible en esta run seria la del publicador. Si eso cambia en el
     # fixture, este test empieza a fallar — que es la direccion correcta.
+    orch.telegram.send_alert.assert_not_called()
+
+
+def test_a_broken_macro_block_still_publishes_and_warns(data, state):
+    """El bloque macro degrada, pero deja de hacerlo en silencio.
+
+    ADR-009 dice que toda degradacion tiene que alertar o se vuelve invisible y
+    se repite semanas. Este camino no lo cumplia.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.macro_error = "FREDClientError: FRED caído"
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "published"
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "macro" in aviso.lower()
+    assert "FREDClientError: FRED caído" in aviso, "tiene que llevar la causa real"
+
+
+def test_the_macro_warning_arrives_before_the_approval_request(data, state):
+    """Quien aprueba tiene que saber que ese cierre sale sin bloque macro."""
+    orch = _build_orchestrator(data, state)
+    orch.macro_error = "FREDClientError: FRED caído"
+
+    orch.run_weekly_close()
+
+    llamadas = [c[0] for c in orch.telegram.mock_calls]
+    idx_aviso = next(
+        i
+        for i, c in enumerate(orch.telegram.mock_calls)
+        if c[0] == "send_alert" and "macro" in c[1][0].lower()
+    )
+    assert idx_aviso < llamadas.index("send_approval_request")
+
+
+def test_the_macro_warning_carries_the_validator_cause_verbatim(data, state):
+    """Dos causas distintas no pueden dar el mismo aviso.
+
+    Con el texto de la causa fijo en vez de interpolado, este test falla — que
+    es exactamente el agujero por el que la alerta de publicadores pudo mentir
+    con 148 tests en verde.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.macro_error = "El validador rechazó la cifra macro: cpi_yoy=0.9 fuera de rango"
+
+    orch.run_weekly_close()
+
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "cpi_yoy=0.9 fuera de rango" in aviso
+    assert "FREDClientError" not in aviso
+
+
+def test_fred_without_a_key_publishes_and_says_nothing(data, state):
+    """El opcional sin configurar no participa, y no participar no es degradar.
+
+    `macro_error` en None es como llega FRED sin key: el fixture ya lo deja
+    asi, y el punto del test es que ese camino no gaste una alerta.
+    """
+    orch = _build_orchestrator(data, state)
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "published"
     orch.telegram.send_alert.assert_not_called()

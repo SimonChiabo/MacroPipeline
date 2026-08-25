@@ -470,6 +470,22 @@ class MacroOrchestrator:
                         "`python scripts/check_publishers.py`."
                     )
 
+                # ── Degradación: el bloque macro no llegó ──────────────────────
+                # Mismo lugar y mismo motivo que los dos avisos de arriba: quien
+                # aprueba tiene que saber que ese cierre sale con menos.
+                # `macro_error` está cargado sólo cuando el bloque macro se
+                # rompió. FRED sin key no llega acá con motivo: ADR-001 lo
+                # declara opcional, y un opcional sin configurar no participa —
+                # no degrada, así que no hay nada que avisar.
+                if self.macro_error:
+                    logger.warning("macro_degraded", reason=self.macro_error)
+                    self.telegram.send_alert(
+                        "⚠️ El cierre semanal sale sin bloque macro.\n\n"
+                        f"Motivo: {self.macro_error}\n\n"
+                        "El cierre se publica igual si lo aprobás: los índices "
+                        "son el contenido principal y el macro es contexto."
+                    )
+
                 # ── FASE HITL ──────────────────────────────────────────────────
                 with (
                     self.tracer.start_as_current_span("hitl_telegram")
