@@ -11,6 +11,7 @@ import pytest
 from macro_pipeline.publishers.flags import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
+    build_publisher,
     publisher_enabled,
 )
 
@@ -65,3 +66,54 @@ def test_the_error_shows_what_the_operator_actually_typed(monkeypatch):
     with pytest.raises(ValueError) as exc:
         publisher_enabled(PUBLISH_X_VAR)
     assert "'  Yes  '" in str(exc.value)
+
+
+class _Cliente:
+    pass
+
+
+def test_a_healthy_client_comes_back_with_no_error():
+    cliente, error = build_publisher("x", _Cliente, enabled=True)
+    assert isinstance(cliente, _Cliente)
+    assert error is None
+
+
+def test_a_disabled_publisher_is_not_constructed_at_all():
+    """Apagada no es "se construye y no se usa": no se construye.
+
+    Es lo que hace que un token de LinkedIn vencido con la bandera en false
+    de una run verde y silenciosa en vez de una degradada con alerta.
+    """
+    llamadas = []
+
+    def factory():
+        llamadas.append(1)
+        return _Cliente()
+
+    cliente, error = build_publisher("linkedin", factory, enabled=False)
+
+    assert cliente is None
+    assert error is None, "una red apagada no es un fallo y no debe alertar"
+    assert llamadas == [], "no se debe ni intentar construir el cliente"
+
+
+def test_a_broken_client_comes_back_with_the_reason():
+    """Rota: sin cliente, pero con el motivo, que es lo que va en la alerta."""
+
+    def factory():
+        raise ValueError("Faltan credenciales de X API.")
+
+    cliente, error = build_publisher("x", factory, enabled=True)
+
+    assert cliente is None
+    assert error == "Faltan credenciales de X API."
+
+
+def test_only_valueerror_is_swallowed():
+    """Un fallo que no sea de credenciales no se disfraza de red rota."""
+
+    def factory():
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        build_publisher("x", factory, enabled=True)

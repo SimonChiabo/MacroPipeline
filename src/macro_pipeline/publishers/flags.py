@@ -7,6 +7,14 @@ siete clientes.
 """
 
 import os
+from collections.abc import Callable
+from typing import TypeVar
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
 
 PUBLISH_X_VAR = "PUBLISH_X"
 PUBLISH_LINKEDIN_VAR = "PUBLISH_LINKEDIN"
@@ -34,3 +42,31 @@ def publisher_enabled(var: str) -> bool:
     raise ValueError(
         f"{var}={original!r} no es un valor valido: se espera 'true' o 'false'."
     )
+
+
+def build_publisher[T](
+    name: str, factory: Callable[[], T], enabled: bool
+) -> tuple[T | None, str | None]:
+    """Construye un cliente de publicacion, devolviendo (cliente, motivo).
+
+    Las tres combinaciones son distintas y el orquestador las distingue:
+
+    - `(cliente, None)` — listo.
+    - `(None, None)` — apagado a proposito: se loggea y nada mas. **No alerta**:
+      una decision tuya no es un fallo, y alertar cada semana por una pausa
+      deliberada es lo que hace que se dejen de leer las alertas.
+    - `(None, motivo)` — roto: falta alguna credencial. El motivo es el texto
+      del `ValueError` del cliente y termina en la alerta de Telegram.
+
+    Solo se atrapa `ValueError`, que es lo que levantan `XClient` y
+    `LinkedInClient` cuando falta una credencial. Cualquier otra excepcion sale
+    y mata la run: no es una red rota, es un bug.
+    """
+    if not enabled:
+        logger.info("publisher_disabled", publisher=name)
+        return None, None
+    try:
+        return factory(), None
+    except ValueError as e:
+        logger.warning("publisher_not_configured", publisher=name, reason=str(e))
+        return None, str(e)
