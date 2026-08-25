@@ -56,3 +56,24 @@ def validator_agent(llm_client):
     from macro_pipeline.llm.validator import ValidatorAgent
 
     return ValidatorAgent(llm_client)
+
+
+@pytest.fixture(scope="session")
+def fmp_client():
+    """Cliente FMP real, apuntando a la API de producción."""
+    from macro_pipeline.data.fmp_client import FMPClient
+
+    return FMPClient(api_key=require_api_key("FMP_API_KEY"))
+
+
+@pytest.fixture(scope="session")
+def av_client():
+    """Cliente Alpha Vantage real.
+
+    `scope="session"` no es cosmético acá: la capa gratuita tiene un throttle
+    por minuto y cada llamada cuesta cuota, así que los tests comparten una
+    sola respuesta (ver la fixture `spy_daily` en `test_av_contract.py`).
+    """
+    from macro_pipeline.data.av_client import AlphaVantageClient
+
+    return AlphaVantageClient(api_key=require_api_key("ALPHA_VANTAGE_API_KEY"))
