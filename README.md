@@ -74,6 +74,7 @@ El proyecto está documentado con **Architecture Decision Records** en [`docs/ad
 - [ADR-003](./docs/adr/003-templates-per-channel.md) — Plantillas por canal sobre data layer compartido.
 - [ADR-004](./docs/adr/004-hitl-first-month.md) — Human-in-the-loop primeros 30 días.
 - [ADR-008](./docs/adr/008-contract-tests.md) — Contract tests nightly contra APIs reales.
+- [ADR-009](./docs/adr/009-degradation-policy.md) — Qué fallo degrada y qué fallo aborta, componente por componente.
 
 Para el plan completo, ver [`PLAN.md`](./PLAN.md).
 
