@@ -221,3 +221,57 @@ def test_an_expired_run_can_be_retried(data, state):
     segunda.run_weekly_close()
 
     assert state.get_publication_state(EVENT_ID)["status"] == "published"
+
+
+def test_a_broken_linkedin_still_publishes_on_x(data, state):
+    """Una red rota degrada: publica en la que si esta y el cierre sale.
+
+    ADR-009: se degrada cuando el fallo solo cuesta contexto. Que falte la
+    credencial de LinkedIn no hace que ninguna cifra sea incorrecta y no impide
+    publicar — impide publicar en una red.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.linkedin = None
+    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+
+    orch.run_weekly_close()
+
+    fila = state.get_publication_state(EVENT_ID)
+    assert fila["status"] == "published"
+    assert fila["x_post_id"] == "x-123"
+    assert not fila["linkedin_post_id"]
+    orch.x_client.post_tweet.assert_called_once()
+
+
+def test_the_degraded_run_warns_before_asking_for_approval(data, state):
+    """Quien aprueba tiene que saber que ese cierre sale en una sola red.
+
+    Mismo orden y mismo motivo que el aviso de la capa LLM.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.linkedin = None
+    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+
+    orch.run_weekly_close()
+
+    llamadas = [c[0] for c in orch.telegram.mock_calls]
+    assert llamadas.index("send_alert") < llamadas.index("send_approval_request")
+    aviso = orch.telegram.send_alert.call_args[0][0]
+    assert "LinkedIn" in aviso
+    assert "Faltan credenciales de LinkedIn." in aviso
+
+
+def test_a_disabled_network_never_warns(data, state):
+    """Apagada a proposito con la otra viva: publica y no dice nada.
+
+    Es el caso del token de LinkedIn venciendo en octubre: con la bandera en
+    false la run es verde y silenciosa en vez de degradada con alerta.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.linkedin_enabled = False
+    orch.linkedin = None
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "published"
+    orch.telegram.send_alert.assert_not_called()

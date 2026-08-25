@@ -422,6 +422,28 @@ class MacroOrchestrator:
                             f"NASDAQ: {data.nasdaq_weekly_return * 100:+.2f}%"
                         )
 
+                # ── Degradación: una red rota y la otra viva ───────────────────
+                # Va antes de pedir aprobación, igual que el aviso de la capa
+                # LLM y por el mismo motivo: quien aprueba tiene que saber que
+                # ese cierre sale en una sola red.
+                # Una red *apagada* no llega acá con `error` cargado: apagarla
+                # es una decisión, no un fallo, y alertar cada semana por una
+                # decisión propia es el ruido que hace que se dejen de leer las
+                # alertas. Si llega una alerta, es porque algo se rompió.
+                # Acá hay como mucho un error: si las dos estuvieran rotas, la
+                # guarda pre-lock ya habría abortado.
+                if self.x_error or self.linkedin_error:
+                    caida = "X" if self.x_error else "LinkedIn"
+                    viva = "LinkedIn" if self.x_error else "X"
+                    logger.warning("publisher_degraded", down=caida, up=viva)
+                    self.telegram.send_alert(
+                        f"⚠️ El cierre semanal sale solo en {viva}: el cliente "
+                        f"de {caida} no se pudo construir.\n\n"
+                        f"Motivo: {self.x_error or self.linkedin_error}\n\n"
+                        "El cierre se publica igual. Verificar con "
+                        "`python scripts/check_publishers.py`."
+                    )
+
                 # ── FASE HITL ──────────────────────────────────────────────────
                 with (
                     self.tracer.start_as_current_span("hitl_telegram")
@@ -470,34 +492,40 @@ class MacroOrchestrator:
                                 f"Motivo: {e}"
                             )
 
-                    if self.x_ready or self.linkedin_ready:
-                        with (
-                            self.tracer.start_as_current_span("publish")
-                            if self.tracer
-                            else nullcontext()
-                        ):
-                            # X: publicar solo si no se hizo ya
-                            if not x_already_done:
-                                x_result = self.x_client.post_tweet(headline)
-                                x_post_id = x_result.get("data", {}).get(
-                                    "id", "unknown"
-                                )
-                                self.state.mark_x_published(event_id, x_post_id)
-                            else:
-                                logger.info(
-                                    "x_already_published_skipping", event_id=event_id
-                                )
+                    with (
+                        self.tracer.start_as_current_span("publish")
+                        if self.tracer
+                        else nullcontext()
+                    ):
+                        # Cada red mira su propio cliente. `is not None` y no
+                        # `self.x_ready` porque `mypy --strict` estrecha el tipo
+                        # con lo primero y no con lo segundo.
+                        # La reconciliación por `post_id` no se reemplaza: se
+                        # combina. Una red puede estar sin publicar por dos
+                        # motivos distintos —no está lista, o ya salió en un
+                        # intento anterior— y son independientes.
+                        if self.x_client is None:
+                            logger.info("x_not_publishing", event_id=event_id)
+                        elif x_already_done:
+                            logger.info(
+                                "x_already_published_skipping", event_id=event_id
+                            )
+                        else:
+                            x_result = self.x_client.post_tweet(headline)
+                            x_post_id = x_result.get("data", {}).get("id", "unknown")
+                            self.state.mark_x_published(event_id, x_post_id)
 
-                            # LinkedIn: publicar solo si no se hizo ya
-                            if not linkedin_already_done:
-                                li_result = self.linkedin.post_text(headline)
-                                li_post_id = li_result.get("id", "unknown")
-                                self.state.mark_linkedin_published(event_id, li_post_id)
-                            else:
-                                logger.info(
-                                    "linkedin_already_published_skipping",
-                                    event_id=event_id,
-                                )
+                        if self.linkedin is None:
+                            logger.info("linkedin_not_publishing", event_id=event_id)
+                        elif linkedin_already_done:
+                            logger.info(
+                                "linkedin_already_published_skipping",
+                                event_id=event_id,
+                            )
+                        else:
+                            li_result = self.linkedin.post_text(headline)
+                            li_post_id = li_result.get("id", "unknown")
+                            self.state.mark_linkedin_published(event_id, li_post_id)
 
                     # Marcar como completamente publicado con todos los metadatos
                     self.state.mark_as_published(
