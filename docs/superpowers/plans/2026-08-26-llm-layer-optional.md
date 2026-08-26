@@ -657,15 +657,36 @@ así que les corresponde alertar, y el canal de aviso todavía no existe cuando
 revientan.
 ```
 
-- [ ] **Step 4: Verificar que ninguna otra fila del ADR quedó mintiendo**
+- [ ] **Step 4: Actualizar la frase que encabeza las limitaciones**
 
-Recorrer las filas de la tabla que nombran a Anthropic y confirmar contra el código que cada una dice lo que el código hace. Es el mismo ejercicio que destapó las tres divergencias la primera vez y la fila falsa de R2 la segunda.
+Es la que va a empezar a mentir, y **el grep del paso siguiente no la caza** porque no contiene la palabra «Anthropic». Reemplazar:
+
+```markdown
+**Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado.
+Ninguna se arregla acá: la (c) se cerró con el código del 2026-08-25 y queda
+como registro, y las otras tres siguen abiertas:**
+```
+
+por:
+
+```markdown
+**Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado. La
+(c) se cerró con el código del 2026-08-25 y la (d) está decidida para Anthropic
+desde el 2026-08-26; las dos quedan como registro. La (a), la (b) y el resto de
+la (d) siguen abiertas:**
+```
+
+Esta es la clase de drift que este mismo ADR documenta haber encontrado dos veces en su propia tabla: no la fila que se toca, sino la frase de más arriba que la resumía.
+
+- [ ] **Step 5: Verificar que ninguna otra mención de Anthropic quedó mintiendo**
+
+Recorrer todo lo que nombra a Anthropic y confirmar contra el código que dice lo que el código hace. Es el mismo ejercicio que destapó las tres divergencias la primera vez y la fila falsa de R2 la segunda.
 
 Run: `grep -n "Anthropic" docs/adr/009-degradation-policy.md`
 
-Expected: cuatro filas de tabla (sin key, generador caído, validador, y la mención en la sección de razones), todas coherentes con lo implementado.
+Expected: **8 líneas** (eran 7 antes de la fila nueva). Tres son filas de tabla —sin key, generador caído, validador— y el resto son menciones en prosa: el bullet de Contexto, la divergencia 1, el párrafo de razones y la limitación (d). Todas tienen que ser coherentes con lo implementado; el conteo solo sirve para confirmar que no se duplicó ni se perdió ninguna.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/adr/009-degradation-policy.md

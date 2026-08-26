@@ -79,7 +79,8 @@ distinción que ADR-009 fija — **si llega una alerta, es porque algo se rompi�
 
 ### 1. La guarda en `__init__`
 
-Entre `self.renderer` y `self.telegram`, misma forma que FRED y R2:
+Donde la construcción ya está hoy —antes de `self.renderer`—, sin mover nada de
+sitio y con la misma forma que FRED y R2:
 
 ```python
 self.llm: LLMClient | None
