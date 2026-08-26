@@ -188,10 +188,11 @@ pone a correr, igual que pasó con la reconciliación parcial.
 
 ## Tests
 
-Cuatro nuevos, más uno que es el que importa. Los unitarios en
-`tests/unit/test_orchestrator_llm.py` (nuevo, espejo de
-`test_orchestrator_macro.py`); el de persistencia en
-`tests/integration/test_orchestrator_persistence.py`.
+Tres nuevos, más un par en `__init__` y un control negativo que **ya existe**.
+Los de construcción en `tests/unit/test_orchestrator_llm.py` (nuevo); los de la
+run en `tests/integration/test_orchestrator_exit_states.py`, que es el fichero
+con `StateDB` **real** — `test_orchestrator_persistence.py` lo mockea, así que
+no puede verificar qué quedó escrito en la fila.
 
 1. **`__init__` sin `ANTHROPIC_API_KEY` no levanta** y deja `self.llm is None` y
    `self.validator_agent is None`.
@@ -200,12 +201,18 @@ Cuatro nuevos, más uno que es el que importa. Los unitarios en
 3. **No manda ninguna alerta.** Es el assert que fija el tercer eje.
 4. **La fila queda con `prompt_version` y `validator_approved` en NULL**, con un
    `StateDB` real, como `test_orchestrator_exit_states.py`.
-5. **Control negativo: con la key presente y la API caída, sí alerta**
-   `generador_caido`. Sin este test, apagar el silencio de más —o sea, apagar
-   también la alerta real— dejaría los otros cuatro en verde. Es el mismo agujero
-   que dejó al pipeline publicando el texto genérico 9 de cada 10 semanas con
-   cuatro gates verdes, y el que permitió que la alerta de publicadores mintiera
-   en las dos mitades con 148 tests pasando.
+5. **Control negativo: con la key presente y la API caída, sí alerta.** No hay
+   que escribirlo: `test_a_dead_generator_alerts_even_if_the_validator_approves`
+   y `test_a_dead_generator_publishes_the_generic_block_with_the_real_figures`
+   ya existen en `test_orchestrator_persistence.py`. Lo que hay que hacer es
+   **verificar que siguen pasando**: son lo que impide que apagar el silencio de
+   más apague también la alerta real, y el segundo es el que fija el texto del
+   bloque genérico a través del camino de degradación, así que protege la
+   extracción de `_generic_headline` sin que haya que duplicarlo.
+
+   Además, los dos tests de `__init__` se escriben **por dirección** —con key
+   construye, sin key no—: dos asserts ciegos a la dirección fueron exactamente
+   lo que dejó a la alerta de publicadores mintiendo con 148 tests en verde.
 
 **Verificación por mutación antes de commitear**, no después:
 
