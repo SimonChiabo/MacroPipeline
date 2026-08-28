@@ -49,6 +49,23 @@ _PROMPT_VERSION = (
 )
 
 
+def _generic_headline(data: WeeklyCloseData) -> str:
+    """El titular que publica el pipeline cuando la capa LLM no redacta.
+
+    Vive acá y no dentro de la rama de degradación porque lo usan dos caminos
+    que alertan distinto —la capa LLM caída, que avisa, y la capa LLM sin
+    configurar, que no—, y la premisa con la que ADR-009 acepta degradar ahí es
+    que «el bloque genérico lleva las cifras reales». Con dos copias esa
+    premisa se puede volver falsa en una sola de ellas, que es donde nadie
+    mira.
+    """
+    return (
+        f"📊 Cierre de Mercado Semanal:\n"
+        f"S&P500: {data.sp500_weekly_return * 100:+.2f}%\n"
+        f"NASDAQ: {data.nasdaq_weekly_return * 100:+.2f}%"
+    )
+
+
 class MacroOrchestrator:
     """
     Coordinador central del MacroPipeline.
@@ -442,11 +459,7 @@ class MacroOrchestrator:
                         # el contract test (ver ADR-001). El aviso va antes de
                         # pedir aprobacion para que llegue en ese orden.
                         self.telegram.send_alert(degradation)
-                        headline = (
-                            f"📊 Cierre de Mercado Semanal:\n"
-                            f"S&P500: {data.sp500_weekly_return * 100:+.2f}%\n"
-                            f"NASDAQ: {data.nasdaq_weekly_return * 100:+.2f}%"
-                        )
+                        headline = _generic_headline(data)
 
                 # ── Degradación: una red rota y la otra viva ───────────────────
                 # Va antes de pedir aprobación, igual que el aviso de la capa
