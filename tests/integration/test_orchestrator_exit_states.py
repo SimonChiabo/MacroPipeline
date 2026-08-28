@@ -410,3 +410,35 @@ def test_a_run_without_the_llm_layer_says_nothing(data, state):
     orch.run_weekly_close()
 
     orch.telegram.send_alert.assert_not_called()
+
+
+def test_a_run_without_the_llm_layer_records_no_prompt_and_no_verdict(data, state):
+    """NULL significa "no ocurrio", igual que las seis columnas macro sin FRED.
+
+    Escribir la version de prompt afirmaria una llamada que no se hizo, y
+    `prompt_version` existe justamente para poder reproducir un titular
+    historico: uno que escribio el pipeline no tiene prompt que lo reproduzca.
+    `validator_approved=False` se leeria como "el validador lo rechazo", que
+    tampoco paso.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.llm = None
+    orch.validator_agent = None
+
+    orch.run_weekly_close()
+
+    row = state.get_publication_state(EVENT_ID)
+    assert row["prompt_version"] is None
+    assert row["validator_approved"] is None
+
+
+def test_a_normal_run_still_records_the_prompt_version(data, state):
+    """La otra direccion: sin esto, poner las dos a None siempre pasaria."""
+    orch = _build_orchestrator(data, state)
+
+    orch.run_weekly_close()
+
+    row = state.get_publication_state(EVENT_ID)
+    assert row["prompt_version"] is not None
+    assert "headline=" in row["prompt_version"]
+    assert row["validator_approved"] == 1

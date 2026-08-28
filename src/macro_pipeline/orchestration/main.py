@@ -495,11 +495,7 @@ class MacroOrchestrator:
                             # pedir aprobacion para que llegue en ese orden.
                             self.telegram.send_alert(degradation)
                             headline = _generic_headline(data)
-                    # `noqa` de un solo commit: la lectura que vuelve usada
-                    # esta variable llega en el commit siguiente. RUF100 no
-                    # esta en el `select`, asi que nadie avisa si sobrevive:
-                    # hay que quitarlo a mano al conectarla.
-                    prompt_version = _PROMPT_VERSION  # noqa: F841
+                    prompt_version = _PROMPT_VERSION
 
                 # ── Degradación: una red rota y la otra viva ───────────────────
                 # Va antes de pedir aprobación, igual que el aviso de la capa
@@ -631,7 +627,7 @@ class MacroOrchestrator:
                         nasdaq_close=data.nasdaq_close,
                         sp500_return=data.sp500_weekly_return,
                         nasdaq_return=data.nasdaq_weekly_return,
-                        prompt_version=_PROMPT_VERSION,
+                        prompt_version=prompt_version,
                         headline=headline,
                         validator_approved=validator_approved,
                         macro=data.macro,
