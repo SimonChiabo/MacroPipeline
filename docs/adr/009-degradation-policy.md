@@ -91,9 +91,16 @@ del pipeline. El eje se apoya en declaraciones que ya existen, y por eso es
 verificable en vez de retórico — de un componente nuevo se puede preguntar "¿lo
 declara opcional algún ADR?" y la respuesta no depende de quién conteste.
 
-De acá sale que **FRED sin key y R2 sin configurar son la misma cosa**: no
-participan, y no gastan una alerta. Los dos fallando *estando configurados* sí
-alertan.
+De acá sale que **FRED sin key, R2 sin configurar y la capa LLM sin key son la
+misma cosa**: no participan, y no gastan una alerta. Los tres fallando *estando
+configurados* sí alertan.
+
+Para la capa LLM la declaración es **ADR-001**, que la define como auxiliar: el
+LLM no toca números y solo redacta un titular a partir de cifras ya calculadas
+y validadas. Esta misma política ya se apoyaba en esa definición para que la
+API caída degrade; que la key ausente no participe es la otra mitad. Sin capa
+LLM el cierre semanal se publica igual y sigue siendo correcto, porque las
+cifras las pone el pipeline — lo que se pierde es redacción, no información.
 
 Una red apagada por bandera termina en el mismo silencio, pero **no por este
 eje**: publicar no lo declara opcional ningún ADR, y una red apagada no está sin
@@ -111,6 +118,7 @@ que hace que la tabla no tenga que distinguirlos.
 | Alpha Vantage (índices) | API caída | **Aborta** — sin fuente de datos real no se publica | `failed` |
 | Mock Data | `ALLOW_MOCK_DATA=false` | **Aborta** — cifras sintéticas no se publican | `failed` |
 | Cálculo del retorno | Menos de 6 filas, o sin dato de hace 5 días hábiles | **Aborta** | `failed` |
+| Anthropic (capa LLM) | Sin key | **No participa** — opcional sin configurar (ADR-001 la declara auxiliar), sin alerta | — |
 | Anthropic (generador) | API caída | **Degrada** — bloque genérico, con alerta que nombre la causa real | — |
 | Anthropic (validador) | Rechazo del titular | **Degrada** — bloque genérico + alerta | — |
 | `ValidationEngine` | Cifra **del cierre semanal** fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001 | `failed` |
@@ -203,9 +211,10 @@ queda fijada es **si llega una alerta, es porque algo se rompió**.
 - La política no se hace cumplir sola. Hoy vive en esta tabla y en el código;
   nada impide que la próxima decisión local vuelva a divergir.
 
-**Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado.
-Ninguna se arregla acá: la (c) se cerró con el código del 2026-08-25 y queda
-como registro, y las otras tres siguen abiertas:**
+**Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado. La
+(c) se cerró con el código del 2026-08-25 y la (d) está decidida para Anthropic
+desde el 2026-08-26; las dos quedan como registro. La (a), la (b) y el resto de
+la (d) siguen abiertas:**
 
 **(a) La alerta de degradación promete de más en dos casos.** Va antes de pedir
 aprobación (a propósito: quien aprueba tiene que saber que el cierre sale en
@@ -251,14 +260,21 @@ gratis: `FMPClient` y `AlphaVantageClient` se construyen antes que
 `TelegramBot`, así que cuando revienta uno de ellos el canal de aviso todavía no
 existe, y cuando la credencial que falta es la del propio Telegram no hay canal
 ninguno — salvo el de las banderas, que revienta después de que `TelegramBot` ya
-existe y para el que avisar sale casi gratis. **Anthropic no entra en esta
-lista, y su caso es otro:** sin `ANTHROPIC_API_KEY` el constructor también
-levanta, pero la tabla de arriba dice que la capa LLM **degrada**
-—`generate_headline` atrapa la API caída y publica el bloque genérico con las
-cifras reales—, así que lo que diverge ahí no es que falte el aviso sino que el
-constructor trate como fatal a un componente que esta política declara
-degradable; envolverlo como este mismo `__init__` ya envuelve a `FREDClient` y a
-`R2Client` no necesitaría alerta ninguna. **Queda sin decidir.**
+existe y para el que avisar sale casi gratis.
+**Anthropic no entra en esta lista, y su caso era otro.** — *Decidido y cerrado
+el 2026-08-26.* Sin `ANTHROPIC_API_KEY` el constructor también levantaba, pero
+lo que divergía ahí no era un aviso que faltara sino que el constructor tratara
+como fatal a un componente que esta política declara degradable. Ahora
+`__init__` lo envuelve como ya envolvía a `FREDClient` y a `R2Client`, la fase
+LLM publica el bloque genérico con las cifras reales y **no alerta**, por el
+tercer eje. La fila queda con `prompt_version` y `validator_approved` en NULL:
+no ocurrió ninguna llamada que registrar, y escribir la versión de prompt
+afirmaría una que no se hizo.
+
+**El resto de (d) sigue abierto** —FMP, Alpha Vantage, Telegram y las banderas
+con un valor inválido—, y no lo resuelve este eje: son componentes necesarios,
+así que les corresponde alertar, y el canal de aviso todavía no existe cuando
+revientan.
 
 **Lo que esta política no cubre:** un componente que falla *silenciosamente*
 devolviendo datos plausibles pero equivocados. Ninguna rama de degradar/abortar
