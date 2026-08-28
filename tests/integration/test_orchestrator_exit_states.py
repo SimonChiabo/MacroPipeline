@@ -369,3 +369,44 @@ def test_fred_without_a_key_publishes_and_says_nothing(data, state):
 
     assert state.get_publication_state(EVENT_ID)["status"] == "published"
     orch.telegram.send_alert.assert_not_called()
+
+
+def test_a_run_without_the_llm_layer_publishes_the_generic_block(data, state):
+    """Sin capa LLM el cierre sale igual: lo que se pierde es redaccion.
+
+    Las cifras las pone el pipeline, no el modelo, asi que el titular generico
+    lleva la informacion entera. Es la premisa con la que ADR-009 acepta
+    degradar aca.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.llm = None
+    orch.validator_agent = None
+
+    orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID)["status"] == "published"
+    titular = orch.telegram.send_approval_request.call_args[1]["text"]
+    assert "+1.20%" in titular
+    assert "+1.90%" in titular
+
+
+def test_a_run_without_the_llm_layer_says_nothing(data, state):
+    """El assert que fija el tercer eje de ADR-009.
+
+    Un opcional sin configurar no participa, y no participar no es degradar.
+    Avisar todas las semanas de una configuracion permanente es el ruido que
+    hace que se deje de leer el aviso que importa, y rompe la distincion que
+    ADR-009 fija: si llega una alerta, es porque algo se rompio.
+
+    `assert_not_called` a secas vale por lo mismo que en los tests de mas
+    arriba: el fixture deja `r2_ready` en False, `macro_error` en None y las
+    dos redes vivas, asi que la unica alerta posible en esta run seria la de
+    la capa LLM.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.llm = None
+    orch.validator_agent = None
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_not_called()

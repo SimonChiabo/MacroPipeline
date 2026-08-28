@@ -394,100 +394,112 @@ class MacroOrchestrator:
                     image_bytes = self.renderer.render_weekly_close(data)
 
                 # ── FASE LLM ───────────────────────────────────────────────────
-                with (
-                    self.tracer.start_as_current_span("llm_headline")
-                    if self.tracer
-                    else nullcontext()
-                ):
-                    data_str = (
-                        f"SP500: Cierre {data.sp500_close:,.2f} "
-                        f"(Retorno Semanal: {data.sp500_weekly_return * 100:+.2f}%)\n"
-                        f"NASDAQ: Cierre {data.nasdaq_close:,.2f} "
-                        f"(Retorno Semanal: {data.nasdaq_weekly_return * 100:+.2f}%)"
-                    )
-                    if data.macro:
-                        data_str += (
-                            f"\nContexto macro (FRED):\n"
-                            f"IPC interanual: {data.macro.cpi_yoy * 100:+.1f}% "
-                            f"(dato de {data.macro.cpi_as_of:%m/%Y})\n"
-                            f"Desempleo: {data.macro.unemployment_rate:.1f}% "
-                            f"(dato de {data.macro.unrate_as_of:%m/%Y})\n"
-                            f"Treasury 10 años: {data.macro.treasury_10y:.2f}% "
-                            f"(dato de {data.macro.dgs10_as_of:%d/%m/%Y})"
-                        )
-                    # Los dos `ignore` son un puente de un solo commit: la
-                    # guarda de la fase LLM que los vuelve innecesarios llega
-                    # en el commit siguiente, y `strict = true` implica
-                    # `warn_unused_ignores`, así que mypy avisa si sobreviven.
-                    headline = self.llm.generate_headline(  # type: ignore[union-attr]
-                        data_str
-                    )
-                    review = self.validator_agent.review_draft(  # type: ignore[union-attr]
-                        headline, data_str
-                    )
-                    validator_approved = bool(review.get("approved"))
-                    review_reason = str(review.get("reason", ""))
-                    generator_fell_back = headline == FALLBACK_HEADLINE
-
-                    # Tres degradaciones distintas terminaban en el mismo
-                    # aviso, y el aviso nombraba la unica que no siempre era.
-                    # El `except` del agente validador devuelve
-                    # `approved=False` igual que un rechazo real, asi que sin
-                    # mirar el motivo no se distingue un prompt malo de la API
-                    # caida — y esa es la diferencia entre tocar codigo y
-                    # relanzar.
-                    if generator_fell_back:
-                        # El generador murio. Es el caso mas silencioso de los
-                        # tres: su fallback no lleva ninguna cifra, asi que el
-                        # validador —que busca cifras inventadas— lo aprueba,
-                        # no habia rechazo, no habia aviso, y se publicaba
-                        # "Cierre Semanal: Resumen del Mercado" a secas.
-                        degradation = (
-                            "⚠️ El generador de titulares no respondió (la API "
-                            "de Anthropic falló); se publica el bloque "
-                            "genérico con las cifras reales."
-                        )
-                        degradation_cause = "generador_caido"
-                    elif not validator_approved and (
-                        review_reason.startswith(API_ERROR_REASON_PREFIX)
-                        or review_reason == TOOL_FAILURE_REASON
+                if self.llm is None or self.validator_agent is None:
+                    # ADR-009, tercer eje: ADR-001 declara auxiliar a la capa
+                    # LLM, así que sin key no participa — y no participar no es
+                    # degradar. Sin alerta, por el mismo motivo que FRED sin
+                    # key. La asimetría con la API caída (que sí alerta) es el
+                    # punto: si llega una alerta, es porque algo se rompió.
+                    #
+                    # No se abre el span `llm_headline`: no hubo llamada.
+                    logger.info("llm_layer_not_participating")
+                    headline = _generic_headline(data)
+                    validator_approved = None
+                    prompt_version = None
+                else:
+                    with (
+                        self.tracer.start_as_current_span("llm_headline")
+                        if self.tracer
+                        else nullcontext()
                     ):
-                        degradation = (
-                            "⚠️ El validador no llegó a revisar el titular (la "
-                            "API de Anthropic falló); se publica el bloque "
-                            f"genérico.\n\n"
-                            f"Motivo: {review_reason}\n\n"
-                            f"Titular sin verificar: {headline}"
+                        data_str = (
+                            f"SP500: Cierre {data.sp500_close:,.2f} "
+                            "(Retorno Semanal: "
+                            f"{data.sp500_weekly_return * 100:+.2f}%)\n"
+                            f"NASDAQ: Cierre {data.nasdaq_close:,.2f} "
+                            "(Retorno Semanal: "
+                            f"{data.nasdaq_weekly_return * 100:+.2f}%)"
                         )
-                        degradation_cause = "validador_no_respondio"
-                    elif not validator_approved:
-                        degradation = (
-                            "⚠️ El validador rechazó el titular generado; se "
-                            f"publica el bloque genérico.\n\n"
-                            f"Motivo: {review_reason}\n\n"
-                            f"Titular descartado: {headline}"
-                        )
-                        degradation_cause = "titular_rechazado"
-                    else:
-                        degradation = ""
-                        degradation_cause = ""
+                        if data.macro:
+                            data_str += (
+                                f"\nContexto macro (FRED):\n"
+                                f"IPC interanual: {data.macro.cpi_yoy * 100:+.1f}% "
+                                f"(dato de {data.macro.cpi_as_of:%m/%Y})\n"
+                                f"Desempleo: {data.macro.unemployment_rate:.1f}% "
+                                f"(dato de {data.macro.unrate_as_of:%m/%Y})\n"
+                                f"Treasury 10 años: {data.macro.treasury_10y:.2f}% "
+                                f"(dato de {data.macro.dgs10_as_of:%d/%m/%Y})"
+                            )
+                        headline = self.llm.generate_headline(data_str)
+                        review = self.validator_agent.review_draft(headline, data_str)
+                        validator_approved = bool(review.get("approved"))
+                        review_reason = str(review.get("reason", ""))
+                        generator_fell_back = headline == FALLBACK_HEADLINE
 
-                    if degradation:
-                        logger.error(
-                            "llm_layer_degraded",
-                            cause=degradation_cause,
-                            approved=validator_approved,
-                            reason=review_reason,
-                        )
-                        # El log solo no alcanza: el operador recibe igual la
-                        # peticion de aprobacion y el bloque generico se parece
-                        # bastante a un cierre normal, asi que un fallo de la
-                        # capa LLM puede repetirse semanas sin que nadie lo
-                        # note. Es lo que paso con el reetiquetado que encontro
-                        # el contract test (ver ADR-001). El aviso va antes de
-                        # pedir aprobacion para que llegue en ese orden.
-                        self.telegram.send_alert(degradation)
-                        headline = _generic_headline(data)
+                        # Tres degradaciones distintas terminaban en el mismo
+                        # aviso, y el aviso nombraba la unica que no siempre era.
+                        # El `except` del agente validador devuelve
+                        # `approved=False` igual que un rechazo real, asi que sin
+                        # mirar el motivo no se distingue un prompt malo de la API
+                        # caida — y esa es la diferencia entre tocar codigo y
+                        # relanzar.
+                        if generator_fell_back:
+                            # El generador murio. Es el caso mas silencioso de los
+                            # tres: su fallback no lleva ninguna cifra, asi que el
+                            # validador —que busca cifras inventadas— lo aprueba,
+                            # no habia rechazo, no habia aviso, y se publicaba
+                            # "Cierre Semanal: Resumen del Mercado" a secas.
+                            degradation = (
+                                "⚠️ El generador de titulares no respondió (la API "
+                                "de Anthropic falló); se publica el bloque "
+                                "genérico con las cifras reales."
+                            )
+                            degradation_cause = "generador_caido"
+                        elif not validator_approved and (
+                            review_reason.startswith(API_ERROR_REASON_PREFIX)
+                            or review_reason == TOOL_FAILURE_REASON
+                        ):
+                            degradation = (
+                                "⚠️ El validador no llegó a revisar el titular (la "
+                                "API de Anthropic falló); se publica el bloque "
+                                f"genérico.\n\n"
+                                f"Motivo: {review_reason}\n\n"
+                                f"Titular sin verificar: {headline}"
+                            )
+                            degradation_cause = "validador_no_respondio"
+                        elif not validator_approved:
+                            degradation = (
+                                "⚠️ El validador rechazó el titular generado; se "
+                                f"publica el bloque genérico.\n\n"
+                                f"Motivo: {review_reason}\n\n"
+                                f"Titular descartado: {headline}"
+                            )
+                            degradation_cause = "titular_rechazado"
+                        else:
+                            degradation = ""
+                            degradation_cause = ""
+
+                        if degradation:
+                            logger.error(
+                                "llm_layer_degraded",
+                                cause=degradation_cause,
+                                approved=validator_approved,
+                                reason=review_reason,
+                            )
+                            # El log solo no alcanza: el operador recibe igual la
+                            # peticion de aprobacion y el bloque generico se parece
+                            # bastante a un cierre normal, asi que un fallo de la
+                            # capa LLM puede repetirse semanas sin que nadie lo
+                            # note. Es lo que paso con el reetiquetado que encontro
+                            # el contract test (ver ADR-001). El aviso va antes de
+                            # pedir aprobacion para que llegue en ese orden.
+                            self.telegram.send_alert(degradation)
+                            headline = _generic_headline(data)
+                    # `noqa` de un solo commit: la lectura que vuelve usada
+                    # esta variable llega en el commit siguiente. RUF100 no
+                    # esta en el `select`, asi que nadie avisa si sobrevive:
+                    # hay que quitarlo a mano al conectarla.
+                    prompt_version = _PROMPT_VERSION  # noqa: F841
 
                 # ── Degradación: una red rota y la otra viva ───────────────────
                 # Va antes de pedir aprobación, igual que el aviso de la capa
