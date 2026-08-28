@@ -12,7 +12,9 @@ configurar no.
 
 from datetime import date
 
-from macro_pipeline.orchestration.main import _generic_headline
+import pytest
+
+from macro_pipeline.orchestration.main import MacroOrchestrator, _generic_headline
 from macro_pipeline.validators.schemas import WeeklyCloseData
 
 
@@ -40,3 +42,64 @@ def test_the_generic_headline_carries_both_real_returns():
     assert "-1.90%" in titular
     assert "S&P500" in titular
     assert "NASDAQ" in titular
+
+
+# Las cuatro credenciales de los componentes que `__init__` construye *antes*
+# de llegar a la capa LLM y que no tienen guarda: sin ellas revienta por otro
+# motivo y el test no probaria nada. Son el resto de la limitacion (d) de
+# ADR-009, que sigue abierta.
+_REQUIRED = {
+    "FMP_API_KEY": "fmp-test",
+    "ALPHA_VANTAGE_API_KEY": "av-test",
+    "TELEGRAM_BOT_TOKEN": "tg-test",
+    "TELEGRAM_CHAT_ID": "123456",
+}
+
+
+@pytest.fixture
+def buildable_env(monkeypatch, tmp_path):
+    """Entorno minimo para construir un orquestador real.
+
+    `STATE_DB_PATH` va a un temporal a proposito: sin eso `StateDB` crearia
+    `~/.macropipeline/state.db` de verdad al correr los tests.
+
+    Las delenv son obligatorias y no defensivas: `tests/contract/conftest.py`
+    hace `load_dotenv()` al importarse, y pytest lo importa al recorrer
+    `tests/` aunque los contract tests esten deseleccionados. Sin ellas el
+    resultado depende de si la maquina tiene `.env`.
+    """
+    for name, value in _REQUIRED.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("STATE_DB_PATH", str(tmp_path / "state.db"))
+    for name in ("FRED_API_KEY", "PUBLISH_X", "PUBLISH_LINKEDIN"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_a_missing_anthropic_key_does_not_kill_the_run(buildable_env, monkeypatch):
+    """Sin key el constructor levantaba y la run moria antes de empezar.
+
+    No habia alerta, no habia fila de estado, y la semana siguiente pasaba lo
+    mismo en silencio. La tabla de ADR-009 declara que la capa LLM degrada, asi
+    que tratarla como fatal en el constructor era la politica al reves.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    orch = MacroOrchestrator()
+
+    assert orch.llm is None
+    assert orch.validator_agent is None
+
+
+def test_the_llm_layer_is_still_built_when_the_key_is_there(buildable_env, monkeypatch):
+    """La otra direccion, y no es ceremonia.
+
+    Sin este test, apagar la capa LLM siempre —o no construirla nunca— dejaria
+    el de arriba en verde, y el pipeline publicaria el bloque generico todas
+    las semanas con la key puesta.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    orch = MacroOrchestrator()
+
+    assert orch.llm is not None
+    assert orch.validator_agent is not None

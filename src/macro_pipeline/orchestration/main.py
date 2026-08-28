@@ -103,8 +103,28 @@ class MacroOrchestrator:
         # lee la alerta. Declarado acá para que exista desde el minuto cero.
         self.macro_error: str | None = None
 
-        self.llm = LLMClient()
-        self.validator_agent = ValidatorAgent(self.llm)
+        # ADR-001 declara auxiliar a la capa LLM —el LLM no toca números, solo
+        # redacta— y ADR-009 se apoya en esa declaración para que degrade. Un
+        # componente que la política declara prescindible no puede ser fatal en
+        # el constructor: sin key la run moría antes de `run_weekly_close`, sin
+        # alerta y sin fila de estado.
+        #
+        # Los dos en el mismo `try`: `ValidatorAgent` recibe el cliente, así
+        # que sin generador no hay validador que construir.
+        #
+        # `except ValueError` y no uno ancho como el de R2: acá no hay red de
+        # por medio. `LLMClient.__init__` solo levanta cuando falta la key, y
+        # construir el cliente de `anthropic` no hace ninguna llamada.
+        self.llm: LLMClient | None
+        self.validator_agent: ValidatorAgent | None
+        try:
+            self.llm = LLMClient()
+            self.validator_agent = ValidatorAgent(self.llm)
+        except ValueError as e:
+            logger.warning("llm_not_configured", reason=str(e))
+            self.llm = None
+            self.validator_agent = None
+
         self.renderer = PlaywrightEngine()
 
         self.telegram = TelegramBot()
@@ -395,8 +415,16 @@ class MacroOrchestrator:
                             f"Treasury 10 años: {data.macro.treasury_10y:.2f}% "
                             f"(dato de {data.macro.dgs10_as_of:%d/%m/%Y})"
                         )
-                    headline = self.llm.generate_headline(data_str)
-                    review = self.validator_agent.review_draft(headline, data_str)
+                    # Los dos `ignore` son un puente de un solo commit: la
+                    # guarda de la fase LLM que los vuelve innecesarios llega
+                    # en el commit siguiente, y `strict = true` implica
+                    # `warn_unused_ignores`, así que mypy avisa si sobreviven.
+                    headline = self.llm.generate_headline(  # type: ignore[union-attr]
+                        data_str
+                    )
+                    review = self.validator_agent.review_draft(  # type: ignore[union-attr]
+                        headline, data_str
+                    )
                     validator_approved = bool(review.get("approved"))
                     review_reason = str(review.get("reason", ""))
                     generator_fell_back = headline == FALLBACK_HEADLINE
