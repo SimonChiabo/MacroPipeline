@@ -210,6 +210,17 @@ queda fijada es **si llega una alerta, es porque algo se rompió**.
   el texto genérico publicándose 9 de cada 10 semanas.
 - La política no se hace cumplir sola. Hoy vive en esta tabla y en el código;
   nada impide que la próxima decisión local vuelva a divergir.
+- **El tercer eje descansa en que la no-configuración sea deliberada, y el
+  código no puede distinguirla de un accidente.** Una key rotada, un `.env`
+  que no se copió a una máquina nueva o un secreto que caducó se leen igual
+  que una decisión: el componente no participa, el cierre sale con menos y
+  **no llega ninguna alerta**. No es una excepción a la primera negativa de
+  arriba —no participar no es degradar—, pero lo que el lector observa es lo
+  mismo que esa regla existe para evitar. El único rastro es un log:
+  `fred_not_configured`, `r2_not_configured` o `llm_not_configured` al
+  arrancar, y `llm_layer_not_participating` en cada cierre. Nadie los mira
+  todas las semanas. Cerrarlo pide declarar qué opcionales *deberían* estar
+  activos y avisar cuando uno deja de estarlo; hoy eso no existe.
 
 **Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado. La
 (c) se cerró con el código del 2026-08-25 y la (d) está decidida para Anthropic
