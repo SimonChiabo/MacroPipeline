@@ -190,9 +190,12 @@ reportar y alertar sería ruido sobre una run que no iba a hacer nada.
 3. **Telegram roto** → `logger.error("telegram_unavailable_aborting", …)` con
    el cuadro completo de motivos, `return 1`, sin fila, sin intentar alertar.
    Caso irreducible.
-4. **Abortos por componente** → FMP roto, o las dos redes rotas → alerta +
-   `return 1`, sin tocar el estado. Las dos redes apagadas → `return 0` en
-   silencio, como hoy.
+4. **Abortos por componente.** Rotos: FMP, o las dos redes → alerta +
+   `return 1`, sin tocar el estado. Apagados: FMP, o las dos redes → `return 0`
+   en silencio (el de las redes es el comportamiento de hoy). `USE_FMP=false`
+   entra acá y no en las degradaciones: apagar la única fuente de datos con
+   ruta viva impide publicar, así que es un abort — deliberado, y por eso
+   silencioso.
 5. **Degradaciones de arranque** → **una sola** alerta con una línea por
    componente y su consecuencia, y el pipeline sigue.
 
@@ -229,6 +232,16 @@ queda escrito antes de que pase para no volver a deducirlo.
 sin una red de seguridad que hoy tampoco publicaría. El texto de la alerta lo
 dice con todas las letras en vez de sugerir que había un fallback sano.
 
+**Y la rama de fallback tiene que mirar `self.av is None` antes de usarlo.** Con
+AV apagado o roto el pipeline sigue —degrada—, así que si FMP falla *en
+caliente* el código llega a `self.av.get_daily_prices` con `self.av` en `None`:
+sale un `AttributeError`, lo atrapa el `except Exception as av_error` de
+`_fetch_weekly_close`, cae a la rama de mock y muere con un `RuntimeError` cuya
+alerta diría `'NoneType' object has no attribute 'get_daily_prices'`. Es el
+patrón exacto de la divergencia 1 —la alerta culpando a lo que no es— con otro
+disfraz. La rama de AV comprueba primero si el cliente existe y reporta el
+motivo guardado, o el apagado, como causa.
+
 ### Qué alerta se muda, y por qué sólo una
 
 **`publisher_degraded` (`main.py:511`) se muda al punto de decisión.** Su causa
@@ -252,6 +265,12 @@ conserva y se refuerza: el punto de decisión es todavía más temprano.
 
 - `0` — corrió: publicó, o deliberadamente no publicó.
 - `1` — abortó por configuración rota.
+
+**Las salidas que ya existen devuelven todas `0`**, y no es una omisión: el
+duplicado ya publicado, la run ya en curso, el rechazo humano y el timeout de
+Telegram son runs que corrieron y cuyo desenlace queda en la fila de estado. El
+`1` está reservado para el caso que **no** deja fila, que es justamente el que
+necesita un rastro fuera del proceso.
 
 `__main__` hace `sys.exit(orchestrator.run_weekly_close())`. Las excepciones
 inesperadas siguen propagando con traceback y salida ≠ 0 por el camino de
@@ -316,6 +335,7 @@ levanta y deja el motivo en `component_errors`.
 | `USE_TELEGRAM` inválido | `1`, **sin** alerta, log nombrado — no se lee como apagado |
 | dos degradaciones | **una sola** llamada a `send_alert`, que nombra las dos |
 | todo sano | el punto de decisión no alerta |
+| AV apagado + FMP falla en caliente | el motivo de la alerta nombra a AV, no un `AttributeError` |
 
 **Las mutaciones que los justifican**, cada una tiene que hacer caer un test
 nombrado y sólo ése:
