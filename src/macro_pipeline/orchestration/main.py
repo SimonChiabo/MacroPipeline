@@ -6,6 +6,12 @@ import pandas as pd
 import structlog
 from opentelemetry import trace
 
+from macro_pipeline.components import (
+    PUBLISH_LINKEDIN_VAR,
+    PUBLISH_X_VAR,
+    build_component,
+    component_enabled,
+)
 from macro_pipeline.data.av_client import AlphaVantageClient
 from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.fred_client import FREDClient
@@ -23,12 +29,6 @@ from macro_pipeline.llm.validator import (
     ValidatorAgent,
 )
 from macro_pipeline.observability.logger import setup_observability
-from macro_pipeline.publishers.flags import (
-    PUBLISH_LINKEDIN_VAR,
-    PUBLISH_X_VAR,
-    build_publisher,
-    publisher_enabled,
-)
 from macro_pipeline.publishers.linkedin_client import LinkedInClient
 from macro_pipeline.publishers.x_client import XClient
 from macro_pipeline.render.playwright_engine import PlaywrightEngine
@@ -141,10 +141,10 @@ class MacroOrchestrator:
         # falta alguna de sus cuatro credenciales y `LinkedInClient` si falta
         # alguna de sus dos, asi que un solo `try` compartido dejaba que
         # cualquiera de las seis apagara las dos redes.
-        x_enabled = publisher_enabled(PUBLISH_X_VAR)
-        linkedin_enabled = publisher_enabled(PUBLISH_LINKEDIN_VAR)
-        self.x_client, self.x_error = build_publisher("x", XClient, x_enabled)
-        self.linkedin, self.linkedin_error = build_publisher(
+        x_enabled = component_enabled(PUBLISH_X_VAR)
+        linkedin_enabled = component_enabled(PUBLISH_LINKEDIN_VAR)
+        self.x_client, self.x_error = build_component("x", XClient, x_enabled)
+        self.linkedin, self.linkedin_error = build_component(
             "linkedin", LinkedInClient, linkedin_enabled
         )
 
@@ -337,7 +337,7 @@ class MacroOrchestrator:
                 # reintenta sola.
                 if not (self.x_ready or self.linkedin_ready):
                     # Sin fallos y sin redes listas solo puede significar que
-                    # estan las dos apagadas a proposito: `build_publisher`
+                    # estan las dos apagadas a proposito: `build_component`
                     # devuelve motivo `None` para una red apagada. Una sola
                     # fuente de verdad, para que no puedan divergir.
                     fallos = self._publisher_failures()

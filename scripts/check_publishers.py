@@ -23,10 +23,10 @@ import requests
 from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
 
-from macro_pipeline.publishers.flags import (
+from macro_pipeline.components import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
-    publisher_enabled,
+    component_enabled,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -260,8 +260,8 @@ def main() -> int:
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
 
     try:
-        x_on = publisher_enabled(PUBLISH_X_VAR)
-        linkedin_on = publisher_enabled(PUBLISH_LINKEDIN_VAR)
+        x_on = component_enabled(PUBLISH_X_VAR)
+        linkedin_on = component_enabled(PUBLISH_LINKEDIN_VAR)
     except ValueError as e:
         # El unico sitio donde el valor malo no sale por traceback: este script
         # existe para decirle a un humano que tiene mal configurado, y el

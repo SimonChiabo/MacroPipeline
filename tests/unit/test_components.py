@@ -8,36 +8,39 @@ y las dos son malas: una pausa que no pausa, o una pausa que nadie pidio.
 
 import pytest
 
-from macro_pipeline.publishers.flags import (
+from macro_pipeline.components import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
-    build_publisher,
-    publisher_enabled,
+    USE_FRED_VAR,
+    USE_TELEGRAM_VAR,
+    build_component,
+    component_enabled,
+    read_switch,
 )
 
 
 def test_the_default_is_enabled(monkeypatch):
     """Sin la variable, se publica: es el comportamiento de siempre."""
     monkeypatch.delenv(PUBLISH_X_VAR, raising=False)
-    assert publisher_enabled(PUBLISH_X_VAR) is True
+    assert component_enabled(PUBLISH_X_VAR) is True
 
 
 def test_an_empty_value_is_enabled(monkeypatch):
     """`PUBLISH_X=` es una variable sin decidir, no una red apagada."""
     monkeypatch.setenv(PUBLISH_X_VAR, "")
-    assert publisher_enabled(PUBLISH_X_VAR) is True
+    assert component_enabled(PUBLISH_X_VAR) is True
 
 
 @pytest.mark.parametrize("value", ["false", "FALSE", "False", "  false  "])
 def test_false_in_any_casing_disables(monkeypatch, value):
     monkeypatch.setenv(PUBLISH_LINKEDIN_VAR, value)
-    assert publisher_enabled(PUBLISH_LINKEDIN_VAR) is False
+    assert component_enabled(PUBLISH_LINKEDIN_VAR) is False
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "True", "  true  "])
 def test_true_in_any_casing_enables(monkeypatch, value):
     monkeypatch.setenv(PUBLISH_LINKEDIN_VAR, value)
-    assert publisher_enabled(PUBLISH_LINKEDIN_VAR) is True
+    assert component_enabled(PUBLISH_LINKEDIN_VAR) is True
 
 
 @pytest.mark.parametrize("value", ["no", "0", "off", "yes", "sí"])
@@ -51,7 +54,7 @@ def test_anything_else_raises_instead_of_guessing(monkeypatch, value):
     """
     monkeypatch.setenv(PUBLISH_X_VAR, value)
     with pytest.raises(ValueError) as exc:
-        publisher_enabled(PUBLISH_X_VAR)
+        component_enabled(PUBLISH_X_VAR)
     assert PUBLISH_X_VAR in str(exc.value)
     assert value in str(exc.value)
 
@@ -64,7 +67,7 @@ def test_the_error_shows_what_the_operator_actually_typed(monkeypatch):
     """
     monkeypatch.setenv(PUBLISH_X_VAR, "  Yes  ")
     with pytest.raises(ValueError) as exc:
-        publisher_enabled(PUBLISH_X_VAR)
+        component_enabled(PUBLISH_X_VAR)
     assert "'  Yes  '" in str(exc.value)
 
 
@@ -73,7 +76,7 @@ class _Cliente:
 
 
 def test_a_healthy_client_comes_back_with_no_error():
-    cliente, error = build_publisher("x", _Cliente, enabled=True)
+    cliente, error = build_component("x", _Cliente, enabled=True)
     assert isinstance(cliente, _Cliente)
     assert error is None
 
@@ -90,7 +93,7 @@ def test_a_disabled_publisher_is_not_constructed_at_all():
         llamadas.append(1)
         return _Cliente()
 
-    cliente, error = build_publisher("linkedin", factory, enabled=False)
+    cliente, error = build_component("linkedin", factory, enabled=False)
 
     assert cliente is None
     assert error is None, "una red apagada no es un fallo y no debe alertar"
@@ -103,7 +106,7 @@ def test_a_broken_client_comes_back_with_the_reason():
     def factory():
         raise ValueError("Faltan credenciales de X API.")
 
-    cliente, error = build_publisher("x", factory, enabled=True)
+    cliente, error = build_component("x", factory, enabled=True)
 
     assert cliente is None
     assert error == "Faltan credenciales de X API."
@@ -116,4 +119,39 @@ def test_only_valueerror_is_swallowed():
         raise RuntimeError("boom")
 
     with pytest.raises(RuntimeError):
-        build_publisher("x", factory, enabled=True)
+        build_component("x", factory, enabled=True)
+
+
+def test_read_switch_reports_an_invalid_value_instead_of_raising(monkeypatch):
+    """El orquestador no puede dejar que esto levante: seria el bug (d) otra vez.
+
+    `component_enabled` sigue levantando porque `check_publishers.py` lo quiere
+    asi. `read_switch` es la version que devuelve el motivo para que el
+    constructor pueda seguir y el punto de decision lo reporte.
+    """
+    monkeypatch.setenv(USE_FRED_VAR, "maybe")
+
+    encendido, motivo = read_switch(USE_FRED_VAR)
+
+    assert encendido is False
+    assert motivo is not None
+    assert "maybe" in motivo
+
+
+def test_read_switch_has_no_motive_when_the_value_is_valid(monkeypatch):
+    monkeypatch.setenv(USE_FRED_VAR, "false")
+    assert read_switch(USE_FRED_VAR) == (False, None)
+
+
+def test_an_invalid_switch_reads_as_off_which_is_why_the_motive_matters(monkeypatch):
+    """La trampa que este par de valores esconde.
+
+    Un valor invalido devuelve `False`, asi que el componente no se construye y
+    queda **indistinguible de un apagado deliberado**. Lo unico que los separa
+    es el motivo. Por eso el punto de decision mira `switch_errors` antes que
+    cualquier rama de apagado.
+    """
+    monkeypatch.setenv(USE_TELEGRAM_VAR, "maybe")
+    encendido, motivo = read_switch(USE_TELEGRAM_VAR)
+    assert encendido is False
+    assert motivo is not None
