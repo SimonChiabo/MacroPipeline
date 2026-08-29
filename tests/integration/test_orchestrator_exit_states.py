@@ -47,11 +47,11 @@ def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestra
     """Orquestador con estado real y todo lo demas mockeado."""
     orch = MacroOrchestrator.__new__(MacroOrchestrator)
     orch.tracer = None
-    orch.r2_ready = False
+    orch.r2 = None
     orch._allow_mock = False
 
-    orch.x_error = None
-    orch.linkedin_error = None
+    orch.switch_errors = {}
+    orch.component_errors = {}
     orch.macro_error = None
     orch.x_client = MagicMock()
     orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
@@ -161,9 +161,9 @@ def test_a_run_with_both_publishers_broken_leaves_no_row_at_all(data, state):
     """El abort anterior al lock: sin fila, la proxima run reintenta sola."""
     orch = _build_orchestrator(data, state)
     orch.x_client = None
-    orch.x_error = "Faltan credenciales de X API."
+    orch.component_errors["x"] = "Faltan credenciales de X API."
     orch.linkedin = None
-    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+    orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
@@ -193,7 +193,7 @@ def test_one_disabled_and_one_broken_alerts_only_about_the_broken_one(data, stat
     orch = _build_orchestrator(data, state)
     orch.x_client = None
     orch.linkedin = None
-    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+    orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
@@ -229,7 +229,7 @@ def test_a_broken_linkedin_still_publishes_on_x(data, state):
     """
     orch = _build_orchestrator(data, state)
     orch.linkedin = None
-    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+    orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
@@ -247,7 +247,7 @@ def test_the_degraded_run_warns_before_asking_for_approval(data, state):
     """
     orch = _build_orchestrator(data, state)
     orch.linkedin = None
-    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+    orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
@@ -275,7 +275,7 @@ def test_a_broken_x_still_publishes_on_linkedin(data, state):
     """
     orch = _build_orchestrator(data, state)
     orch.x_client = None
-    orch.x_error = "Faltan credenciales de X API."
+    orch.component_errors["x"] = "Faltan credenciales de X API."
 
     orch.run_weekly_close()
 

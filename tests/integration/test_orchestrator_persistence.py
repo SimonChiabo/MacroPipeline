@@ -38,16 +38,18 @@ def _build_orchestrator(data: WeeklyCloseData) -> MacroOrchestrator:
     """Orquestador con todos los colaboradores externos mockeados."""
     orch = MacroOrchestrator.__new__(MacroOrchestrator)
     orch.tracer = None
-    orch.r2_ready = False
+    orch.r2 = None
     orch._allow_mock = False
 
-    # Con publicadores: el camino normal. `x_ready` / `linkedin_ready` son
-    # propiedades de solo lectura derivadas del cliente, asi que declarar una
-    # red lista obliga a poner un cliente. Es a proposito: el atajo de setear
-    # la bandera a mano es como el bug de `5ba7997` estuvo escondido detras de
+    # Con publicadores: el camino normal. `x_ready` / `linkedin_ready` /
+    # `r2_ready` derivan del cliente y `x_error` / `linkedin_error` de
+    # `component_errors`, y todas son de solo lectura: declarar una red lista
+    # obliga a poner un cliente, y declararla rota obliga a escribir el motivo
+    # donde lo escribiria el constructor. Es a proposito: el atajo de setear la
+    # bandera a mano es como el bug de `5ba7997` estuvo escondido detras de
     # cuatro tests verdes.
-    orch.x_error = None
-    orch.linkedin_error = None
+    orch.switch_errors = {}
+    orch.component_errors = {}
     orch.macro_error = None
     orch.x_client = MagicMock()
     orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
@@ -166,9 +168,9 @@ def test_a_run_without_publishers_is_not_marked_as_published(snapshot):
     )
     orch = _build_orchestrator(data)
     orch.x_client = None
-    orch.x_error = "Faltan credenciales de X API."
+    orch.component_errors["x"] = "Faltan credenciales de X API."
     orch.linkedin = None
-    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+    orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
@@ -192,9 +194,9 @@ def test_a_run_without_publishers_does_not_bother_the_operator(snapshot):
     )
     orch = _build_orchestrator(data)
     orch.x_client = None
-    orch.x_error = "Faltan credenciales de X API."
+    orch.component_errors["x"] = "Faltan credenciales de X API."
     orch.linkedin = None
-    orch.linkedin_error = "Faltan credenciales de LinkedIn."
+    orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
     orch.run_weekly_close()
 
@@ -225,7 +227,6 @@ def test_no_alert_when_the_validator_approves(snapshot):
 
 
 def _with_failing_r2(orch: MacroOrchestrator, error: Exception) -> MacroOrchestrator:
-    orch.r2_ready = True
     orch.r2 = MagicMock()
     orch.r2.upload_image.side_effect = error
     return orch

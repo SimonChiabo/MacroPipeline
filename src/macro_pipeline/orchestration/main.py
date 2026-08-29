@@ -1,4 +1,5 @@
 import os
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import date
 
@@ -9,11 +10,17 @@ from opentelemetry import trace
 from macro_pipeline.components import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
+    USE_ANTHROPIC_VAR,
+    USE_AV_VAR,
+    USE_FMP_VAR,
+    USE_FRED_VAR,
+    USE_R2_VAR,
+    USE_TELEGRAM_VAR,
     build_component,
-    component_enabled,
+    read_switch,
 )
-from macro_pipeline.data.av_client import AlphaVantageClient
-from macro_pipeline.data.fmp_client import FMPClient
+from macro_pipeline.data.av_client import AlphaVantageClient, AlphaVantageClientError
+from macro_pipeline.data.fmp_client import FMPClient, FMPClientError
 from macro_pipeline.data.fred_client import FREDClient
 from macro_pipeline.data.macro import safe_build_macro_snapshot
 from macro_pipeline.llm.client import (
@@ -85,71 +92,60 @@ class MacroOrchestrator:
         self.tracer = tracer
         logger.info("initializing_orchestrator")
 
-        self.fmp = FMPClient()
-        self.av = AlphaVantageClient()
-        self.validator_engine = ValidationEngine()
+        # Ningun componente con credenciales puede matar el constructor
+        # (ADR-009, limitacion (d)). Los motivos se juntan aca y los reporta el
+        # punto de decision de `run_weekly_close`, que es el primer sitio donde
+        # existen a la vez el canal de aviso y el `event_id`. Con eso el orden
+        # de construccion deja de ser logica: era la raiz del problema —FMP y
+        # AV se construian antes que Telegram, asi que cuando reventaban no
+        # habia con que avisar— y no solo su sintoma.
+        #
+        # Dos diccionarios y no uno: un switch con un valor invalido significa
+        # que no se pudo leer la intencion del operador y eso aborta siempre;
+        # una credencial ausente degrada o aborta segun el componente. Unirlos
+        # obligaria a llevar una bandera al lado de cada motivo.
+        self.switch_errors: dict[str, str] = {}
+        self.component_errors: dict[str, str] = {}
 
-        # FRED alimenta el bloque macro, que es complementario: sin key el
-        # pipeline publica igual, solo que sin contexto macroeconómico.
-        self.fred: FREDClient | None
-        try:
-            self.fred = FREDClient()
-        except ValueError as e:
-            logger.warning("fred_not_configured", reason=str(e))
-            self.fred = None
+        self.fmp = self._build("fmp", USE_FMP_VAR, FMPClient)
+        self.av = self._build("av", USE_AV_VAR, AlphaVantageClient)
+        self.fred = self._build("fred", USE_FRED_VAR, FREDClient)
+        self.llm = self._build("anthropic", USE_ANTHROPIC_VAR, LLMClient)
+        self.r2 = self._build("r2", USE_R2_VAR, R2Client)
+        self.telegram = self._build("telegram", USE_TELEGRAM_VAR, TelegramBot)
+        self.x_client = self._build("x", PUBLISH_X_VAR, XClient)
+        self.linkedin = self._build("linkedin", PUBLISH_LINKEDIN_VAR, LinkedInClient)
 
-        # Motivo por el que el bloque macro no llegó, o None. Mismo rol que
-        # `x_error` / `linkedin_error`: lo escribe quien detecta el fallo y lo
-        # lee la alerta. Declarado acá para que exista desde el minuto cero.
+        # `ValidatorAgent.__init__` solo guarda el cliente, asi que no puede
+        # fallar por credenciales: sin generador no hay validador, y con
+        # generador siempre se construye.
+        self.validator_agent = (
+            ValidatorAgent(self.llm) if self.llm is not None else None
+        )
+
+        # Motivo por el que el bloque macro no llego, o None. Es de
+        # **ejecucion** —API caida, serie corta, dato rancio— y por eso no vive
+        # en `component_errors`, que es de arranque. Los dos alertan, pero en
+        # sitios distintos y con textos distintos.
         self.macro_error: str | None = None
 
-        # ADR-001 declara auxiliar a la capa LLM —el LLM no toca números, solo
-        # redacta— y ADR-009 se apoya en esa declaración para que degrade. Un
-        # componente que la política declara prescindible no puede ser fatal en
-        # el constructor: sin key la run moría antes de `run_weekly_close`, sin
-        # alerta y sin fila de estado.
-        #
-        # Los dos en el mismo `try`: `ValidatorAgent` recibe el cliente, así
-        # que sin generador no hay validador que construir.
-        #
-        # `except ValueError` y no uno ancho como el de R2: acá no hay red de
-        # por medio. `LLMClient.__init__` solo levanta cuando falta la key, y
-        # construir el cliente de `anthropic` no hace ninguna llamada.
-        self.llm: LLMClient | None
-        self.validator_agent: ValidatorAgent | None
-        try:
-            self.llm = LLMClient()
-            self.validator_agent = ValidatorAgent(self.llm)
-        except ValueError as e:
-            logger.warning("llm_not_configured", reason=str(e))
-            self.llm = None
-            self.validator_agent = None
-
+        self.validator_engine = ValidationEngine()
         self.renderer = PlaywrightEngine()
-
-        self.telegram = TelegramBot()
         self.state = StateDB()
-
-        try:
-            self.r2 = R2Client()
-            self.r2_ready = True
-        except ValueError as e:
-            logger.warning("r2_not_configured", reason=str(e))
-            self.r2_ready = False
-
-        # Una bandera por red, y no una para las dos: `XClient` levanta si
-        # falta alguna de sus cuatro credenciales y `LinkedInClient` si falta
-        # alguna de sus dos, asi que un solo `try` compartido dejaba que
-        # cualquiera de las seis apagara las dos redes.
-        x_enabled = component_enabled(PUBLISH_X_VAR)
-        linkedin_enabled = component_enabled(PUBLISH_LINKEDIN_VAR)
-        self.x_client, self.x_error = build_component("x", XClient, x_enabled)
-        self.linkedin, self.linkedin_error = build_component(
-            "linkedin", LinkedInClient, linkedin_enabled
-        )
 
         # Guardia de Mock Data: por defecto bloqueado en producción
         self._allow_mock = os.environ.get("ALLOW_MOCK_DATA", "false").lower() == "true"
+
+    def _build[T](self, name: str, var: str, factory: Callable[[], T]) -> T | None:
+        """Lee el switch, construye si corresponde y anota el motivo si falla."""
+        enabled, switch_error = read_switch(var)
+        if switch_error is not None:
+            self.switch_errors[var] = switch_error
+            return None
+        cliente, motivo = build_component(name, factory, enabled)
+        if motivo is not None:
+            self.component_errors[name] = motivo
+        return cliente
 
     @property
     def x_ready(self) -> bool:
@@ -165,6 +161,23 @@ class MacroOrchestrator:
     @property
     def linkedin_ready(self) -> bool:
         return self.linkedin is not None
+
+    @property
+    def r2_ready(self) -> bool:
+        return self.r2 is not None
+
+    @property
+    def x_error(self) -> str | None:
+        """Derivada de `component_errors` y no un atributo aparte.
+
+        Mismo motivo que `x_ready`: una sola fuente de verdad, para que la
+        alerta no pueda nombrar una red distinta de la que se rompio.
+        """
+        return self.component_errors.get("x")
+
+    @property
+    def linkedin_error(self) -> str | None:
+        return self.component_errors.get("linkedin")
 
     def _publisher_failures(self) -> str:
         """Las redes rotas y su motivo, para el texto de la alerta.
@@ -226,12 +239,22 @@ class MacroOrchestrator:
         data_source = "fmp"
 
         try:
+            # Una fuente sin construir entra por la misma puerta que una fuente
+            # caida: la cascada FMP -> AV -> mock ya existe justo para esto, y
+            # sin la guarda un FMP ausente saldria como `AttributeError` —
+            # atrapado igual por el `except` de abajo, pero ilegible en el log.
+            if self.fmp is None:
+                raise FMPClientError("El cliente de FMP no se pudo construir.")
             sp500_df = self.fmp.get_historical_prices("^GSPC")
             nasdaq_df = self.fmp.get_historical_prices("^IXIC")
         except Exception as e:
             logger.warning("fmp_failed_falling_back_to_av", error=str(e))
             data_source = "av"
             try:
+                if self.av is None:
+                    raise AlphaVantageClientError(
+                        "El cliente de Alpha Vantage no se pudo construir."
+                    )
                 sp500_df = self.av.get_daily_prices("SPY", outputsize="compact")
                 nasdaq_df = self.av.get_daily_prices("QQQ", outputsize="compact")
             except Exception as av_error:
@@ -303,6 +326,14 @@ class MacroOrchestrator:
     def run_weekly_close(self) -> None:
         """Pipeline completo de Cierre Semanal con idempotencia parcial."""
         logger.info("starting_weekly_close_pipeline")
+
+        # Sin canal de aviso no hay run que valga: cada salida de aca abajo
+        # —degradacion, abort, timeout— termina contandoselo a alguien por
+        # Telegram, y una run que no puede avisar de nada es justo la que
+        # ADR-009 no acepta. Es una asercion y no un abort con motivo porque el
+        # abort pertenece al punto de decision, que es donde el motivo se puede
+        # reportar; aca solo se deja escrita la precondicion.
+        assert self.telegram is not None
 
         span_ctx = (
             self.tracer.start_as_current_span("weekly_close_pipeline")
@@ -570,7 +601,10 @@ class MacroOrchestrator:
                     logger.info("pipeline_approved_publishing", event_id=event_id)
 
                     image_url = None
-                    if self.r2_ready:
+                    # `is not None` y no `self.r2_ready` por lo mismo que en la
+                    # fase de publicacion: `mypy --strict` estrecha el tipo con
+                    # lo primero y no con una propiedad.
+                    if self.r2 is not None:
                         try:
                             image_url = self.r2.upload_image(
                                 image_bytes, f"{event_id}.png"
