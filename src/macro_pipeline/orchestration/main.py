@@ -402,7 +402,7 @@ class MacroOrchestrator:
                     # punto: si llega una alerta, es porque algo se rompió.
                     #
                     # No se abre el span `llm_headline`: no hubo llamada.
-                    logger.info("llm_layer_not_participating")
+                    logger.info("llm_layer_not_participating", event_id=event_id)
                     headline = _generic_headline(data)
                     validator_approved = None
                     prompt_version = None
@@ -541,7 +541,7 @@ class MacroOrchestrator:
                     if self.tracer
                     else nullcontext()
                 ):
-                    logger.info("requesting_human_approval")
+                    logger.info("requesting_human_approval", event_id=event_id)
                     msg_id = self.telegram.send_approval_request(
                         text=headline, image_bytes=image_bytes
                     )
@@ -632,7 +632,7 @@ class MacroOrchestrator:
                         validator_approved=validator_approved,
                         macro=data.macro,
                     )
-                    logger.info("pipeline_completed_successfully")
+                    logger.info("pipeline_completed_successfully", event_id=event_id)
                 else:
                     self.state.mark_failed(event_id, reason="rejected_by_human")
                     logger.warning("pipeline_aborted_by_human")
