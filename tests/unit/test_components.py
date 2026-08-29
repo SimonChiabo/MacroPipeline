@@ -1,9 +1,18 @@
-"""Las banderas por red: parseo estricto y construccion tri-estado.
+"""Los switches por componente: parseo estricto y construccion tri-estado.
 
-`PUBLISH_X` y `PUBLISH_LINKEDIN` deciden si una red publica. Un parseo laxo
-tendria que elegir en silencio entre dos lecturas de `PUBLISH_LINKEDIN=no`
-—apagada si se compara contra "true", encendida si se compara contra "false"—
-y las dos son malas: una pausa que no pausa, o una pausa que nadie pidio.
+Ocho variables —`USE_FMP`, `USE_AV`, `USE_FRED`, `USE_ANTHROPIC`, `USE_R2`,
+`USE_TELEGRAM`, `PUBLISH_X` y `PUBLISH_LINKEDIN`— deciden si cada componente
+con credenciales se construye, no solo las dos redes de publicacion. Un
+parseo laxo tendria que elegir en silencio entre dos lecturas de
+`PUBLISH_LINKEDIN=no` —apagada si se compara contra "true", encendida si se
+compara contra "false"— y las dos son malas: una pausa que no pausa, o una
+pausa que nadie pidio.
+
+`component_enabled` levanta ante un valor invalido, que es lo que
+`check_publishers.py` quiere. `read_switch` en cambio devuelve el motivo en
+vez de levantar, para que el constructor del orquestador pueda seguir. Y
+`build_component` distingue las tres combinaciones que le siguen: listo,
+apagado a proposito, y encendido pero roto.
 """
 
 import pytest
@@ -81,7 +90,7 @@ def test_a_healthy_client_comes_back_with_no_error():
     assert error is None
 
 
-def test_a_disabled_publisher_is_not_constructed_at_all():
+def test_a_disabled_component_is_not_constructed_at_all():
     """Apagada no es "se construye y no se usa": no se construye.
 
     Es lo que hace que un token de LinkedIn vencido con la bandera en false
@@ -96,7 +105,7 @@ def test_a_disabled_publisher_is_not_constructed_at_all():
     cliente, error = build_component("linkedin", factory, enabled=False)
 
     assert cliente is None
-    assert error is None, "una red apagada no es un fallo y no debe alertar"
+    assert error is None, "un componente apagado no es un fallo y no debe alertar"
     assert llamadas == [], "no se debe ni intentar construir el cliente"
 
 
