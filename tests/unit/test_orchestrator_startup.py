@@ -79,6 +79,10 @@ def test_a_missing_credential_does_not_kill_the_constructor(
 
     assert componente in orch.component_errors
     assert orch.component_errors[componente]
+    # Igualdad y no pertenencia: con `in` a secas, una credencial ausente que
+    # tumbara **tambien** a otro componente pasaria desapercibida, y la alerta
+    # del punto de decision nombraria una cosa rota de mas.
+    assert set(orch.component_errors) == {componente}
     assert orch.switch_errors == {}
 
 
@@ -92,6 +96,14 @@ def test_an_invalid_switch_does_not_kill_the_constructor_either(
 
     assert PUBLISH_X_VAR in orch.switch_errors
     assert "yes" in orch.switch_errors[PUBLISH_X_VAR]
+    # Lo que define a la rama: con la intencion ilegible **no se intenta**
+    # construir. Sin estos dos asserts el test pasa igual contra un `_build`
+    # que anota el motivo y construye el cliente igual, porque el fixture trae
+    # las credenciales de X buenas.
+    assert orch.x_client is None
+    # Y los dos motivos son excluyentes para un mismo componente: es el
+    # invariante del que depende el orden de las ramas del punto de decision.
+    assert "x" not in orch.component_errors
 
 
 def test_a_deliberate_switch_off_leaves_no_motive(entorno_completo, monkeypatch):

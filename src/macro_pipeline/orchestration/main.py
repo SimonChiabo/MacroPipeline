@@ -140,6 +140,16 @@ class MacroOrchestrator:
         """Lee el switch, construye si corresponde y anota el motivo si falla."""
         enabled, switch_error = read_switch(var)
         if switch_error is not None:
+            # El log vive aca y no en `read_switch` porque aca es donde
+            # convergen los tres desenlaces, y los tres tienen que verse igual
+            # de bien: `build_component` ya loggea el apagado deliberado y la
+            # credencial ausente, asi que sin esta linea el unico silencioso
+            # seria el que significa que el operador tipeo algo ininteligible
+            # — el mas alarmante de los tres. El aviso del punto de decision no
+            # lo cubre: ese solo llega a Telegram, y solo si Telegram existe.
+            logger.warning(
+                "switch_not_readable", component=name, switch=var, reason=switch_error
+            )
             self.switch_errors[var] = switch_error
             return None
         cliente, motivo = build_component(name, factory, enabled)
