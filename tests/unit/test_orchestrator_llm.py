@@ -4,10 +4,14 @@ ADR-009, tercer eje: un componente declarado opcional que no esta configurado
 no participa, y no participar no es degradar. La declaracion es ADR-001, que
 define la capa LLM como auxiliar — el LLM no toca numeros, solo redacta.
 
-La asimetria con la API caida es a proposito y esta cubierta por
-`test_a_dead_generator_alerts_even_if_the_validator_approves` en
-`tests/integration/test_orchestrator_persistence.py`: roto alerta, sin
-configurar no.
+La asimetria con la API caida es a proposito: roto alerta, sin configurar no.
+Las dos mitades se fijan en integration, no aca — este fichero solo llega al
+constructor y nunca corre `run_weekly_close`:
+
+- alerta: `test_a_dead_generator_alerts_even_if_the_validator_approves`, en
+  `tests/integration/test_orchestrator_persistence.py`.
+- silencio: `test_a_run_without_the_llm_layer_says_nothing`, en
+  `tests/integration/test_orchestrator_exit_states.py`.
 """
 
 from datetime import date

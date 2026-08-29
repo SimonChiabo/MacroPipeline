@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from macro_pipeline.llm.client import FALLBACK_HEADLINE
 from macro_pipeline.orchestration.main import MacroOrchestrator
 from macro_pipeline.storage.state import StateDB
 from macro_pipeline.telegram.bot import TelegramBotError
@@ -415,11 +416,13 @@ def test_a_run_without_the_llm_layer_says_nothing(data, state):
 def test_a_run_without_the_llm_layer_records_no_prompt_and_no_verdict(data, state):
     """NULL significa "no ocurrio", igual que las seis columnas macro sin FRED.
 
-    Escribir la version de prompt afirmaria una llamada que no se hizo, y
-    `prompt_version` existe justamente para poder reproducir un titular
-    historico: uno que escribio el pipeline no tiene prompt que lo reproduzca.
-    `validator_approved=False` se leeria como "el validador lo rechazo", que
-    tampoco paso.
+    Escribir la version de prompt afirmaria una llamada que no se hizo. El
+    criterio no es quien escribio el titular sino si **hubo llamada**: la run
+    degradada-pero-configurada tambien publica texto del pipeline y si registra
+    la version, porque el modelo respondio (ver
+    `test_a_degraded_but_configured_run_still_records_the_prompt_version`).
+    Aca no hubo ninguna. `validator_approved=False` se leeria como "el
+    validador lo rechazo", que tampoco paso.
     """
     orch = _build_orchestrator(data, state)
     orch.llm = None
@@ -441,4 +444,28 @@ def test_a_normal_run_still_records_the_prompt_version(data, state):
     row = state.get_publication_state(EVENT_ID)
     assert row["prompt_version"] is not None
     assert "headline=" in row["prompt_version"]
+    assert row["validator_approved"] == 1
+
+
+def test_a_degraded_but_configured_run_still_records_the_prompt_version(data, state):
+    """El caso del medio, y el que fija donde vive `prompt_version`.
+
+    Con la API caida el generador devuelve `FALLBACK_HEADLINE`: la run alerta y
+    publica el mismo bloque generico que una run sin capa LLM. Lo que separa
+    las dos filas no es quien redacto el titular —el pipeline, en las dos—
+    sino que aca **si hubo llamada**, asi que la version queda escrita.
+
+    Por eso `prompt_version = _PROMPT_VERSION` va dentro del `else` pero fuera
+    del `with`: corre degrade o no degrade. Moverlo adentro de la rama sin
+    degradacion dejaria esta fila en NULL —perdiendo la trazabilidad justo en
+    las runs que mas hay que diagnosticar— y ningun otro test lo veria.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.llm.generate_headline.return_value = FALLBACK_HEADLINE
+
+    orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_called_once()
+    row = state.get_publication_state(EVENT_ID)
+    assert row["prompt_version"] is not None
     assert row["validator_approved"] == 1
