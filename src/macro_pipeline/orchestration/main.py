@@ -482,6 +482,7 @@ class MacroOrchestrator:
                         if degradation:
                             logger.error(
                                 "llm_layer_degraded",
+                                event_id=event_id,
                                 cause=degradation_cause,
                                 approved=validator_approved,
                                 reason=review_reason,
@@ -510,7 +511,12 @@ class MacroOrchestrator:
                 if self.x_error or self.linkedin_error:
                     caida = "X" if self.x_error else "LinkedIn"
                     viva = "LinkedIn" if self.x_error else "X"
-                    logger.warning("publisher_degraded", down=caida, up=viva)
+                    logger.warning(
+                        "publisher_degraded",
+                        event_id=event_id,
+                        down=caida,
+                        up=viva,
+                    )
                     self.telegram.send_alert(
                         f"⚠️ El cierre semanal sale solo en {viva}: el cliente "
                         f"de {caida} no se pudo construir.\n\n"
@@ -527,7 +533,9 @@ class MacroOrchestrator:
                 # declara opcional, y un opcional sin configurar no participa —
                 # no degrada, así que no hay nada que avisar.
                 if self.macro_error:
-                    logger.warning("macro_degraded", reason=self.macro_error)
+                    logger.warning(
+                        "macro_degraded", event_id=event_id, reason=self.macro_error
+                    )
                     self.telegram.send_alert(
                         "⚠️ El cierre semanal sale sin bloque macro.\n\n"
                         f"Motivo: {self.macro_error}\n\n"
@@ -552,12 +560,14 @@ class MacroOrchestrator:
                         )
                     except TelegramBotError:
                         self.state.mark_expired(event_id)
-                        logger.error("pipeline_expired_telegram_timeout")
+                        logger.error(
+                            "pipeline_expired_telegram_timeout", event_id=event_id
+                        )
                         return
 
                 # ── FASE DE PUBLICACIÓN ────────────────────────────────────────
                 if approved:
-                    logger.info("pipeline_approved_publishing")
+                    logger.info("pipeline_approved_publishing", event_id=event_id)
 
                     image_url = None
                     if self.r2_ready:
@@ -575,7 +585,11 @@ class MacroOrchestrator:
                         # —encima despues de que el humano aprobo y antes de
                         # publicar en ninguna red— es un bug, no una politica.
                         except Exception as e:
-                            logger.error("r2_upload_failed_degrading", error=str(e))
+                            logger.error(
+                                "r2_upload_failed_degrading",
+                                event_id=event_id,
+                                error=str(e),
+                            )
                             self.telegram.send_alert(
                                 "⚠️ La subida del snapshot a R2 falló; el "
                                 "cierre se publica igual, sin copia remota de "
@@ -635,10 +649,12 @@ class MacroOrchestrator:
                     logger.info("pipeline_completed_successfully", event_id=event_id)
                 else:
                     self.state.mark_failed(event_id, reason="rejected_by_human")
-                    logger.warning("pipeline_aborted_by_human")
+                    logger.warning("pipeline_aborted_by_human", event_id=event_id)
 
             except Exception as e:
-                logger.error("pipeline_failed_critically", error=str(e))
+                logger.error(
+                    "pipeline_failed_critically", event_id=event_id, error=str(e)
+                )
                 # Toda excepcion deja un estado terminal (ADR-009). Sin esto la
                 # fila se quedaba en `in_progress` para siempre y el reintento
                 # del mismo `event_id` moria en el guard de duplicados de mas
