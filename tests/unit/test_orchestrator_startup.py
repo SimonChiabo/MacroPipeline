@@ -25,6 +25,23 @@ from macro_pipeline.components import (
 )
 from macro_pipeline.orchestration.main import MacroOrchestrator
 
+
+@pytest.fixture
+def data_orch():
+    """Orquestador con lo justo para ejercitar `_fetch_weekly_close`."""
+    from unittest.mock import MagicMock
+
+    orch = MacroOrchestrator.__new__(MacroOrchestrator)
+    orch._allow_mock = False
+    orch.component_errors = {}
+    orch.switch_errors = {}
+    orch.macro_error = None
+    orch.fred = None
+    orch.fmp = MagicMock()
+    orch.av = MagicMock()
+    return orch
+
+
 # (componente, variables de entorno que hay que borrar para romperlo)
 COMPONENTES = [
     ("fmp", ["FMP_API_KEY"]),
@@ -123,3 +140,38 @@ def test_everything_configured_leaves_both_dicts_empty(entorno_completo):
     assert orch.switch_errors == {}
     assert orch.r2_ready is True
     assert orch.x_ready is True
+
+
+def test_a_missing_av_names_itself_instead_of_an_attribute_error(data_orch):
+    """La divergencia 1 otra vez: la alerta tiene que nombrar la causa real."""
+    data_orch.fmp.get_historical_prices.side_effect = RuntimeError("FMP 503")
+    data_orch.av = None
+    data_orch.component_errors["av"] = "Se requiere ALPHA_VANTAGE_API_KEY."
+
+    with pytest.raises(RuntimeError) as exc:
+        data_orch._fetch_weekly_close()
+
+    assert "ALPHA_VANTAGE_API_KEY" in str(exc.value)
+    assert "NoneType" not in str(exc.value)
+
+
+def test_a_switched_off_av_says_so(data_orch):
+    data_orch.fmp.get_historical_prices.side_effect = RuntimeError("FMP 503")
+    data_orch.av = None
+
+    with pytest.raises(RuntimeError) as exc:
+        data_orch._fetch_weekly_close()
+
+    assert "USE_AV" in str(exc.value)
+
+
+def test_the_etl_refuses_to_run_without_fmp(data_orch):
+    """No lo alcanza ningun camino: el punto de decision aborta antes.
+
+    Existe para que, si alguien reordena las ramas, esto muera con un motivo
+    legible y no con un `AttributeError`.
+    """
+    data_orch.fmp = None
+
+    with pytest.raises(RuntimeError, match="punto de decisión"):
+        data_orch._fetch_weekly_close()

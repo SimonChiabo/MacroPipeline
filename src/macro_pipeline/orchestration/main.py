@@ -19,8 +19,8 @@ from macro_pipeline.components import (
     build_component,
     read_switch,
 )
-from macro_pipeline.data.av_client import AlphaVantageClient, AlphaVantageClientError
-from macro_pipeline.data.fmp_client import FMPClient, FMPClientError
+from macro_pipeline.data.av_client import AlphaVantageClient
+from macro_pipeline.data.fmp_client import FMPClient
 from macro_pipeline.data.fred_client import FREDClient
 from macro_pipeline.data.macro import safe_build_macro_snapshot
 from macro_pipeline.llm.client import (
@@ -263,25 +263,33 @@ class MacroOrchestrator:
         Lanza RuntimeError si se produce Mock Data y ALLOW_MOCK_DATA=false.
         """
         logger.info("orchestrator_fetching_data")
+
+        # No lo alcanza ningun camino: el punto de decision aborta cuando FMP no
+        # esta. Es la red por si alguien reordena sus ramas — mejor un motivo
+        # legible que un `AttributeError` con el humano ya esperando aprobar.
+        if self.fmp is None:
+            raise RuntimeError(
+                "FMP no está construido: el punto de decisión debía haber "
+                "abortado antes de llegar acá."
+            )
+
         data_source = "fmp"
 
         try:
-            # Una fuente sin construir entra por la misma puerta que una fuente
-            # caida: la cascada FMP -> AV -> mock ya existe justo para esto, y
-            # sin la guarda un FMP ausente saldria como `AttributeError` —
-            # atrapado igual por el `except` de abajo, pero ilegible en el log.
-            if self.fmp is None:
-                raise FMPClientError("El cliente de FMP no se pudo construir.")
             sp500_df = self.fmp.get_historical_prices("^GSPC")
             nasdaq_df = self.fmp.get_historical_prices("^IXIC")
         except Exception as e:
             logger.warning("fmp_failed_falling_back_to_av", error=str(e))
             data_source = "av"
             try:
+                # AV degrada, asi que el pipeline llega hasta aca con `self.av`
+                # en None. Sin esta guarda salia un `AttributeError` y la alerta
+                # del `except` general culpaba a un bug en vez de nombrar a AV.
                 if self.av is None:
-                    raise AlphaVantageClientError(
-                        "El cliente de Alpha Vantage no se pudo construir."
+                    motivo = self.component_errors.get(
+                        "av", f"apagado con {USE_AV_VAR}=false"
                     )
+                    raise RuntimeError(f"Alpha Vantage no disponible: {motivo}")
                 sp500_df = self.av.get_daily_prices("SPY", outputsize="compact")
                 nasdaq_df = self.av.get_daily_prices("QQQ", outputsize="compact")
             except Exception as av_error:
@@ -291,6 +299,7 @@ class MacroOrchestrator:
                 if not self._allow_mock:
                     raise RuntimeError(
                         "Todas las fuentes de datos fallaron (FMP, AV). "
+                        f"Última causa: {av_error}. "
                         "Mock Data bloqueado en producción. "
                         "Set ALLOW_MOCK_DATA=true solo en desarrollo."
                     ) from av_error
