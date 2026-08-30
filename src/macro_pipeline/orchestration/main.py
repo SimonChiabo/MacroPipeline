@@ -471,20 +471,30 @@ class MacroOrchestrator:
             self.telegram.send_alert(
                 "⚠️ El cierre semanal arranca con componentes encendidos y sin "
                 f"credenciales:\n\n{lineas}\n\n"
-                "Se publica igual si lo aprobás. Verificar con "
-                "`python scripts/check_publishers.py`."
+                "Se publica igual si lo aprobás.\n\n"
+                "Para X y LinkedIn, `python scripts/check_publishers.py` "
+                "verifica las credenciales de verdad contra la API. Para los "
+                "demás sólo comprueba que la variable esté puesta: una key "
+                "presente pero rotada no la detecta nadie todavía."
             )
         return None
 
     def run_weekly_close(self) -> int:
         """Pipeline completo de Cierre Semanal con idempotencia parcial.
 
-        Devuelve el código de salida. La regla no es «publicó o no»: es dónde
-        queda el rastro. `0` para todo desenlace que la fila registra —publicado,
-        rechazado por el humano, expirado por timeout, o deliberadamente no
-        publicado—; `1` para el abort que **no deja fila**, que por eso necesita
-        un rastro fuera del proceso. Las excepciones inesperadas siguen
-        propagando: salida controlada → entero, bug → excepción.
+        Devuelve el código de salida. La regla es si algo está **roto**: `1`
+        cuando la run no pudo correr por configuración rota —y entonces no deja
+        fila, que es por lo que necesita un rastro fuera del proceso—; `0` para
+        todo lo demás, tanto los desenlaces que la fila registra —publicado,
+        rechazado por el humano, expirado por timeout— como las pausas
+        deliberadas, que tampoco dejan fila pero no son un fallo.
+
+        Ojo con la simetría que no existe: `1` implica que no hay fila, pero no
+        al revés. Apagar Telegram o FMP a propósito sale con `0` y tampoco deja
+        fila. Que no haya fila no distingue un abort de una pausa; el código sí.
+
+        Las excepciones inesperadas siguen propagando: salida controlada →
+        entero, bug → excepción.
         """
         logger.info("starting_weekly_close_pipeline")
 

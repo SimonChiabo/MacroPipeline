@@ -250,15 +250,26 @@ queda fijada es **si llega una alerta, es porque algo se rompió**.
 Anthropic estaba decidida desde el 2026-08-26—; las dos quedan como registro.
 La (a) y la (b) siguen abiertas:**
 
-**(a) La alerta de degradación promete de más en dos casos.** Va antes de pedir
-aprobación (a propósito: quien aprueba tiene que saber que el cierre sale en
-una sola red), así que dice "el cierre se publica igual si lo aprobás" incluso
-cuando el humano después rechaza o la aprobación expira, y también cuando la
-red viva ya había publicado más temprano el mismo día — en ese caso la run no
-publica nada y sin embargo la alerta anunció una publicación degradada. La
-mitad accionable del aviso —la credencial está rota, corré
-`check_publishers.py`— es verdadera en todos los casos. La misma propiedad la
-tiene la alerta de la capa LLM.
+**(a) La alerta de degradación promete de más, y desde el 2026-08-29 en más
+casos que antes.** Dice "se publica igual si lo aprobás" y después el humano
+puede rechazar, la aprobación puede expirar, o la red viva puede haber
+publicado ya más temprano el mismo día: en todos ésos la run no publica y la
+alerta ya anunció una publicación degradada.
+
+Eran dos casos cuando el aviso vivía justo antes de la fase HITL. Al mudarlo al
+punto de decisión —antes del lock, y por lo tanto antes de datos, validación,
+render y LLM— se le pusieron delante todas las salidas de esas fases: un fallo
+de datos, una cifra que el validador rechaza, un render roto. Todas dejan fila
+`failed` y avisan por su cuenta, así que se contradicen a la vista. La que no
+se ve es `is_in_progress`: manda el aviso de degradación y después se salta la
+run entera en silencio, sin fila nueva y sin segundo mensaje.
+
+Lo que sigue siendo verdad en todos los casos es la mitad accionable: la
+credencial está rota. Que la mudanza haya empeorado esta limitación es el
+precio de haber arreglado la (d) —el aviso tenía que subir hasta donde existen
+a la vez el canal y el `event_id`— y se paga con gusto: prometer de más sobre
+una publicación es menos grave que no avisar nunca. La misma propiedad la
+tiene la alerta de la capa LLM, que no se mudó.
 
 **(b) Los `post_id` persistidos, en los que se apoya la reconciliación
 parcial, se pueden perder.** Si `mark_x_published` falla después de que
