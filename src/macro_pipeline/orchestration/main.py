@@ -193,8 +193,12 @@ class MacroOrchestrator:
     def x_error(self) -> str | None:
         """Derivada de `component_errors` y no un atributo aparte.
 
-        Mismo motivo que `x_ready`: una sola fuente de verdad, para que la
-        alerta no pueda nombrar una red distinta de la que se rompio.
+        Mismo motivo que `x_ready`: una sola fuente de verdad. El peligro
+        concreto que evitaba —el par de ternarios del bloque `publisher_degraded`,
+        que podia nombrar una red distinta de la que se rompio— ya no existe: ese
+        bloque se borro y el punto de decision compone la linea desde la clave
+        del dict. Queda como fuente unica igual, que es lo que impide que un test
+        declare una red rota sin romperla.
         """
         return self.component_errors.get("x")
 
@@ -457,10 +461,12 @@ class MacroOrchestrator:
     def run_weekly_close(self) -> int:
         """Pipeline completo de Cierre Semanal con idempotencia parcial.
 
-        Devuelve el código de salida: `0` si la run corrió —publicó, o
-        deliberadamente no publicó—, `1` si abortó por configuración rota. Las
-        excepciones inesperadas siguen propagando: salida controlada → entero,
-        bug → excepción.
+        Devuelve el código de salida. La regla no es «publicó o no»: es dónde
+        queda el rastro. `0` para todo desenlace que la fila registra —publicado,
+        rechazado por el humano, expirado por timeout, o deliberadamente no
+        publicado—; `1` para el abort que **no deja fila**, que por eso necesita
+        un rastro fuera del proceso. Las excepciones inesperadas siguen
+        propagando: salida controlada → entero, bug → excepción.
         """
         logger.info("starting_weekly_close_pipeline")
 
@@ -646,8 +652,10 @@ class MacroOrchestrator:
                     prompt_version = _PROMPT_VERSION
 
                 # ── Degradación: el bloque macro no llegó ──────────────────────
-                # Mismo lugar y mismo motivo que los dos avisos de arriba: quien
-                # aprueba tiene que saber que ese cierre sale con menos.
+                # Mismo lugar y mismo motivo que el aviso de la capa LLM de
+                # arriba: quien aprueba tiene que saber que ese cierre sale con
+                # menos. Eran dos avisos hasta que el de la red caida se mudo al
+                # punto de decision, que es donde nace su causa.
                 # `macro_error` está cargado sólo cuando el bloque macro se
                 # rompió. FRED sin key no llega acá con motivo: ADR-009 lo
                 # declara opcional, y un opcional sin configurar no participa —

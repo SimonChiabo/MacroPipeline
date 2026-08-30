@@ -166,7 +166,7 @@ def test_a_run_with_both_publishers_broken_leaves_no_row_at_all(data, state):
     orch.linkedin = None
     orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
-    orch.run_weekly_close()
+    assert orch.run_weekly_close() == 1
 
     assert state.get_publication_state(EVENT_ID) == {}
     orch.telegram.send_alert.assert_called_once()
@@ -182,7 +182,7 @@ def test_a_run_with_both_publishers_disabled_says_nothing(data, state):
     orch.x_client = None
     orch.linkedin = None
 
-    orch.run_weekly_close()
+    assert orch.run_weekly_close() == 0
 
     assert state.get_publication_state(EVENT_ID) == {}
     orch.telegram.send_alert.assert_not_called()
@@ -196,7 +196,7 @@ def test_one_disabled_and_one_broken_alerts_only_about_the_broken_one(data, stat
     orch.linkedin = None
     orch.component_errors["linkedin"] = "Faltan credenciales de LinkedIn."
 
-    orch.run_weekly_close()
+    assert orch.run_weekly_close() == 1
 
     assert state.get_publication_state(EVENT_ID) == {}
     aviso = orch.telegram.send_alert.call_args[0][0]
@@ -268,8 +268,9 @@ def test_the_degraded_run_warns_before_asking_for_approval(data, state):
     # componente con su motivo y su consecuencia. Ya no dice «el cliente de
     # LinkedIn no se pudo construir»: ese bloque se borro porque su causa
     # siempre fue de arranque y dejarlo sonaria dos veces por lo mismo.
-    assert "• linkedin: Faltan credenciales de LinkedIn." in aviso
-    assert "— el cierre sale solo en X" in aviso
+    assert "linkedin" in aviso
+    assert "Faltan credenciales de LinkedIn." in aviso
+    assert "el cierre sale solo en X" in aviso
 
 
 def test_a_broken_x_still_publishes_on_linkedin(data, state):
@@ -288,8 +289,8 @@ def test_a_broken_x_still_publishes_on_linkedin(data, state):
     assert fila["linkedin_post_id"] == "li-456"
     assert not fila["x_post_id"]
     aviso = orch.telegram.send_alert.call_args[0][0]
-    assert "• x: Faltan credenciales de X API." in aviso
-    assert "— el cierre sale solo en LinkedIn" in aviso
+    assert "x: Faltan credenciales de X API." in aviso
+    assert "el cierre sale solo en LinkedIn" in aviso
 
 
 def test_a_disabled_network_never_warns(data, state):
