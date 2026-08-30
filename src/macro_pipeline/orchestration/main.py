@@ -809,11 +809,25 @@ class MacroOrchestrator:
                 # atributo. `send_alert` nunca levanta —devuelve un bool—, lo
                 # que importa dentro de un manejador de fallos.
                 if self.telegram is not None:
+                    # El tipo va delante del mensaje porque hay excepciones cuyo
+                    # `str` no dice nada por si solo: un `KeyError` en el render
+                    # manda «Motivo: 'sp500_close'», que ni siquiera parece un
+                    # error.
+                    #
+                    # El cierre no se reintenta solo, y decir que si seria la
+                    # peor de las mentiras posibles acá: el `event_id` lleva la
+                    # fecha de hoy y la run es semanal (ADR-002), asi que la
+                    # proxima no reintenta este cierre — lo reemplaza. Importa
+                    # sobre todo cuando la excepcion llego despues de publicar
+                    # en una sola red: esa mitad ya es publica y nadie la va a
+                    # reconciliar salvo que se relance la run de hoy.
                     self.telegram.send_alert(
                         "⛔ El cierre semanal murió a mitad de camino.\n\n"
-                        f"Motivo: {e}\n\n"
-                        "El evento queda en `failed`, así que la próxima run lo "
-                        "reintenta."
+                        f"Motivo: {type(e).__name__}: {e}\n\n"
+                        "Si llegó a tomar el lock, el evento queda en `failed`; "
+                        "si murió antes, no queda fila. En ninguno de los dos "
+                        "casos se reintenta solo: hay que relanzar la run de "
+                        "hoy."
                     )
                 # Toda excepcion deja un estado terminal (ADR-009). Sin esto la
                 # fila se quedaba en `in_progress` para siempre y el reintento

@@ -112,6 +112,51 @@ def test_a_critical_failure_alerts_before_marking_the_row(data, state):
     assert state.get_publication_state(EVENT_ID)["status"] == "failed"
 
 
+def test_the_alert_goes_out_before_the_row_is_marked(data, state):
+    """El «before» del nombre de arriba, que hasta ahora no lo afirmaba nadie.
+
+    El orden importa cuando la excepcion **es** un fallo del `StateDB`:
+    `mark_failed` levanta tambien y sustituye la causa original por un
+    «During handling...». Avisando primero, el operador se entera igual del
+    motivo de verdad.
+    """
+    orch = _build_orchestrator(data, state)
+    orch._fetch_weekly_close.side_effect = RuntimeError("murio en datos")
+
+    estados: list[str] = []
+    orch.telegram.send_alert.side_effect = lambda *_: estados.append(
+        state.get_publication_state(EVENT_ID)["status"]
+    )
+
+    with pytest.raises(RuntimeError):
+        orch.run_weekly_close()
+
+    assert estados == ["in_progress"]
+
+
+def test_a_death_without_telegram_reraises_the_real_cause(data, state):
+    """La guarda `is not None` del manejador, que no ejercitaba ningun test.
+
+    Es alcanzable, y este es el camino exacto: si alguien reordena las ramas del
+    punto de decision y deja pasar una run sin canal, la guarda de `run_weekly_close`
+    levanta — y esa excepcion cae en el manejador con `self.telegram` en None.
+    Sin el `is not None` seria un `AttributeError` levantado *dentro* del
+    manejador de fallos, que sustituiria la causa real por un fallo del propio
+    aviso: el operador se quedaria sin saber que fue lo que se rompio.
+
+    Muere antes del lock, asi que no llega a haber fila — que es justo lo que el
+    texto del aviso dice ahora en vez de prometer un `failed` que no existe.
+    """
+    orch = _build_orchestrator(data, state)
+    orch.telegram = None
+    orch._startup_exit_code = MagicMock(return_value=None)
+
+    with pytest.raises(RuntimeError, match="punto de decisión"):
+        orch.run_weekly_close()
+
+    assert state.get_publication_state(EVENT_ID) == {}
+
+
 def test_a_failure_while_publishing_keeps_the_post_id_of_what_did_go_out(data, state):
     """Si X publico y LinkedIn revento, el `post_id` de X tiene que sobrevivir.
 
