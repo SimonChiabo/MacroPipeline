@@ -51,6 +51,7 @@ def _build_orchestrator(data: WeeklyCloseData) -> MacroOrchestrator:
     orch.switch_errors = {}
     orch.component_errors = {}
     orch.macro_error = None
+    orch.fmp = MagicMock()
     orch.x_client = MagicMock()
     orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
     orch.linkedin = MagicMock()

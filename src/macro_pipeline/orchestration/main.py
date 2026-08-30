@@ -55,6 +55,19 @@ _PROMPT_VERSION = (
     f"/model={MODEL}"
 )
 
+# Que le pasa al cierre cuando cada componente esta encendido y sin
+# credenciales. Viaja a la alerta, asi que dice la consecuencia y no el nombre
+# interno: quien la lee tiene que poder decidir si aprueba sin abrir el codigo.
+# FMP y Telegram no estan porque no degradan — abortan, y cada uno con su texto.
+_CONSECUENCIA = {
+    "av": "sin fallback si FMP falla, y hoy esa ruta tampoco publicaría",
+    "fred": "el cierre sale sin bloque macro",
+    "anthropic": "el cierre sale con el titular genérico",
+    "r2": "sin copia remota de la imagen",
+    "x": "el cierre sale solo en LinkedIn",
+    "linkedin": "el cierre sale solo en X",
+}
+
 
 def _generic_headline(data: WeeklyCloseData) -> str:
     """El titular que publica el pipeline cuando la capa LLM no redacta.
@@ -333,17 +346,123 @@ class MacroOrchestrator:
         )
         return data, data_source
 
-    def run_weekly_close(self) -> None:
-        """Pipeline completo de Cierre Semanal con idempotencia parcial."""
-        logger.info("starting_weekly_close_pipeline")
+    def _startup_exit_code(self, event_id: str) -> int | None:
+        """Reporta lo que dejo el constructor y decide si la run sigue.
 
-        # Sin canal de aviso no hay run que valga: cada salida de aca abajo
-        # —degradacion, abort, timeout— termina contandoselo a alguien por
-        # Telegram, y una run que no puede avisar de nada es justo la que
-        # ADR-009 no acepta. Es una asercion y no un abort con motivo porque el
-        # abort pertenece al punto de decision, que es donde el motivo se puede
-        # reportar; aca solo se deja escrita la precondicion.
-        assert self.telegram is not None
+        Devuelve el codigo de salida si no sigue, o `None` si sigue.
+
+        **El orden de las dos primeras ramas es obligatorio, no estetico.**
+        `read_switch` devuelve `(False, motivo)` ante un valor invalido, asi que
+        con `USE_TELEGRAM=maybe` el cliente no se construye y queda
+        indistinguible de un apagado deliberado. Con la rama del apagado
+        primero, ese caso saldria con `0` y en silencio: el mismo agujero
+        invisible que este metodo existe para cerrar, reintroducido por el orden
+        de dos `if`.
+        """
+        # ── 1. Intencion ilegible: nada se puede decidir sin ella ──────────
+        if self.switch_errors:
+            detalle = "\n".join(f"• {m}" for m in sorted(self.switch_errors.values()))
+            if self.telegram is None:
+                logger.error(
+                    "switch_invalid_no_channel_aborting",
+                    event_id=event_id,
+                    detail=detalle,
+                )
+                return 1
+            logger.error("switch_invalid_aborting", event_id=event_id)
+            self.telegram.send_alert(
+                "⛔ El cierre semanal no se ejecutó: hay switches con un valor "
+                "que no es `true` ni `false`, así que no se puede saber qué "
+                f"debía correr.\n\n{detalle}\n\n"
+                "No se publicó nada y el evento queda sin marcar: la próxima "
+                "run lo reintenta."
+            )
+            return 1
+
+        # ── 2. Pausa deliberada del pipeline entero ────────────────────────
+        # `_build` deja motivo solo cuando el componente estaba encendido y
+        # fallo, asi que su ausencia es la unica fuente de verdad de «apagado a
+        # proposito».
+        if self.telegram is None and "telegram" not in self.component_errors:
+            logger.info("pipeline_paused_telegram_disabled", event_id=event_id)
+            return 0
+
+        # ── 3. Sin canal y sin HITL: el caso irreducible ───────────────────
+        if self.telegram is None:
+            logger.error(
+                "telegram_unavailable_aborting",
+                event_id=event_id,
+                detail="; ".join(
+                    f"{c}: {m}" for c, m in sorted(self.component_errors.items())
+                ),
+            )
+            return 1
+
+        # ── 4. Abortos: lo que impide publicar ─────────────────────────────
+        if self.fmp is None:
+            if "fmp" not in self.component_errors:
+                logger.info("pipeline_paused_fmp_disabled", event_id=event_id)
+                return 0
+            logger.error("data_source_unavailable_aborting", event_id=event_id)
+            self.telegram.send_alert(
+                "⛔ El cierre semanal no se ejecutó: FMP es la única fuente con "
+                "una ruta capaz de publicar.\n\n"
+                f"Motivo: {self.component_errors['fmp']}\n\n"
+                "La ruta de Alpha Vantage no publica: pide `SPY` donde FMP pide "
+                "`^GSPC`, y el validador la rechaza por rango (ADR-009, "
+                "divergencia 4).\n\n"
+                "No se publicó nada y el evento queda sin marcar: la próxima "
+                "run lo reintenta."
+            )
+            return 1
+
+        if not (self.x_ready or self.linkedin_ready):
+            fallos = self._publisher_failures()
+            if not fallos:
+                logger.info("no_publishers_enabled", event_id=event_id)
+                return 0
+            logger.error("publishers_not_ready_aborting", event_id=event_id)
+            self.telegram.send_alert(
+                "⚠️ El cierre semanal no se ejecutó: no hay ninguna red en "
+                "condiciones de publicar.\n\n"
+                f"{fallos}\n\n"
+                "No se publicó nada y el evento queda sin marcar, así que la "
+                "próxima run lo reintenta. Verificar con "
+                "`python scripts/check_publishers.py`."
+            )
+            return 1
+
+        # ── 5. Degradaciones de arranque: una sola alerta ──────────────────
+        degradaciones = {
+            c: m
+            for c, m in self.component_errors.items()
+            if c not in ("fmp", "telegram")
+        }
+        if degradaciones:
+            logger.warning(
+                "startup_degraded", event_id=event_id, components=sorted(degradaciones)
+            )
+            lineas = "\n".join(
+                f"• {c}: {m} — {_CONSECUENCIA[c]}"
+                for c, m in sorted(degradaciones.items())
+            )
+            self.telegram.send_alert(
+                "⚠️ El cierre semanal arranca con componentes encendidos y sin "
+                f"credenciales:\n\n{lineas}\n\n"
+                "Se publica igual si lo aprobás. Verificar con "
+                "`python scripts/check_publishers.py`."
+            )
+        return None
+
+    def run_weekly_close(self) -> int:
+        """Pipeline completo de Cierre Semanal con idempotencia parcial.
+
+        Devuelve el código de salida: `0` si la run corrió —publicó, o
+        deliberadamente no publicó—, `1` si abortó por configuración rota. Las
+        excepciones inesperadas siguen propagando: salida controlada → entero,
+        bug → excepción.
+        """
+        logger.info("starting_weekly_close_pipeline")
 
         span_ctx = (
             self.tracer.start_as_current_span("weekly_close_pipeline")
@@ -361,47 +480,34 @@ class MacroOrchestrator:
                 # ── Guardia de duplicados ──────────────────────────────────────
                 if self.state.is_published(event_id):
                     logger.info("event_already_published_skipping", event_id=event_id)
-                    return
+                    return 0
 
-                # ── Sin ninguna red no hay cierre semanal ──────────────────────
-                # Va antes del lock y antes de tocar el estado: si no se puede
-                # publicar, todo lo que sigue —renderizar, llamar al LLM, pedir
-                # aprobación a un humano— es trabajo tirado, y terminaba peor
-                # que tirado. `mark_as_published` estaba al mismo nivel que el
-                # `if self.publishers_ready`, no dentro, así que la run se
-                # cerraba marcando como publicado un evento que no se publicó
-                # en ninguna red (`5ba7997`).
-                # Basta con **una** red viva: que falte la credencial de una no
-                # es motivo para no publicar en la otra (ADR-009 — se degrada
-                # cuando el fallo solo cuesta contexto).
-                # No se toca el estado a propósito: sin fila, la próxima run
-                # reintenta sola.
-                if not (self.x_ready or self.linkedin_ready):
-                    # Sin fallos y sin redes listas solo puede significar que
-                    # estan las dos apagadas a proposito: `build_component`
-                    # devuelve motivo `None` para una red apagada. Una sola
-                    # fuente de verdad, para que no puedan divergir.
-                    fallos = self._publisher_failures()
-                    if not fallos:
-                        logger.info("no_publishers_enabled", event_id=event_id)
-                        return
-                    logger.error("publishers_not_ready_aborting", event_id=event_id)
-                    self.telegram.send_alert(
-                        "⚠️ El cierre semanal no se ejecutó: no hay ninguna red "
-                        "en condiciones de publicar.\n\n"
-                        f"{fallos}\n\n"
-                        "No se publicó nada y el evento queda sin marcar, así "
-                        "que la próxima run lo reintenta. Verificar con "
-                        "`python scripts/check_publishers.py`."
+                # ── Punto de decisión: lo que el constructor dejó roto ─────
+                # Va después del guard de duplicados (si ese cierre ya salió no
+                # hay nada que reportar) y antes del lock (un abort acá no deja
+                # fila, así que la próxima run reintenta sola).
+                code = self._startup_exit_code(event_id)
+                if code is not None:
+                    return code
+
+                # El punto de decisión ya abortó si Telegram no está. El local
+                # es lo que se lo dice a `mypy` —el narrowing de un atributo no
+                # sobrevive a las llamadas a `self` de más abajo— y de paso hace
+                # que las cinco llamadas siguientes no dependan de que nadie
+                # reordene las ramas de arriba.
+                telegram = self.telegram
+                if telegram is None:
+                    raise RuntimeError(
+                        "Telegram ausente después del punto de decisión: alguna "
+                        "rama dejó pasar una run sin canal."
                     )
-                    return
 
                 # ── Locking ligero: evitar runs simultáneas ────────────────────
                 if self.state.is_in_progress(event_id):
                     logger.warning(
                         "pipeline_already_running_skipping", event_id=event_id
                     )
-                    return
+                    return 0
 
                 self.state.mark_in_progress(event_id)
 
@@ -535,36 +641,9 @@ class MacroOrchestrator:
                             # note. Es lo que paso con el reetiquetado que encontro
                             # el contract test (ver ADR-001). El aviso va antes de
                             # pedir aprobacion para que llegue en ese orden.
-                            self.telegram.send_alert(degradation)
+                            telegram.send_alert(degradation)
                             headline = _generic_headline(data)
                     prompt_version = _PROMPT_VERSION
-
-                # ── Degradación: una red rota y la otra viva ───────────────────
-                # Va antes de pedir aprobación, igual que el aviso de la capa
-                # LLM y por el mismo motivo: quien aprueba tiene que saber que
-                # ese cierre sale en una sola red.
-                # Una red *apagada* no llega acá con `error` cargado: apagarla
-                # es una decisión, no un fallo, y alertar cada semana por una
-                # decisión propia es el ruido que hace que se dejen de leer las
-                # alertas. Si llega una alerta, es porque algo se rompió.
-                # Acá hay como mucho un error: si las dos estuvieran rotas, la
-                # guarda pre-lock ya habría abortado.
-                if self.x_error or self.linkedin_error:
-                    caida = "X" if self.x_error else "LinkedIn"
-                    viva = "LinkedIn" if self.x_error else "X"
-                    logger.warning(
-                        "publisher_degraded",
-                        event_id=event_id,
-                        down=caida,
-                        up=viva,
-                    )
-                    self.telegram.send_alert(
-                        f"⚠️ El cierre semanal sale solo en {viva}: el cliente "
-                        f"de {caida} no se pudo construir.\n\n"
-                        f"Motivo: {self.x_error or self.linkedin_error}\n\n"
-                        "El cierre se publica igual si lo aprobás. Verificar con "
-                        "`python scripts/check_publishers.py`."
-                    )
 
                 # ── Degradación: el bloque macro no llegó ──────────────────────
                 # Mismo lugar y mismo motivo que los dos avisos de arriba: quien
@@ -577,7 +656,7 @@ class MacroOrchestrator:
                     logger.warning(
                         "macro_degraded", event_id=event_id, reason=self.macro_error
                     )
-                    self.telegram.send_alert(
+                    telegram.send_alert(
                         "⚠️ El cierre semanal sale sin bloque macro.\n\n"
                         f"Motivo: {self.macro_error}\n\n"
                         "El cierre se publica igual si lo aprobás: los índices "
@@ -591,12 +670,12 @@ class MacroOrchestrator:
                     else nullcontext()
                 ):
                     logger.info("requesting_human_approval", event_id=event_id)
-                    msg_id = self.telegram.send_approval_request(
+                    msg_id = telegram.send_approval_request(
                         text=headline, image_bytes=image_bytes
                     )
 
                     try:
-                        approved = self.telegram.wait_for_approval(
+                        approved = telegram.wait_for_approval(
                             msg_id, timeout_seconds=3600
                         )
                     except TelegramBotError:
@@ -604,7 +683,7 @@ class MacroOrchestrator:
                         logger.error(
                             "pipeline_expired_telegram_timeout", event_id=event_id
                         )
-                        return
+                        return 0
 
                 # ── FASE DE PUBLICACIÓN ────────────────────────────────────────
                 if approved:
@@ -634,7 +713,7 @@ class MacroOrchestrator:
                                 event_id=event_id,
                                 error=str(e),
                             )
-                            self.telegram.send_alert(
+                            telegram.send_alert(
                                 "⚠️ La subida del snapshot a R2 falló; el "
                                 "cierre se publica igual, sin copia remota de "
                                 "la imagen.\n\n"
@@ -695,6 +774,8 @@ class MacroOrchestrator:
                     self.state.mark_failed(event_id, reason="rejected_by_human")
                     logger.warning("pipeline_aborted_by_human", event_id=event_id)
 
+                return 0
+
             except Exception as e:
                 logger.error(
                     "pipeline_failed_critically", event_id=event_id, error=str(e)
@@ -716,6 +797,7 @@ class MacroOrchestrator:
 
 if __name__ == "__main__":
     import logging
+    import sys
 
     from dotenv import load_dotenv
 
@@ -724,4 +806,4 @@ if __name__ == "__main__":
 
     tracer = setup_observability()
     orchestrator = MacroOrchestrator(tracer=tracer)
-    orchestrator.run_weekly_close()
+    sys.exit(orchestrator.run_weekly_close())

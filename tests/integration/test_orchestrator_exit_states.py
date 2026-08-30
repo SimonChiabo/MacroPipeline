@@ -53,6 +53,7 @@ def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestra
     orch.switch_errors = {}
     orch.component_errors = {}
     orch.macro_error = None
+    orch.fmp = MagicMock()
     orch.x_client = MagicMock()
     orch.x_client.post_tweet.return_value = {"data": {"id": "x-123"}}
     orch.linkedin = MagicMock()
@@ -263,15 +264,18 @@ def test_the_degraded_run_warns_before_asking_for_approval(data, state):
     )
     assert idx_aviso < llamadas.index("send_approval_request")
     aviso = orch.telegram.send_alert.call_args[0][0]
-    assert "sale solo en X" in aviso
-    assert "el cliente de LinkedIn no se pudo construir" in aviso
-    assert "Faltan credenciales de LinkedIn." in aviso
+    # El aviso se mudo al punto de decision, que compone una linea por
+    # componente con su motivo y su consecuencia. Ya no dice «el cliente de
+    # LinkedIn no se pudo construir»: ese bloque se borro porque su causa
+    # siempre fue de arranque y dejarlo sonaria dos veces por lo mismo.
+    assert "• linkedin: Faltan credenciales de LinkedIn." in aviso
+    assert "— el cierre sale solo en X" in aviso
 
 
 def test_a_broken_x_still_publishes_on_linkedin(data, state):
-    """El espejo del test de arriba, y no es redundante: sin el, la rama
-    `x_error` de los dos ternarios de la alerta no la ejercita nadie y
-    invertirlos deja la suite entera en verde.
+    """El espejo del test de arriba, y no es redundante: sin el, la entrada
+    `x` de `_CONSECUENCIA` no la ejercita nadie e intercambiarla con la de
+    `linkedin` deja la suite entera en verde.
     """
     orch = _build_orchestrator(data, state)
     orch.x_client = None
@@ -284,8 +288,8 @@ def test_a_broken_x_still_publishes_on_linkedin(data, state):
     assert fila["linkedin_post_id"] == "li-456"
     assert not fila["x_post_id"]
     aviso = orch.telegram.send_alert.call_args[0][0]
-    assert "sale solo en LinkedIn" in aviso
-    assert "el cliente de X no se pudo construir" in aviso
+    assert "• x: Faltan credenciales de X API." in aviso
+    assert "— el cierre sale solo en LinkedIn" in aviso
 
 
 def test_a_disabled_network_never_warns(data, state):
