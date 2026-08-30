@@ -5,11 +5,20 @@ Limitacion (d) de ADR-009: hasta hoy `FMPClient`, `AlphaVantageClient`,
 atrapara, asi que la run moria antes de `run_weekly_close` — sin alerta, sin
 fila de estado, y repitiendose igual la semana siguiente.
 
-Estos tests no comprueban que la run haga algo util sin credenciales: solo que
-el constructor sobreviva y deje escrito el motivo. Que hacer con el motivo es
-del punto de decision, y se prueba en
+La primera mitad del fichero no comprueba que la run haga algo util sin
+credenciales: solo que el constructor sobreviva y deje escrito el motivo. Que
+hacer con el motivo es del punto de decision, y se prueba en
 `tests/integration/test_orchestrator_startup_gate.py`.
+
+La segunda mitad es la consecuencia de haberlo vuelto total: si el constructor
+ya no muere, `self.fmp` y `self.av` llegan al ETL pudiendo ser `None`, y las
+guardas de `_fetch_weekly_close` tienen que nombrar la causa real en vez de
+reventar con un `AttributeError`. Viven aca y no con el resto del ETL porque lo
+que verifican es que el motivo que dejo escrito el constructor llegue entero
+hasta la alerta.
 """
+
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,8 +38,6 @@ from macro_pipeline.orchestration.main import MacroOrchestrator
 @pytest.fixture
 def data_orch():
     """Orquestador con lo justo para ejercitar `_fetch_weekly_close`."""
-    from unittest.mock import MagicMock
-
     orch = MacroOrchestrator.__new__(MacroOrchestrator)
     orch._allow_mock = False
     orch.component_errors = {}
@@ -153,16 +160,25 @@ def test_a_missing_av_names_itself_instead_of_an_attribute_error(data_orch):
 
     assert "ALPHA_VANTAGE_API_KEY" in str(exc.value)
     assert "NoneType" not in str(exc.value)
+    # Y la que rompio primero, que es la accionable: sin ella la alerta habla
+    # solo de la credencial que falta y el 503 hay que ir a buscarlo al log.
+    assert "FMP 503" in str(exc.value)
 
 
 def test_a_switched_off_av_says_so(data_orch):
+    """Apagado a proposito y roto no son lo mismo, y el motivo los separa.
+
+    Sin el `apagado` este test pasaria igual contra una guarda que dijera
+    «Alpha Vantage no disponible» a secas: nombrar la variable no alcanza.
+    """
     data_orch.fmp.get_historical_prices.side_effect = RuntimeError("FMP 503")
     data_orch.av = None
 
     with pytest.raises(RuntimeError) as exc:
         data_orch._fetch_weekly_close()
 
-    assert "USE_AV" in str(exc.value)
+    assert USE_AV_VAR in str(exc.value)
+    assert "apagado" in str(exc.value)
 
 
 def test_the_etl_refuses_to_run_without_fmp(data_orch):

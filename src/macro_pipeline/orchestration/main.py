@@ -297,9 +297,16 @@ class MacroOrchestrator:
                 data_source = "mock"
 
                 if not self._allow_mock:
+                    # Las dos causas viajan en el texto y no en el `from`,
+                    # porque la alerta manda `str(e)` y eso no recorre la
+                    # cadena. Y una cascada tiene dos causas: la que rompio
+                    # —FMP— y la que no pudo cubrirla —AV—. Con solo la segunda
+                    # la alerta le cuenta al operador una configuracion que
+                    # eligio el mismo, y lo accionable —el 503— se lo deja
+                    # buscar a mano en el log.
                     raise RuntimeError(
                         "Todas las fuentes de datos fallaron (FMP, AV). "
-                        f"Última causa: {av_error}. "
+                        f"FMP: {e}. AV: {av_error}. "
                         "Mock Data bloqueado en producción. "
                         "Set ALLOW_MOCK_DATA=true solo en desarrollo."
                     ) from av_error
