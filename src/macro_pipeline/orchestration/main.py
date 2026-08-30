@@ -226,12 +226,14 @@ class MacroOrchestrator:
         dato rancio o fuera de rango). El cierre semanal se publica igual: los
         índices son el contenido principal, el macro es contexto.
 
-        Escribe `self.macro_error` con el motivo cuando el fallo **es** un
-        fallo, y lo deja en None cuando FRED simplemente no está configurado:
-        ADR-009 declara opcional al bloque macro, y un componente opcional que
-        no participa no está degradando. Avisar cada semana de una
-        configuración permanente es el ruido que hace que se deje de leer el
-        aviso que importa.
+        Escribe `self.macro_error` con el motivo cuando el fallo es de
+        **ejecución** —API caída, serie corta, dato rancio, cifra rechazada—, y
+        lo deja en None cuando FRED no está construido. Eso último no significa
+        que nadie se entere: si la key falta, el punto de decisión ya alertó al
+        arrancar, y repetirlo acá sería el mismo fallo contado dos veces; si
+        está apagado con `USE_FRED=false` no hay fallo que contar. Los dos
+        casos llegan a esta función indistinguibles y por eso los dos salen por
+        el mismo `return None`: lo que los separa se decidió más arriba.
         """
         # Se limpia siempre, y no solo se escribe en los caminos malos: un
         # reintento dentro del mismo proceso heredaría el motivo de la run
@@ -564,11 +566,17 @@ class MacroOrchestrator:
 
                 # ── FASE LLM ───────────────────────────────────────────────────
                 if self.llm is None or self.validator_agent is None:
-                    # ADR-009, tercer eje: ADR-001 declara auxiliar a la capa
-                    # LLM, así que sin key no participa — y no participar no es
-                    # degradar. Sin alerta, por el mismo motivo que FRED sin
-                    # key. La asimetría con la API caída (que sí alerta) es el
-                    # punto: si llega una alerta, es porque algo se rompió.
+                    # ADR-001 declara auxiliar a la capa LLM, así que el cierre
+                    # sale igual con el bloque genérico: las cifras las pone el
+                    # pipeline.
+                    #
+                    # Acá no se alerta, y no porque no haya nada que avisar: si
+                    # la key falta, el punto de decisión ya avisó al arrancar
+                    # (ADR-009, tercer eje — un componente encendido y sin
+                    # credencial degrada y alerta). Avisar de nuevo sería el
+                    # mismo fallo contado dos veces. Y si la capa está apagada
+                    # con `USE_ANTHROPIC=false` no hay nada que avisar: una
+                    # decisión propia no es un fallo.
                     #
                     # No se abre el span `llm_headline`: no hubo llamada.
                     logger.info("llm_layer_not_participating", event_id=event_id)
@@ -673,9 +681,11 @@ class MacroOrchestrator:
                 # menos. Eran dos avisos hasta que el de la red caida se mudo al
                 # punto de decision, que es donde nace su causa.
                 # `macro_error` está cargado sólo cuando el bloque macro se
-                # rompió. FRED sin key no llega acá con motivo: ADR-009 lo
-                # declara opcional, y un opcional sin configurar no participa —
-                # no degrada, así que no hay nada que avisar.
+                # rompió en ejecución. FRED sin key no llega acá con motivo, y
+                # no porque su fallo no importe: lo avisó el punto de decisión
+                # al arrancar, que es donde nace. FRED apagado con
+                # `USE_FRED=false` tampoco llega, y ése no tiene nada que
+                # avisar.
                 if self.macro_error:
                     logger.warning(
                         "macro_degraded", event_id=event_id, reason=self.macro_error
