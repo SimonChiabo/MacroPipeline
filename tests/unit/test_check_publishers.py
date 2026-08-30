@@ -220,6 +220,30 @@ def test_the_example_declares_both_publish_flags(check_publishers):
     assert ejemplo.get("PUBLISH_LINKEDIN") == "true"
 
 
+def test_the_example_declares_the_six_component_switches_commented(check_publishers):
+    """Comentados y no puestos, a diferencia de las dos banderas de publicación.
+
+    Ausente significa encendido, así que no hay nada que copiar al `.env`:
+    declararlos sin comentar obligaría a tenerlos y la deriva avisaría de una
+    ausencia que es correcta. Entran en `documentadas` vía `_commented_names`,
+    igual que `STATE_DB_PATH`.
+    """
+    ejemplo = ROOT / ".env.example"
+    comentadas = check_publishers._commented_names(ejemplo)
+    declaradas = check_publishers._parse_env_file(ejemplo)
+
+    for var in (
+        "USE_FMP",
+        "USE_AV",
+        "USE_FRED",
+        "USE_ANTHROPIC",
+        "USE_R2",
+        "USE_TELEGRAM",
+    ):
+        assert var in comentadas, var
+        assert var not in declaradas, var
+
+
 def test_report_prints_every_finding_with_its_reason(
     check_publishers, tmp_path, capsys
 ):
