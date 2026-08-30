@@ -1,7 +1,10 @@
 # ADR-009: Política de degradación — qué fallo degrada y qué fallo aborta
 
 **Estado:** Aceptado (2026-08-25). Las tres divergencias que documentaba se
-arreglaron el mismo dia; la seccion final las conserva como registro.
+arreglaron el mismo dia; la seccion final las conserva como registro. Hoy son
+seis: la quinta y la sexta salieron de recorrer la tabla contra el codigo el
+2026-08-29 y siguen **abiertas**, asi que la historia de "todas arregladas el
+mismo dia" ya no vale para la seccion entera.
 **Fecha:** 2026-08-25
 **Decisores:** Simon Chiabo
 
@@ -70,7 +73,7 @@ Un abort **nunca** debe dejar la fila en `in_progress`. Es el mismo razonamiento
 del fix de `publishers_ready` (`5ba7997`): si no se publicó, el estado no debe
 afirmar lo contrario ni impedir el reintento.
 
-### El tercer eje: lo declarado opcional no degrada
+### El tercer eje: el apagado por switch no degrada
 
 La formulación obvia —*un componente sin configurar no alerta*— **no sobrevive
 al inventario**, y por eso queda escrita como descartada: para X y LinkedIn una
@@ -79,59 +82,73 @@ eso sería una contradicción.
 
 No lo es:
 
-> **Un componente declarado opcional, cuando no está configurado, no participa
-> — y no participar no es degradar.** Un componente necesario al que le faltan
-> credenciales es un fallo.
+> Un componente **apagado por su switch** no participa, y no participar no es
+> degradar. Un componente **encendido** al que le faltan credenciales es un
+> fallo, y alerta.
+>
+> El switch es lo que el código lee. Las declaraciones de ADR-001 —el LLM fuera
+> del path numérico— y de ADR-007 —R2 opcional— no desaparecen: siguen siendo el
+> motivo por el que un componente *puede* apagarse, pero dejaron de ser la
+> señal. La diferencia importa porque una declaración en un ADR no distingue una
+> decisión de una key rotada, y un `false` tipeado por una persona sí.
 
-"Declarado opcional" no es una opinión sobre cada componente: **ADR-007 lo dice
-de R2, y del bloque macro lo dice el criterio con el que abre esta Decisión**
-—los índices son el contenido principal y un cierre semanal sin bloque macro
-sigue siendo un cierre semanal correcto—. Publicar, en cambio, es el propósito
-del pipeline. El eje se apoya en declaraciones que ya existen, y por eso es
-verificable en vez de retórico — de un componente nuevo se puede preguntar "¿lo
-declara opcional algún ADR?" y la respuesta no depende de quién conteste.
+De acá sale que **FRED sin key, R2 sin key y la capa LLM sin key siguen siendo
+la misma cosa** — lo que cambió es cuál: degradan, y las tres gastan una alerta,
+que sale del punto de decisión al arrancar. Los que no participan, y por eso no
+alertan, son esos mismos tres con su switch en `false`. Los tres fallando
+*estando encendidos y configurados* también alertan, cada uno desde donde se
+rompe.
 
-De acá sale que **FRED sin key, R2 sin configurar y la capa LLM sin key son la
-misma cosa**: no participan, y no gastan una alerta. Los tres fallando *estando
-configurados* sí alertan.
+Para la capa LLM la declaración sigue siendo **ADR-001**, que la define como
+auxiliar: el LLM no toca números y solo redacta un titular a partir de cifras ya
+calculadas y validadas. Esta misma política se apoya en esa definición para que
+la API caída degrade, y es lo que hace que la key ausente degrade también en vez
+de abortar; lo que no participa es `USE_ANTHROPIC=false`. Sin capa LLM el cierre
+semanal se publica igual y sigue siendo correcto, porque las cifras las pone el
+pipeline — lo que se pierde es redacción, no información.
 
-Para la capa LLM la declaración es **ADR-001**, que la define como auxiliar: el
-LLM no toca números y solo redacta un titular a partir de cifras ya calculadas
-y validadas. Esta misma política ya se apoyaba en esa definición para que la
-API caída degrade; que la key ausente no participe es la otra mitad. Sin capa
-LLM el cierre semanal se publica igual y sigue siendo correcto, porque las
-cifras las pone el pipeline — lo que se pierde es redacción, no información.
-
-Una red apagada por bandera termina en el mismo silencio, pero **no por este
-eje**: publicar no lo declara opcional ningún ADR, y una red apagada no está sin
-configurar sino apagada a propósito. Llega ahí por su propio argumento —*Un
-apagado deliberado no alerta*, más abajo—, y que los dos caminos coincidan es lo
-que hace que la tabla no tenga que distinguirlos.
+Una red apagada por bandera termina en el mismo silencio, y hasta el 2026-08-29
+llegaba ahí **por otro camino**: los opcionales callaban por una declaración en
+otro ADR, las redes por una bandera explícita, y eran dos argumentos distintos
+que sólo coincidían en el resultado. El switch por componente es exactamente lo
+que los fusionó —`PUBLISH_X` dejó de ser la excepción y pasó a ser el caso
+general, con otros siete iguales al lado—. Por eso la tabla ya no tiene que
+distinguirlos: no es que se haya dejado de hacer la distinción, es que dejó de
+haber dos cosas que distinguir.
 
 ### La política, por componente
 
 | Componente | Fallo | Política | Estado que deja |
 |---|---|---|---|
-| FRED (bloque macro) | Sin key | **No participa** — opcional sin configurar (criterio de este ADR), sin alerta | — |
+| FRED (bloque macro) | Sin key | **Degrada**, con alerta desde el punto de decisión | — |
+| FRED (bloque macro) | Apagado con `USE_FRED=false` | **No participa**, sin alerta | — |
 | FRED (bloque macro) | API caída, serie corta, dato rancio o cifra fuera de rango | **Degrada** — `macro=None`, con alerta que nombra la causa | — |
+| FMP (índices) | Sin key, o `USE_FMP=false` | **Aborta** antes del lock — sin key alerta; apagado, en silencio | Ninguna fila |
 | FMP (índices) | API caída | **Degrada** a Alpha Vantage… que hoy aborta (ver divergencia 4) | — |
+| Alpha Vantage (índices) | Sin key | **Degrada** — el fallback queda ausente, con alerta que dice que esa ruta tampoco publicaría | — |
 | Alpha Vantage (índices) | API caída | **Aborta** — sin fuente de datos real no se publica | `failed` |
 | Mock Data | `ALLOW_MOCK_DATA=false` | **Aborta** — cifras sintéticas no se publican | `failed` |
 | Cálculo del retorno | Menos de 6 filas, o sin dato de hace 5 días hábiles | **Aborta** | `failed` |
-| Anthropic (capa LLM) | Sin key | **No participa** — opcional sin configurar (ADR-001 la declara auxiliar), sin alerta | — |
+| Anthropic (capa LLM) | Sin key | **Degrada**, con alerta desde el punto de decisión | — |
+| Anthropic (capa LLM) | Apagada con `USE_ANTHROPIC=false` | **No participa**, sin alerta | — |
 | Anthropic (generador) | API caída | **Degrada** — bloque genérico, con alerta que nombre la causa real | — |
 | Anthropic (validador) | Rechazo del titular | **Degrada** — bloque genérico + alerta | — |
 | `ValidationEngine` | Cifra **del cierre semanal** fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001 | `failed` |
 | Playwright (render) | Plantilla ausente o render fallido | **Aborta** — no hay imagen que publicar | `failed` |
+| Telegram | Sin credenciales | **Aborta** — sin canal ni HITL; log nombrado y salida `1`, **sin alerta posible** | Ninguna fila |
+| Telegram | `USE_TELEGRAM=false` | **Aborta** en silencio — pausa deliberada del pipeline entero | Ninguna fila |
 | Telegram (aprobación) | Envío fallido | **Aborta** — ADR-004 exige aprobación humana | `failed` |
 | Telegram (aprobación) | Timeout de 1h | **Aborta** | `expired` |
 | Telegram (`send_alert`) | Envío fallido | **Degrada** — devuelve `False`, nunca levanta | — |
-| R2 | Sin configurar | **No participa** — opcional sin configurar (ADR-007), sin alerta | — |
+| R2 | Sin configurar | **Degrada**, con alerta desde el punto de decisión | — |
+| R2 | Apagado con `USE_R2=false` | **No participa**, sin alerta | — |
 | R2 | Subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
 | X / LinkedIn | Credenciales ausentes en **una** de las dos | **Degrada** — publica en la otra, con alerta antes de pedir aprobación | `published` |
 | X / LinkedIn | Credenciales ausentes en **las dos** | **Aborta** antes del lock, con alerta | Ninguna fila |
 | X / LinkedIn | Apagada con `PUBLISH_X` / `PUBLISH_LINKEDIN` en `false` | **No es un fallo** — no se construye, no publica y **no alerta** | — (Ninguna fila si están apagadas las dos) |
 | X / LinkedIn | Publicación fallida | **Aborta** — `post_id` de lo que sí salió persistido | `failed` |
+| Cualquier switch | Valor que no es `true` ni `false` | **Aborta** con alerta — no se pudo leer la intención | Ninguna fila |
+| Cualquier excepción | Dentro de `run_weekly_close` | **Aborta** con alerta que nombra el motivo | `failed` |
 
 La columna de estado se cumple desde el 2026-08-25. Cuando se escribió esta
 tabla solo dos aborts la respetaban —el de credenciales de publicación, que sale
@@ -155,9 +172,11 @@ rechazo real (`llm/validator.py:151-155`). Arreglado en `f53a755`.
 pipeline funciona sin R2, solo sin snapshots remotos". Que el componente
 declarado opcional sea fatal *justo cuando está configurado* es la política al
 revés, y además abortaba en el peor momento: después de que el humano aprobó y
-antes de publicar en ninguna red. Arreglado en `d187d81`. R2 **sin configurar**
-es el otro caso y no es el mismo: por el tercer eje no participa, así que no
-degrada y su fila no lleva aviso.
+antes de publicar en ninguna red. Arreglado en `d187d81`. R2 **sin key** es otro
+caso pero desde el 2026-08-29 tiene el mismo desenlace: degrada, y avisa desde el
+punto de decisión en vez de callarse. El que no participa —y por lo tanto no
+lleva aviso— es `USE_R2=false`, que es el único de los dos que expresa una
+decisión.
 
 **Toda excepción marca `failed`.** Es lo que hace alcanzable la reconciliación
 parcial que el orquestador promete en su docstring (`MacroOrchestrator`, «Idempotencia parcial»).
@@ -219,13 +238,17 @@ queda fijada es **si llega una alerta, es porque algo se rompió**.
   mismo que esa regla existe para evitar. El único rastro es un log:
   `fred_not_configured`, `r2_not_configured` o `llm_not_configured` al
   arrancar, y `llm_layer_not_participating` en cada cierre. Nadie los mira
-  todas las semanas. Cerrarlo pide declarar qué opcionales *deberían* estar
-  activos y avisar cuando uno deja de estarlo; hoy eso no existe.
+  todas las semanas. **Cerrado el 2026-08-29 con un switch por componente.**
+  La no-configuración dejó de ser la señal: el silencio ahora exige un `false`
+  explícito, y una key rotada o un `.env` sin copiar dejan el componente
+  encendido y por lo tanto alertando. Lo que queda como coste es más chico y de
+  otra clase: quien apaga un componente tiene que acordarse de volver a
+  encenderlo, y nada se lo recuerda.
 
 **Cuatro limitaciones que hasta ahora no estaban escritas en ningún lado. La
-(c) se cerró con el código del 2026-08-25 y la (d) está decidida para Anthropic
-desde el 2026-08-26; las dos quedan como registro. La (a), la (b) y el resto de
-la (d) siguen abiertas:**
+(c) se cerró con el código del 2026-08-25 y la (d) con el del 2026-08-29 —para
+Anthropic estaba decidida desde el 2026-08-26—; las dos quedan como registro.
+La (a) y la (b) siguen abiertas:**
 
 **(a) La alerta de degradación promete de más en dos casos.** Va antes de pedir
 aprobación (a propósito: quien aprueba tiene que saber que el cierre sale en
@@ -247,8 +270,10 @@ decir que tienen esa ventana.
 el 2026-08-25.* El bloque macro se caía en silencio por tres caminos que
 `_fetch_macro_snapshot` no distinguía. Dos de ellos —la API/serie/frescura y el
 validador rechazando la cifra— son fallos y ahora alertan con la causa real; el
-tercero, FRED sin key, no es un fallo sino un opcional sin configurar, y sigue
-en silencio por el tercer eje de arriba.
+tercero, FRED sin key, no era un fallo sino un opcional sin configurar, y seguía
+en silencio por el tercer eje de arriba — hasta el 2026-08-29: desde el switch
+por componente, una key ausente es un componente encendido y roto, así que
+alerta, y el silencio queda para `USE_FRED=false`.
 
 Lo que la pregunta destapó fue más grande que FRED: la respuesta correcta ya se
 cumplía en R2 y en los publicadores por decisiones locales que nadie había
@@ -257,35 +282,36 @@ escrito como política, y dos filas de esta misma tabla mentían sobre el códig
 prometía un abort para la cifra macro que el código, con razón, degrada—. Es el
 mismo patrón que motivó este ADR.
 
-**(d) A un componente necesario sin credenciales no se entera nadie.** El eje de
-arriba dice que un componente necesario al que le faltan credenciales es un
-fallo, y para X y LinkedIn el código lo trata como tal: alerta —y si no queda
-ninguna red viva, aborta antes del lock—. Para FMP, Alpha Vantage y Telegram —y
-para un `PUBLISH_X` o un `PUBLISH_LINKEDIN` con un valor que no es `true` ni
-`false`— el `ValueError` sale de `MacroOrchestrator.__init__` sin que nadie lo
-atrape: la run muere antes de entrar en `run_weekly_close`, así que no hay
-alerta, no hay fila de estado y la semana siguiente vuelve a pasar lo mismo,
-también en silencio. Es el caso invisible-y-repetible que la regla "toda degradación
-alerta" existe para evitar, esta vez del lado de los aborts. Avisar no sería
-gratis: `FMPClient` y `AlphaVantageClient` se construyen antes que
-`TelegramBot`, así que cuando revienta uno de ellos el canal de aviso todavía no
-existe, y cuando la credencial que falta es la del propio Telegram no hay canal
-ninguno — salvo el de las banderas, que revienta después de que `TelegramBot` ya
-existe y para el que avisar sale casi gratis.
-**Anthropic no entra en esta lista, y su caso era otro.** — *Decidido y cerrado
-el 2026-08-26.* Sin `ANTHROPIC_API_KEY` el constructor también levantaba, pero
-lo que divergía ahí no era un aviso que faltara sino que el constructor tratara
-como fatal a un componente que esta política declara degradable. Ahora
-`__init__` lo envuelve como ya envolvía a `FREDClient` y a `R2Client`, la fase
-LLM publica el bloque genérico con las cifras reales y **no alerta**, por el
-tercer eje. La fila queda con `prompt_version` y `validator_approved` en NULL:
-no ocurrió ninguna llamada que registrar, y escribir la versión de prompt
-afirmaría una que no se hizo.
+**(d) A un componente necesario sin credenciales no se entera nadie.** —
+*Cerrada el 2026-08-29.* Ningún componente con credenciales puede matar
+`MacroOrchestrator.__init__`: los ocho pasan por `build_component`, que anota
+el motivo en vez de dejar salir el `ValueError`. Todo lo que quedó roto o
+apagado al arrancar se reporta desde un punto de decisión único al principio
+de `run_weekly_close`, que es el primer sitio donde existen a la vez el canal
+de aviso y el `event_id`. El orden de construcción dejó de ser lógica, que era
+la raíz del problema y no su síntoma: FMP y Alpha Vantage se construían antes
+que Telegram, así que cuando reventaban no había con qué avisar.
 
-**El resto de (d) sigue abierto** —FMP, Alpha Vantage, Telegram y las banderas
-con un valor inválido—, y no lo resuelve este eje: son componentes necesarios,
-así que les corresponde alertar, y el canal de aviso todavía no existe cuando
-revientan.
+**Anthropic se cerró tres días antes que los otros siete, y su caso era otro.**
+— *Decidido el 2026-08-26.* Sin `ANTHROPIC_API_KEY` el constructor también
+levantaba, pero lo que divergía ahí no era un aviso que faltara sino que el
+constructor tratara como fatal a un componente que esta política declara
+degradable; por eso se pudo arreglar solo, envolviéndolo como ya se envolvía a
+`FREDClient` y a `R2Client`, sin esperar al punto de decisión. La fase LLM
+publica el bloque genérico con las cifras reales y **sigue sin alertar**: lo que
+cambió el 2026-08-29 no es esa fase sino que la key ausente ahora se avisa al
+arrancar, como la de los otros siete. Silencio queda sólo con
+`USE_ANTHROPIC=false`. La fila queda con `prompt_version` y `validator_approved`
+en NULL: no ocurrió ninguna llamada que registrar, y escribir la versión de
+prompt afirmaría una que no se hizo.
+
+**Lo que no se puede cerrar:** Telegram encendido y sin credencial. No hay canal
+para avisar de que no hay canal, y un segundo canal no existe. Esa run deja un
+log nombrado con el cuadro completo de motivos y sale con código `1`; el código
+de salida es lo único que cruza el borde del proceso. Hoy nadie lo mira —nada
+corre `main.py` en un schedule—, así que este límite se cobra el día que el
+pipeline corra desatendido, junto con el punto de la idempotencia bajo un
+entorno efímero.
 
 **Lo que esta política no cubre:** un componente que falla *silenciosamente*
 devolviendo datos plausibles pero equivocados. Ninguna rama de degradar/abortar
@@ -296,10 +322,13 @@ contract tests (ADR-008) y los rangos de plausibilidad, no este ADR.
 
 ## Divergencias entre esta política y el código
 
-Las cuatro se verificaron contra el código el 2026-08-25, el día del ADR. Las
-tres primeras eran trabajo pendiente y se arreglaron ese mismo día; quedan
-escritas porque el modo de fallo que cada una describe es más fácil de volver a
-introducir que de encontrar. La cuarta sigue siendo una consecuencia aceptada.
+Las cuatro primeras se verificaron contra el código el 2026-08-25, el día del
+ADR. Las tres primeras eran trabajo pendiente y se arreglaron ese mismo día;
+quedan escritas porque el modo de fallo que cada una describe es más fácil de
+volver a introducir que de encontrar. La cuarta sigue siendo una consecuencia
+aceptada. La quinta y la sexta salieron de volver a recorrer la tabla fila por
+fila el 2026-08-29, ya contra el código del switch por componente: las dos son
+la tabla diciendo de más, no el código haciendo de menos.
 
 **1. La alerta mentía cuando moría la API de Anthropic.** — *Cerrada en
 `f53a755`.*
@@ -371,6 +400,36 @@ Por eso la tabla dice que FMP "degrada a AV… que hoy aborta". Es deliberado:
 mejor no publicar que publicar el instrumento equivocado. **Publicar solo el
 retorno desde AV** —que es invariante de escala entre el índice y su ETF, y
 sería una degradación real en vez de un abort— quedó propuesto y sin hacer.
+
+Mientras esto siga así, **FMP sin key aborta** en el punto de decisión: no tiene
+ruta viva. El día que se publique sólo el retorno desde AV, FMP sin key pasa a
+ser una degradación y hay que mover su rama del bloque de abortos al de
+degradaciones. Queda escrito de antemano para no volver a deducirlo.
+
+**5. La fila «cualquier switch aborta con alerta» promete un aviso que no
+siempre llega.** — *Encontrada el 2026-08-29, abierta.*
+La primera rama de `_startup_exit_code` manda la alerta sólo si hay canal. Con
+`USE_TELEGRAM=maybe` el switch ilegible es justamente el del canal:
+`read_switch` devuelve `(False, motivo)`, `TelegramBot` no se construye y la
+rama sale por `switch_invalid_no_channel_aborting` con código `1` y **sin
+alerta**. Pasa lo mismo con cualquier otro switch inválido si además Telegram
+está roto o apagado. El código hace lo único que puede —es el caso irreducible
+que la limitación (d) deja escrito: no hay canal para avisar de que no hay
+canal—, así que lo que diverge es la celda. Queda anotada y no metida en la
+tabla porque la alerta *es* la regla y la excepción ya tiene su párrafo: una
+celda que enumere las dos cosas se lee peor que este.
+
+**6. Una red apagada y la otra rota abortan, y ninguna fila de la tabla lo
+dice.** — *Encontrada el 2026-08-29, abierta.*
+Las dos filas de publicación parten el mundo en «ausentes en las dos» —aborta— y
+«apagada por bandera» —no es un fallo—. El caso mezclado, `PUBLISH_X=false` con
+LinkedIn sin credenciales, no cae en ninguna: `x_ready` y `linkedin_ready` son
+las dos `False`, así que entra por la rama de publicadores del punto de
+decisión, y `_publisher_failures` devuelve el motivo de LinkedIn, así que aborta
+**con alerta** y código `1`. Es el comportamiento correcto —no queda ninguna red
+viva y el motivo es real—, pero leyendo la tabla se predice «degrada, publica en
+la otra». Lo que falta no es código sino una fila, y no se agrega hoy para no
+resolver a mano lo que conviene decidir con la tabla entera delante.
 
 ---
 
