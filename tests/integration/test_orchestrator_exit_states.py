@@ -95,6 +95,23 @@ def test_a_failure_in_the_data_phase_leaves_the_row_failed(data, state):
     assert not state.is_in_progress(EVENT_ID)
 
 
+def test_a_critical_failure_alerts_before_marking_the_row(data, state):
+    """Una run que muere se rompio, y toda rotura avisa.
+
+    Hasta hoy el unico abort que alertaba era el pre-lock de publicadores: los
+    demas dejaban una fila `failed` que nadie mira.
+    """
+    orch = _build_orchestrator(data, state)
+    orch._fetch_weekly_close.side_effect = RuntimeError("todas las fuentes fallaron")
+
+    with pytest.raises(RuntimeError):
+        orch.run_weekly_close()
+
+    orch.telegram.send_alert.assert_called_once()
+    assert "todas las fuentes fallaron" in orch.telegram.send_alert.call_args[0][0]
+    assert state.get_publication_state(EVENT_ID)["status"] == "failed"
+
+
 def test_a_failure_while_publishing_keeps_the_post_id_of_what_did_go_out(data, state):
     """Si X publico y LinkedIn revento, el `post_id` de X tiene que sobrevivir.
 

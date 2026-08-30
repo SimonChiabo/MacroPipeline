@@ -804,6 +804,17 @@ class MacroOrchestrator:
                 logger.error(
                     "pipeline_failed_critically", event_id=event_id, error=str(e)
                 )
+                # El local `telegram` puede no estar ligado: la excepción pudo
+                # ocurrir antes de que se asignara, así que acá se mira el
+                # atributo. `send_alert` nunca levanta —devuelve un bool—, lo
+                # que importa dentro de un manejador de fallos.
+                if self.telegram is not None:
+                    self.telegram.send_alert(
+                        "⛔ El cierre semanal murió a mitad de camino.\n\n"
+                        f"Motivo: {e}\n\n"
+                        "El evento queda en `failed`, así que la próxima run lo "
+                        "reintenta."
+                    )
                 # Toda excepcion deja un estado terminal (ADR-009). Sin esto la
                 # fila se quedaba en `in_progress` para siempre y el reintento
                 # del mismo `event_id` moria en el guard de duplicados de mas
