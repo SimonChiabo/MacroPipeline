@@ -294,3 +294,24 @@ def test_validate_weekly_close_sin_niveles_sigue_validando_retornos(engine):
     )
     with pytest.raises(ValidationError, match="Retorno del SP500"):
         engine.validate_weekly_close(data)
+
+
+def test_validate_weekly_close_sin_niveles_sigue_validando_el_retorno_del_nasdaq(
+    engine,
+):
+    """El gemelo del de arriba, del lado del NASDAQ.
+
+    El chequeo del SP500 corre primero y corta, asi que sin este test una
+    guarda de nivel colada en la rama del NASDAQ dejaria la suite entera verde.
+    Verificado por mutacion el 2026-09-01: condicionar ese rango a
+    `nasdaq_close is not None` no ponia rojo a nadie.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=None,
+        sp500_weekly_return=0.012,
+        nasdaq_close=None,
+        nasdaq_weekly_return=0.80,  # +80% en una semana: imposible
+    )
+    with pytest.raises(ValidationError, match="Retorno del NASDAQ"):
+        engine.validate_weekly_close(data)

@@ -88,7 +88,7 @@ class ValidationEngine:
         # divergencia 4). No hay cifra que defender, asi que no hay rango que
         # aplicar. Un nivel *poblado* fuera de rango sigue abortando: eso no
         # se relaja.
-        niveles = [
+        niveles: list[tuple[str, float | None, float, float]] = [
             (
                 "SP500",
                 data.sp500_close,
