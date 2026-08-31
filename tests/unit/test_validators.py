@@ -222,3 +222,47 @@ def test_validate_macro_snapshot_rejects_hyperinflation_reading(engine):
     """Un IPC interanual del 300% en EEUU es un error de datos, no una noticia."""
     with pytest.raises(ValidationError, match="IPC"):
         engine.validate_macro_snapshot(_snapshot(cpi_yoy=3.0), today=TODAY)
+
+
+def test_weekly_close_acepta_el_par_de_cierres_en_none():
+    """La ruta de AV no puede publicar el nivel: `None` es un valor legítimo."""
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=None,
+        sp500_weekly_return=0.012,
+        nasdaq_close=None,
+        nasdaq_weekly_return=0.019,
+    )
+    assert data.sp500_close is None
+    assert data.nasdaq_close is None
+
+
+def test_weekly_close_rechaza_omitir_el_cierre():
+    """Sin default: olvidarse del cierre es un error, no una degradación.
+
+    Es la diferencia entre declarar «este cierre no se puede publicar» y
+    que se caiga solo por descuido en algún sitio que nadie mira.
+    """
+    with pytest.raises(PydanticValidationError, match="sp500_close"):
+        WeeklyCloseData(
+            date=date(2026, 8, 21),
+            sp500_weekly_return=0.012,
+            nasdaq_close=16000.0,
+            nasdaq_weekly_return=0.019,
+        )
+
+
+def test_weekly_close_rechaza_el_par_a_medias():
+    """Las dos cifras salen del mismo cliente en la misma rama.
+
+    Una poblada y la otra en `None` no sale de ninguna fuente real: si
+    aparece es un bug, y tiene que reventar acá y no tres capas más abajo.
+    """
+    with pytest.raises(PydanticValidationError, match="mismo instrumento"):
+        WeeklyCloseData(
+            date=date(2026, 8, 21),
+            sp500_close=7657.71,
+            sp500_weekly_return=0.012,
+            nasdaq_close=None,
+            nasdaq_weekly_return=0.019,
+        )

@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class MacroSnapshot(BaseModel):
@@ -34,11 +34,24 @@ class WeeklyCloseData(BaseModel):
     model_config = ConfigDict(strict=True)
 
     date: date
-    sp500_close: float = Field(..., gt=0, description="Precio de cierre del SP500")
+    sp500_close: float | None = Field(
+        ...,
+        gt=0,
+        description=(
+            "Precio de cierre del SP500, o None si la fuente no cotiza el "
+            "índice (la ruta de Alpha Vantage devuelve el ETF)"
+        ),
+    )
     sp500_weekly_return: float = Field(
         ..., description="Retorno semanal del SP500 (ej. 0.05 para 5%)"
     )
-    nasdaq_close: float = Field(..., gt=0, description="Precio de cierre del NASDAQ")
+    nasdaq_close: float | None = Field(
+        ...,
+        gt=0,
+        description=(
+            "Precio de cierre del NASDAQ, o None si la fuente no cotiza el índice"
+        ),
+    )
     nasdaq_weekly_return: float = Field(..., description="Retorno semanal del NASDAQ")
     macro: MacroSnapshot | None = Field(
         default=None,
@@ -46,6 +59,20 @@ class WeeklyCloseData(BaseModel):
             "Contexto macro opcional: si FRED falla, el cierre se publica sin él"
         ),
     )
+
+    @model_validator(mode="after")
+    def _cierres_correlacionados(self) -> "WeeklyCloseData":
+        """Los dos niveles vienen del mismo cliente, así que van juntos.
+
+        Es lo que habilita a que todo aguas abajo pregunte una sola cosa
+        —`sp500_close is None`— sin volver a razonar la correlación.
+        """
+        if (self.sp500_close is None) != (self.nasdaq_close is None):
+            raise ValueError(
+                "Los dos cierres vienen del mismo instrumento y de la misma "
+                "llamada: o están los dos, o no está ninguno."
+            )
+        return self
 
 
 class MacroReleaseData(BaseModel):
