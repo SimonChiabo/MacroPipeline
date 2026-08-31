@@ -44,6 +44,10 @@ def _orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestrator:
     orch.switch_errors = {}
     orch.component_errors = {}
     orch.macro_error = None
+    # Sin R2 no hay sincronizado: el pipeline corre contra el disco local,
+    # que es como corrian estos tests antes de que el estado viajara.
+    orch.state_sync = None
+    orch.state_sync_error = None
 
     orch.fmp = MagicMock()
     orch.av = MagicMock()

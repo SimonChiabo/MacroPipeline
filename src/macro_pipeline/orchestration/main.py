@@ -41,6 +41,7 @@ from macro_pipeline.publishers.x_client import XClient
 from macro_pipeline.render.playwright_engine import PlaywrightEngine
 from macro_pipeline.storage.r2_client import R2Client
 from macro_pipeline.storage.state import StateDB
+from macro_pipeline.storage.state_sync import StateSync
 from macro_pipeline.telegram.bot import TelegramBot, TelegramBotError
 from macro_pipeline.validators.engine import ValidationEngine, ValidationError
 from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
@@ -144,7 +145,29 @@ class MacroOrchestrator:
 
         self.validator_engine = ValidationEngine()
         self.renderer = PlaywrightEngine()
-        self.state = StateDB()
+
+        # El fichero de `StateDB` no sobrevive a un entorno efimero, asi que
+        # viaja por R2 (punto 11 del backlog; ADR-002 promete idempotencia
+        # apoyada en que sobreviva). Sincroniza siempre que R2 este
+        # configurado: regla uniforme, sin bandera nueva ni deteccion de
+        # entorno, y de paso una sola base logica entre la maquina local y la
+        # nube.
+        #
+        # El hook es lo que hace que el push acompanie a la escritura en vez de
+        # vivir en seis llamadas de aca que alguien pueda olvidar.
+        # El hook se pasa siempre y la indireccion decide: asi `StateDB` se
+        # construye una sola vez y su ruta —que es quien sabe leer
+        # `STATE_DB_PATH`— sigue siendo la unica fuente de verdad.
+        self.state_sync: StateSync | None = None
+        self.state = StateDB(on_write=self._push_state)
+        if self.r2 is not None:
+            self.state_sync = StateSync(self.r2, self.state.db_path)
+
+        # Motivo por el que no se pudo bajar el estado, o None. Lo escribe el
+        # pull al arrancar la corrida y lo lee `_startup_exit_code`: anotar en
+        # vez de reportar es lo que dejo el punto 13, porque el pull corre
+        # antes de que se sepa si hay canal para avisar.
+        self.state_sync_error: str | None = None
 
         # Guardia de Mock Data: por defecto bloqueado en producción
         self._allow_mock = os.environ.get("ALLOW_MOCK_DATA", "false").lower() == "true"
@@ -368,6 +391,30 @@ class MacroOrchestrator:
         )
         return data, data_source
 
+    def _push_state(self) -> None:
+        """Hook de escritura de `StateDB`. Sin R2 configurado no hace nada."""
+        if self.state_sync is not None:
+            self.state_sync.push()
+
+    def _pull_remote_state(self) -> str | None:
+        """Trae el estado remoto al arrancar. Devuelve el motivo del fallo.
+
+        **Anota, no reporta.** Corre antes de que `_startup_exit_code` haya
+        establecido que hay canal, asi que devolver el motivo es lo unico que
+        puede hacer: avisar es tarea del punto de decision. Es la forma que
+        dejo el punto 13, donde la causa raiz fue el orden de construccion
+        haciendo de logica.
+        """
+        if self.state_sync is None:
+            return None
+        motivo = self.state_sync.pull()
+        if motivo is None:
+            # `_init_db` y `_migrate_db` corrieron en el constructor sobre el
+            # fichero que habia antes del pull, no sobre el que acaba de
+            # llegar. Las dos son idempotentes.
+            self.state.ensure_schema()
+        return motivo
+
     def _startup_exit_code(self, event_id: str) -> int | None:
         """Reporta lo que dejo el constructor y decide si la run sigue.
 
@@ -419,6 +466,46 @@ class MacroOrchestrator:
                 ),
             )
             return 1
+
+        # ── 3.bis. El estado remoto no llego ───────────────────────────────
+        # **Va despues de la rama 3 y el orden es obligatorio, no estetico.**
+        # Sin canal no se puede avisar de que el estado no llego, y ponerla
+        # antes la haria alertar sobre un `self.telegram` que es `None`. Es la
+        # misma trampa de dos `if` que documenta el docstring de arriba.
+        #
+        # Aborta —no degrada— por el criterio de ADR-009: sin estado confiable
+        # el pipeline no sabe si este cierre ya salio, asi que seguir arriesga
+        # publicarlo dos veces. Y aborta **antes del lock**, o sea sin dejar
+        # fila: la proxima run reintenta sola.
+        if self.state_sync_error is not None:
+            logger.error(
+                "state_sync_unavailable_aborting",
+                event_id=event_id,
+                detail=self.state_sync_error,
+            )
+            self.telegram.send_alert(
+                "⛔ El cierre semanal no se ejecutó: no se pudo bajar el "
+                "estado de R2, así que el pipeline no sabe si este cierre ya "
+                "se publicó.\n\n"
+                f"Motivo: {self.state_sync_error}\n\n"
+                "Seguir a ciegas podría publicarlo dos veces. No se publicó "
+                "nada y el evento queda sin marcar: la próxima run lo "
+                "reintenta."
+            )
+            return 1
+
+        # El remoto ausente no aborta —una primera corrida legítima tiene que
+        # poder publicar— pero tampoco calla: la otra mitad del caso es que el
+        # estado se haya perdido, y los dos son indistinguibles desde acá. El
+        # aviso lo dice así en vez de elegir uno.
+        if self.state_sync is not None and self.state_sync.remote_absent:
+            logger.warning("state_remote_absent_continuing", event_id=event_id)
+            self.telegram.send_alert(
+                "⚠️ No había estado remoto en R2: puede ser la primera corrida "
+                "o el estado se perdió.\n\n"
+                "El cierre sigue adelante. Si no era la primera corrida, la "
+                "deduplicación de hoy salió de una base vacía."
+            )
 
         # ── 4. Abortos: lo que impide publicar ─────────────────────────────
         if self.fmp is None:
@@ -511,8 +598,17 @@ class MacroOrchestrator:
 
         with span_ctx as span:
             try:
+                # ── Estado remoto ──────────────────────────────────────────────
+                # Va antes que todo lo que lee estado. No reporta: anota, y
+                # decide `_startup_exit_code`.
+                self.state_sync_error = self._pull_remote_state()
+
                 # ── Guardia de duplicados ──────────────────────────────────────
-                if self.state.is_published(event_id):
+                # Solo corre si el estado es confiable. Consultar `is_published`
+                # sobre una base que no se pudo bajar responderia que este
+                # cierre no se publico nunca, que es exactamente la respuesta
+                # que lo publicaria dos veces.
+                if self.state_sync_error is None and self.state.is_published(event_id):
                     logger.info("event_already_published_skipping", event_id=event_id)
                     return 0
 
