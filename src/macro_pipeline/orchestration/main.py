@@ -143,6 +143,10 @@ class MacroOrchestrator:
         # sitios distintos y con textos distintos.
         self.macro_error: str | None = None
 
+        # Cargado solo cuando FMP se cayo en ejecucion. Sin key no llega aca:
+        # eso lo avisa el punto de decision. Mismo reparto que `macro_error`.
+        self.fmp_runtime_error: str | None = None
+
         self.validator_engine = ValidationEngine()
         self.renderer = PlaywrightEngine()
 
@@ -289,23 +293,29 @@ class MacroOrchestrator:
         """
         logger.info("orchestrator_fetching_data")
 
-        # No lo alcanza ningun camino: el punto de decision aborta cuando FMP no
-        # esta. Es la red por si alguien reordena sus ramas — mejor un motivo
-        # legible que un `AttributeError` con el humano ya esperando aprobar.
-        if self.fmp is None:
-            raise RuntimeError(
-                "FMP no está construido: el punto de decisión debía haber "
-                "abortado antes de llegar acá."
-            )
-
         data_source = "fmp"
 
         try:
+            # `self.fmp is None` dejo de ser inalcanzable el dia que FMP paso a
+            # degradar: hasta entonces la rama 4 del punto de decision abortaba
+            # antes de llegar. Va *dentro* del `try` a proposito — levantar aca
+            # es como se entra al fallback, no como se mata la run.
+            if self.fmp is None:
+                motivo = self.component_errors.get(
+                    "fmp", f"apagado con {USE_FMP_VAR}=false"
+                )
+                raise RuntimeError(f"FMP no disponible: {motivo}")
             sp500_df = self.fmp.get_historical_prices("^GSPC")
             nasdaq_df = self.fmp.get_historical_prices("^IXIC")
         except Exception as e:
             logger.warning("fmp_failed_falling_back_to_av", error=str(e))
             data_source = "av"
+            # El aviso in-run es solo para la caida en ejecucion. FMP sin key
+            # ya lo aviso el punto de decision al arrancar, y avisar de nuevo
+            # seria el mismo fallo contado dos veces — es la forma exacta que
+            # ya usa `macro_error` con FRED.
+            if self.fmp is not None:
+                self.fmp_runtime_error = str(e)
             try:
                 # AV degrada, asi que el pipeline llega hasta aca con `self.av`
                 # en None. Sin esta guarda salia un `AttributeError` y la alerta
@@ -370,15 +380,25 @@ class MacroOrchestrator:
         sp_return = (sp_last["close"] - sp_prev["close"]) / sp_prev["close"]
         ndq_return = (ndq_last["close"] - ndq_prev["close"]) / ndq_prev["close"]
 
+        # El nivel de cierre se publica solo si vino del instrumento que dice
+        # la etiqueta. FMP pide `^GSPC`/`^IXIC` y lo cumple; AV pide
+        # `SPY`/`QQQ`, que cotizan a otra escala, y publicar ese numero
+        # rotulado "SP500" es la invariante de ADR-001 rota en el ETL.
+        # El retorno sobrevive al cambio de instrumento; el nivel no.
+        #
+        # Mock queda con nivel a proposito: sus cifras son de escala indice y
+        # ya viven detras de `ALLOW_MOCK_DATA=false`.
+        publica_nivel = data_source != "av"
+
         data = WeeklyCloseData(
             date=(
                 sp_last["date"].date()
                 if isinstance(sp_last["date"], pd.Timestamp)
                 else date.today()
             ),
-            sp500_close=float(sp_last["close"]),
+            sp500_close=float(sp_last["close"]) if publica_nivel else None,
             sp500_weekly_return=float(sp_return),
-            nasdaq_close=float(ndq_last["close"]),
+            nasdaq_close=float(ndq_last["close"]) if publica_nivel else None,
             nasdaq_weekly_return=float(ndq_return),
             macro=self._fetch_macro_snapshot(),
         )

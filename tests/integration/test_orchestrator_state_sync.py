@@ -64,6 +64,7 @@ def _orchestrator(data: WeeklyCloseData, state: StateDB, sync) -> MacroOrchestra
     orch.switch_errors = {}
     orch.component_errors = {}
     orch.macro_error = None
+    orch.fmp_runtime_error = None
     orch.state_sync_error = None
 
     orch.fmp = MagicMock()

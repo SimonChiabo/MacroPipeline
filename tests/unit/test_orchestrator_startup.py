@@ -20,6 +20,7 @@ hasta la alerta.
 
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 from macro_pipeline.components import (
@@ -43,6 +44,7 @@ def data_orch():
     orch.component_errors = {}
     orch.switch_errors = {}
     orch.macro_error = None
+    orch.fmp_runtime_error = None
     # Sin R2 no hay sincronizado: el pipeline corre contra el disco local,
     # que es como corrian estos tests antes de que el estado viajara.
     orch.state_sync = None
@@ -185,13 +187,74 @@ def test_a_switched_off_av_says_so(data_orch):
     assert "apagado" in str(exc.value)
 
 
-def test_the_etl_refuses_to_run_without_fmp(data_orch):
-    """No lo alcanza ningun camino: el punto de decision aborta antes.
+def test_the_etl_falls_back_to_av_without_fmp(data_orch):
+    """FMP sin key dejo de abortar el dia que paso a degradar.
 
-    Existe para que, si alguien reordena las ramas, esto muera con un motivo
-    legible y no con un `AttributeError`.
+    La guarda sigue existiendo, pero ahora es como se *entra* al fallback y no
+    como se mata la run. Este test es el que impide que alguien la devuelva a
+    un `raise` fuera del `try` y deje la politica diciendo «degrada» con el
+    codigo abortando.
     """
     data_orch.fmp = None
+    data_orch.component_errors["fmp"] = "Se requiere FMP_API_KEY."
+    data_orch.av.get_daily_prices.side_effect = lambda s, outputsize: _precios(765.0)
 
-    with pytest.raises(RuntimeError, match="punto de decisión"):
-        data_orch._fetch_weekly_close()
+    data, source = data_orch._fetch_weekly_close()
+
+    assert source == "av"
+    assert data.sp500_close is None
+
+
+def _precios(base: float) -> pd.DataFrame:
+    """Diez ruedas subiendo 0.2% diario, a la escala que se le pida."""
+    fechas = pd.date_range(end=pd.Timestamp("2026-08-21"), periods=10, freq="B")
+    return pd.DataFrame(
+        {"date": fechas, "close": [base * (1 + i * 0.002) for i in range(10)]}
+    )
+
+
+def test_la_ruta_de_fmp_conserva_el_nivel(data_orch):
+    data_orch.fmp.get_historical_prices.side_effect = lambda s: _precios(7657.0)
+
+    data, source = data_orch._fetch_weekly_close()
+
+    assert source == "fmp"
+    assert data.sp500_close is not None
+    assert data.sp500_close > 2000
+
+
+def test_la_ruta_de_av_no_publica_el_nivel(data_orch):
+    """El nivel de SPY bajo la etiqueta del índice es la invariante de ADR-001."""
+    data_orch.fmp.get_historical_prices.side_effect = RuntimeError("FMP 503")
+    data_orch.av.get_daily_prices.side_effect = lambda s, outputsize: _precios(765.0)
+
+    data, source = data_orch._fetch_weekly_close()
+
+    assert source == "av"
+    assert data.sp500_close is None
+    assert data.nasdaq_close is None
+    # El retorno sí sobrevive al cambio de instrumento: es el punto entero.
+    # (5 ruedas habiles a +0.2% diario componen a ~0.0099, no ~0.018 — el
+    # numero del plan mezclaba la ventana de 5 ruedas con la de 9.)
+    assert data.sp500_weekly_return == pytest.approx(0.0099, abs=0.002)
+
+
+def test_fmp_caido_en_ejecucion_deja_motivo_para_la_alerta(data_orch):
+    data_orch.fmp.get_historical_prices.side_effect = RuntimeError("FMP 503")
+    data_orch.av.get_daily_prices.side_effect = lambda s, outputsize: _precios(765.0)
+
+    data_orch._fetch_weekly_close()
+
+    assert data_orch.fmp_runtime_error is not None
+    assert "503" in data_orch.fmp_runtime_error
+
+
+def test_fmp_sin_key_no_deja_motivo_in_run(data_orch):
+    """El arranque ya avisó por la key faltante: repetirlo es contarlo dos veces."""
+    data_orch.fmp = None
+    data_orch.component_errors["fmp"] = "Se requiere FMP_API_KEY."
+    data_orch.av.get_daily_prices.side_effect = lambda s, outputsize: _precios(765.0)
+
+    data_orch._fetch_weekly_close()
+
+    assert data_orch.fmp_runtime_error is None
