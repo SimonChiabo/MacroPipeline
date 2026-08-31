@@ -66,6 +66,7 @@ jobs:
       # devolvia 404 sin que nadie se enterara. Este paso corre primero, nombra
       # de una todo lo que falta y explica como cargarlo.
       - name: Comprobar secrets requeridos
+        id: secrets
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -117,6 +118,7 @@ jobs:
           fi
 
       - name: Set up Python 3.12
+        id: setup_python
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -205,13 +207,23 @@ jobs:
 
           exit 1
 
+      # Estos dos handlers son para lo que NO avisa por su cuenta. Los dos
+      # pasos de LinkedIn mandan su propio Telegram, asi que entrarian dos
+      # mensajes por un solo problema —y uno diciendo que fallaron los
+      # contract tests con pytest en verde—. Se enumera lo que si cubren en
+      # vez de excluir lo que no: excluyendo, un fallo real de contratos la
+      # misma noche que un token muerto se perdia entero. Si se agrega un paso
+      # que no avise por su cuenta, hay que sumarlo a esta lista.
+      #
       # El resumen del run es el canal que no puede fallar: no depende de
       # ninguna credencial y queda en la pagina del workflow.
       - name: Registrar el fallo en el resumen del run
         if: >-
           failure()
-          && steps.aviso_linkedin.outcome != 'failure'
-          && steps.credencial_linkedin.outcome != 'failure'
+          && (steps.secrets.outcome == 'failure'
+              || steps.setup_python.outcome == 'failure'
+              || steps.install.outcome == 'failure'
+              || steps.pytest.outcome == 'failure')
         run: |
           {
             echo "## ❌ El nightly de contract tests fallo"
@@ -232,8 +244,10 @@ jobs:
       - name: Notify on failure
         if: >-
           failure()
-          && steps.aviso_linkedin.outcome != 'failure'
-          && steps.credencial_linkedin.outcome != 'failure'
+          && (steps.secrets.outcome == 'failure'
+              || steps.setup_python.outcome == 'failure'
+              || steps.install.outcome == 'failure'
+              || steps.pytest.outcome == 'failure')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
