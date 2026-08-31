@@ -266,3 +266,31 @@ def test_weekly_close_rechaza_el_par_a_medias():
             nasdaq_close=None,
             nasdaq_weekly_return=0.019,
         )
+
+
+def test_validate_weekly_close_pasa_sin_niveles(engine):
+    """Sin nivel no hay rango que aplicar: es la ruta de AV publicando."""
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=None,
+        sp500_weekly_return=0.012,
+        nasdaq_close=None,
+        nasdaq_weekly_return=0.019,
+    )
+    assert engine.validate_weekly_close(data) is True
+
+
+def test_validate_weekly_close_sin_niveles_sigue_validando_retornos(engine):
+    """En la ruta de AV los rangos de retorno son la única defensa numérica.
+
+    Saltear el nivel no puede convertirse en saltear el control entero.
+    """
+    data = WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=None,
+        sp500_weekly_return=0.80,  # +80% en una semana: imposible
+        nasdaq_close=None,
+        nasdaq_weekly_return=0.019,
+    )
+    with pytest.raises(ValidationError, match="Retorno del SP500"):
+        engine.validate_weekly_close(data)

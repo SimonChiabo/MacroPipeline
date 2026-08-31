@@ -82,6 +82,12 @@ class ValidationEngine:
         # Validar niveles de cierre. Un `close` correcto del instrumento
         # equivocado (el ETF en vez del indice) pasa todos los demas controles:
         # el retorno es invariante de escala y el esquema solo exige `gt=0`.
+        #
+        # `None` es distinto de un nivel malo: significa que la fuente no
+        # cotiza el indice y el nivel no se va a publicar (ADR-009,
+        # divergencia 4). No hay cifra que defender, asi que no hay rango que
+        # aplicar. Un nivel *poblado* fuera de rango sigue abortando: eso no
+        # se relaja.
         niveles = [
             (
                 "SP500",
@@ -97,6 +103,8 @@ class ValidationEngine:
             ),
         ]
         for label, value, minimo, maximo in niveles:
+            if value is None:
+                continue
             if not (minimo <= value <= maximo):
                 logger.error(
                     "validation_failed",
