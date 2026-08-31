@@ -14,6 +14,52 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # El aviso de vencimiento del token de LinkedIn. Va primero a proposito:
+      # el paso de secrets de abajo sale con 1 si falta una key de FRED o AV, y
+      # esta alarma no puede depender de eso. Usa `python3` del runner y no
+      # `setup-python` ni el paquete instalado —el script es stdlib puro— para
+      # que tampoco dependa de que el `pip install` funcione.
+      - name: Avisar si el token de LinkedIn esta por vencer
+        env:
+          PUBLISH_LINKEDIN: ${{ vars.PUBLISH_LINKEDIN }}
+          LINKEDIN_TOKEN_ISSUED: ${{ vars.LINKEDIN_TOKEN_ISSUED }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # `set -e` es lo que hace que un crash del script salga en rojo en
+          # vez de dar mensaje vacio y pasar por silencio.
+          set -euo pipefail
+
+          mensaje=$(python3 scripts/linkedin_token_alert.py)
+
+          if [ -z "${mensaje}" ]; then
+            echo "Token de LinkedIn: hoy no toca avisar."
+            exit 0
+          fi
+
+          echo "${mensaje}"
+          echo "> ⚠️ ${mensaje}" >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "::warning title=Aviso no enviado::Sin credenciales de Telegram; el aviso del token queda solo en el resumen del run."
+            exit 0
+          fi
+
+          # `curl -s` a secas devuelve 0 aunque la API conteste 404, asi que
+          # una alerta que nunca llego se ve igual que una entregada.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="${mensaje}")
+
+          if [ "${status}" != "200" ]; then
+            echo "::error title=Aviso de LinkedIn no entregado::sendMessage devolvio HTTP ${status}."
+            echo "> ❌ El aviso del token de LinkedIn no se entrego (HTTP ${status})." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          echo "Aviso del token de LinkedIn entregado."
+
       # El repo no tenia ningun secret configurado, y el modo de fallo era
       # ilegible: pytest moria por credencial faltante y la alerta de Telegram
       # devolvia 404 sin que nadie se enterara. Este paso corre primero, nombra
