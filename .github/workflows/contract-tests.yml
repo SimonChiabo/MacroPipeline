@@ -20,6 +20,7 @@ jobs:
       # `setup-python` ni el paquete instalado —el script es stdlib puro— para
       # que tampoco dependa de que el `pip install` funcione.
       - name: Avisar si el token de LinkedIn esta por vencer
+        id: aviso_linkedin
         env:
           PUBLISH_LINKEDIN: ${{ vars.PUBLISH_LINKEDIN }}
           LINKEDIN_TOKEN_ISSUED: ${{ vars.LINKEDIN_TOKEN_ISSUED }}
@@ -131,6 +132,7 @@ jobs:
       # sobrescribirlo aqui el job deseleccionaria todo y saldria en verde
       # sin haber verificado ningun contrato.
       - name: Run contract tests
+        id: pytest
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -153,6 +155,7 @@ jobs:
       # culpando a LinkedIn de que falta una key de FRED. Una alerta que
       # senala al componente equivocado es peor que ninguna.
       - name: Verificar la credencial de LinkedIn
+        id: credencial_linkedin
         if: (success() || failure()) && steps.install.outcome == 'success'
         env:
           PUBLISH_X: "false"
@@ -205,14 +208,21 @@ jobs:
       # El resumen del run es el canal que no puede fallar: no depende de
       # ninguna credencial y queda en la pagina del workflow.
       - name: Registrar el fallo en el resumen del run
-        if: failure()
+        if: >-
+          failure()
+          && steps.aviso_linkedin.outcome != 'failure'
+          && steps.credencial_linkedin.outcome != 'failure'
         run: |
           {
             echo "## ❌ El nightly de contract tests fallo"
             echo
             echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
-            echo "Revisar si alguna API cambio su schema, sus unidades o su endpoint."
+            if [ "${{ steps.pytest.outcome }}" == "failure" ]; then
+              echo "Revisar si alguna API cambio su schema, sus unidades o su endpoint."
+            else
+              echo "Fallo antes de llegar a correr los contract tests (secrets, setup o install). No es un cambio de API."
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
       # Notificar por Telegram si los contract tests fallan.
@@ -220,7 +230,10 @@ jobs:
       # alerta que nunca llego se veia igual que una entregada: hay que mirar
       # el status code y gritar si no es 200.
       - name: Notify on failure
-        if: failure()
+        if: >-
+          failure()
+          && steps.aviso_linkedin.outcome != 'failure'
+          && steps.credencial_linkedin.outcome != 'failure'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -232,10 +245,13 @@ jobs:
 
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          # Un rate limit de Alpha Vantage y un cambio de schema ponen los dos
-          # el nightly en rojo, pero solo uno pide tocar codigo. La alerta lo
-          # dice para no tener que entrar al run para averiguarlo.
-          if grep -q "AV_RATE_LIMIT" pytest-output.txt 2>/dev/null; then
+          # Un fallo antes de pytest —secrets faltantes, setup, install— no es
+          # un cambio de API, y decir que "los contract tests fallaron" manda a
+          # revisar el sitio equivocado. Los dos pasos de LinkedIn no entran
+          # aca: avisan por su cuenta y estan excluidos en el `if:` del paso.
+          if [ "${{ steps.pytest.outcome }}" != "failure" ]; then
+            texto="⚠️ El nightly fallo antes de correr los contract tests (secrets, setup o install). NO es un cambio de API. Workflow: ${run_url}"
+          elif grep -q "AV_RATE_LIMIT" pytest-output.txt 2>/dev/null; then
             texto="⚠️ Contract tests en rojo: Alpha Vantage respondió rate limit, así que su contrato quedó sin verificar. NO es un cambio de API: basta con relanzar. ${run_url}"
           else
             texto="⚠️ Contract Tests fallaron. Revisar cambios de API. Workflow: ${run_url}"
