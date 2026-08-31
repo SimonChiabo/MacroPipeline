@@ -1089,7 +1089,7 @@ Expected: sin salida.
 
 ## Task 10: Cierre
 
-- [ ] **Step 1: Suite completa, lint y tipos sobre el HEAD final**
+- [x] **Step 1: Suite completa, lint y tipos sobre el HEAD final**
 
 ```bash
 ./.venv/Scripts/python.exe -m pytest -q
@@ -1100,7 +1100,7 @@ Expected: sin salida.
 
 Expected: todo verde. El conteo esperado ronda los 305 tests (283 de base + ~22 nuevos); lo que importa es que no bajó de 283 y que ninguno quedó saltado.
 
-- [ ] **Step 2: Empujar y esperar CI verde sobre el HEAD exacto**
+- [x] **Step 2: Empujar y esperar CI verde sobre el HEAD exacto**
 
 ```bash
 git push
@@ -1109,7 +1109,7 @@ gh run list --limit 3
 
 Anotar el número de run. **La barra es CI verde sobre el HEAD exacto, con el número anotado** — no "CI verde en algún commit de la serie".
 
-- [ ] **Step 3: Cerrar el punto 6 en memoria**
+- [x] **Step 3: Cerrar el punto 6 en memoria**
 
 Actualizar `macropipeline-pending-work.md` con la misma disciplina que los puntos 7 a 13: qué lo cerró, los commits, el número de run de CI, y **lo que costó verificar y no conviene volver a descubrir**. Como mínimo:
 
