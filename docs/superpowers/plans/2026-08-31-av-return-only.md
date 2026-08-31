@@ -279,7 +279,7 @@ git commit -m "feat(validators): sin nivel no hay rango de nivel que aplicar"
 - Modify: `src/macro_pipeline/templates/weekly_close.html:64-76` (CSS) y `:122-134` (markup)
 - Test: `tests/unit/test_render_playwright.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Agregar a `tests/unit/test_render_playwright.py`:
 
@@ -331,13 +331,13 @@ def test_render_sin_niveles_conserva_el_bloque_macro(mock_sync_playwright):
     assert "variación semanal" in html
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_render_playwright.py -k "sin_niveles or no_cambia" -v`
 
 Expected: FAIL con `PlaywrightEngineError` envolviendo un `TypeError: unsupported format string passed to NoneType.__format__` — es el fail-loud del diseño funcionando antes de que exista el arreglo.
 
-- [ ] **Step 3: Implementar el renderer**
+- [x] **Step 3: Implementar el renderer**
 
 En `src/macro_pipeline/render/playwright_engine.py`, agregar los dos helpers justo después de `_build_macro_block`:
 
@@ -403,7 +403,7 @@ Y reemplazar el bloque de `.format()` en `render_weekly_close` (borrando las dos
             )
 ```
 
-- [ ] **Step 4: Implementar la plantilla**
+- [x] **Step 4: Implementar la plantilla**
 
 En `src/macro_pipeline/templates/weekly_close.html`, reemplazar el bloque de markup:
 
@@ -423,19 +423,19 @@ Y agregar el estilo de la nota, justo después de la regla `.metric-return`. **R
         }}
 ```
 
-- [ ] **Step 5: Correr los tests**
+- [x] **Step 5: Correr los tests**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_render_playwright.py -v`
 
 Expected: PASS, todos — incluidos los que ya existían.
 
-- [ ] **Step 6: Lint y tipos**
+- [x] **Step 6: Lint y tipos**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: sin errores.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/macro_pipeline/render/playwright_engine.py src/macro_pipeline/templates/weekly_close.html tests/unit/test_render_playwright.py
