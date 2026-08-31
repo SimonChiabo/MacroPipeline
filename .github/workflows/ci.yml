@@ -78,3 +78,46 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           fail_ci_if_error: true
+
+  nightly-vivo:
+    name: El nightly no puede quedar apagado
+    runs-on: ubuntu-latest
+    # Solo en push: en un PR desde un fork el token es de solo lectura y el
+    # paso fallaria por permisos, no por el estado del workflow.
+    if: github.event_name == 'push'
+    permissions:
+      actions: write
+
+    steps:
+      # GitHub apaga los workflows programados de un repo publico tras 60 dias
+      # sin actividad, y re-habilitarlos es manual: ninguna actividad posterior
+      # los reactiva. Sin esto se vuelve al repo, se commitea, y la alarma del
+      # token de LinkedIn sigue apagada sin que nadie se entere — y los 60 dias
+      # de inactividad son justo la ventana del token.
+      - name: Reactivar contract-tests.yml si GitHub lo apago
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          ruta="repos/${{ github.repository }}/actions/workflows/contract-tests.yml"
+          estado=$(gh api "${ruta}" --jq .state)
+          echo "Estado de contract-tests.yml: ${estado}"
+
+          if [ "${estado}" != "disabled_inactivity" ]; then
+            exit 0
+          fi
+
+          gh workflow enable contract-tests.yml
+          echo "::warning title=Nightly reactivado::GitHub habia apagado contract-tests.yml por inactividad. Se reactivo, pero estuvo ciego un tiempo indeterminado."
+          {
+            echo "## ⚠️ El nightly estaba apagado"
+            echo
+            echo "GitHub deshabilita los workflows programados tras 60 dias sin"
+            echo "actividad en el repo. \`contract-tests.yml\` estaba en"
+            echo "\`disabled_inactivity\` y se reactivo automaticamente."
+            echo
+            echo "**Mientras estuvo apagado no corrio ninguna verificacion de"
+            echo "contratos ni del token de LinkedIn.** Conviene correr"
+            echo "\`python scripts/check_publishers.py\` a mano."
+          } >> "${GITHUB_STEP_SUMMARY}"
