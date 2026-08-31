@@ -220,3 +220,147 @@ def test_mark_failed_on_an_event_that_never_started_creates_no_row(db):
     db.mark_failed("weekly_close_2026-08-21", reason="reviento is_published")
 
     assert db.get_publication_state("weekly_close_2026-08-21") == {}
+
+
+# ── El hook de escritura ─────────────────────────────────────────────────────
+#
+# `StateDB` vive en un fichero local que no sobrevive a un entorno efimero
+# (punto 11 del backlog). El hook es lo que deja que el sincronizado suba el
+# fichero despues de cada escritura sin que el orquestador tenga que acordarse
+# de llamarlo en seis sitios: un subconjunto elegido a mano es justo la clase
+# de hueco que en este repo aparece invisible con la suite en verde.
+
+
+class _Espia:
+    """Cuenta las llamadas al hook. Opcionalmente revienta.
+
+    El error se arma aparte del constructor a proposito: hay tests que
+    necesitan preparar una fila con escrituras que funcionan y recien despues
+    romper el hook. Armarlo de entrada haria reventar el setup y el test
+    pasaria —o fallaria— por el motivo equivocado.
+    """
+
+    def __init__(self, error=None):
+        self.llamadas = 0
+        self._error = error
+
+    def armar(self, error: Exception) -> None:
+        self._error = error
+
+    def __call__(self) -> None:
+        self.llamadas += 1
+        if self._error is not None:
+            raise self._error
+
+
+@pytest.fixture
+def espia():
+    return _Espia()
+
+
+@pytest.fixture
+def db_con_hook(tmp_path, espia):
+    return StateDB(db_path=str(tmp_path / "state.db"), on_write=espia), espia
+
+
+def test_el_hook_se_dispara_en_mark_in_progress(db_con_hook):
+    db, espia = db_con_hook
+    db.mark_in_progress("weekly_close_2026-08-28")
+    assert espia.llamadas == 1
+
+
+def test_el_hook_se_dispara_en_mark_x_published(db_con_hook):
+    db, espia = db_con_hook
+    db.mark_in_progress("weekly_close_2026-08-28")
+    db.mark_x_published("weekly_close_2026-08-28", "x-123")
+    assert espia.llamadas == 2
+
+
+def test_el_hook_se_dispara_en_mark_linkedin_published(db_con_hook):
+    db, espia = db_con_hook
+    db.mark_in_progress("weekly_close_2026-08-28")
+    db.mark_linkedin_published("weekly_close_2026-08-28", "li-123")
+    assert espia.llamadas == 2
+
+
+def test_el_hook_se_dispara_en_mark_as_published(db_con_hook):
+    db, espia = db_con_hook
+    db.mark_in_progress("weekly_close_2026-08-28")
+    db.mark_as_published("weekly_close_2026-08-28")
+    assert espia.llamadas == 2
+
+
+def test_el_hook_se_dispara_en_mark_failed(db_con_hook):
+    db, espia = db_con_hook
+    db.mark_in_progress("weekly_close_2026-08-28")
+    db.mark_failed("weekly_close_2026-08-28", "motivo")
+    assert espia.llamadas == 2
+
+
+def test_el_hook_se_dispara_en_mark_expired(db_con_hook):
+    db, espia = db_con_hook
+    db.mark_in_progress("weekly_close_2026-08-28")
+    db.mark_expired("weekly_close_2026-08-28")
+    assert espia.llamadas == 2
+
+
+def test_el_hook_no_se_dispara_en_las_lecturas(db_con_hook):
+    """Subir el fichero despues de leerlo seria gastar red por nada."""
+    db, espia = db_con_hook
+    db.is_published("weekly_close_2026-08-28")
+    db.is_in_progress("weekly_close_2026-08-28")
+    db.get_publication_state("weekly_close_2026-08-28")
+    assert espia.llamadas == 0
+
+
+def test_sin_hook_todo_sigue_funcionando(db):
+    """`on_write` es opcional: sin R2 configurado no hay nada que sincronizar."""
+    db.mark_in_progress("weekly_close_2026-08-28")
+    db.mark_as_published("weekly_close_2026-08-28")
+    assert db.is_published("weekly_close_2026-08-28") is True
+
+
+def test_mark_failed_no_propaga_el_fallo_del_hook(tmp_path):
+    """La unica escritura que se traga el error del hook, y por que.
+
+    `mark_failed` es la unica que se llama desde dentro del `except` general
+    del orquestador. Si el hook levantara ahi, la excepcion saldria del propio
+    manejador de fallos y taparia la causa original — ademas de dejar la fila
+    sin cerrar. Es el mismo principio documentado de `TelegramBot.send_alert()`,
+    que nunca levanta porque llega cuando la publicacion ya se decidio.
+
+    La escritura local igual se hace: lo que se pierde es la subida, no el
+    registro.
+    """
+    espia = _Espia()
+    db = StateDB(db_path=str(tmp_path / "state.db"), on_write=espia)
+    db.mark_in_progress("weekly_close_2026-08-28")
+    espia.armar(RuntimeError("R2 caido"))
+
+    db.mark_failed("weekly_close_2026-08-28", "lo que sea")
+
+    assert db.get_publication_state("weekly_close_2026-08-28")["status"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "escritura",
+    [
+        lambda db: db.mark_in_progress("weekly_close_2026-08-28"),
+        lambda db: db.mark_x_published("weekly_close_2026-08-28", "x-123"),
+        lambda db: db.mark_linkedin_published("weekly_close_2026-08-28", "li-123"),
+        lambda db: db.mark_as_published("weekly_close_2026-08-28"),
+        lambda db: db.mark_expired("weekly_close_2026-08-28"),
+    ],
+    ids=["in_progress", "x_published", "linkedin_published", "published", "expired"],
+)
+def test_las_demas_escrituras_si_propagan_el_fallo_del_hook(tmp_path, escritura):
+    """El resto tiene que levantar: un push perdido en silencio republica.
+
+    `mark_expired` entra aca a proposito. Levantar deja la fila en `failed` en
+    vez de `expired`, y las dos re-arman el lock igual, asi que no cuesta nada.
+    """
+    espia = _Espia(error=RuntimeError("R2 caido"))
+    db = StateDB(db_path=str(tmp_path / "state.db"), on_write=espia)
+
+    with pytest.raises(RuntimeError):
+        escritura(db)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,13 +26,38 @@ class StateDB:
     - Permite reconciliación en caso de fallo parcial de publicación.
     """
 
-    def __init__(self, db_path: str | None = None):
+    def __init__(
+        self,
+        db_path: str | None = None,
+        on_write: Callable[[], None] | None = None,
+    ):
         self.db_path = db_path or os.environ.get("STATE_DB_PATH", _DEFAULT_DB_PATH)
+        # Se llama después de cada escritura mutante. Existe para que el
+        # sincronizado con R2 (punto 11: el fichero no sobrevive a un entorno
+        # efímero) suba el fichero donde ocurre la escritura, y no en seis
+        # sitios del orquestador que alguien pueda olvidar de mantener.
+        # Opcional: sin R2 configurado no hay nada que sincronizar.
+        self._on_write = on_write
         # Garantizar que el directorio padre existe
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.ensure_schema()
+        logger.info("state_db_initialized", path=self.db_path)
+
+    def ensure_schema(self) -> None:
+        """Crea la tabla y aplica las migraciones pendientes.
+
+        Público porque hay que volver a llamarlo después de bajar el fichero de
+        R2: `_init_db` y `_migrate_db` corrieron sobre el fichero que había
+        antes del pull, no sobre el que acaba de llegar. Las dos son
+        idempotentes a propósito, así que llamarlo de más no cuesta nada.
+        """
         self._init_db()
         self._migrate_db()
-        logger.info("state_db_initialized", path=self.db_path)
+
+    def _notify_write(self) -> None:
+        """Avisa de una escritura. Propaga lo que levante el hook."""
+        if self._on_write is not None:
+            self._on_write()
 
     def _init_db(self) -> None:
         """Crea la tabla con el schema completo si no existe."""
@@ -129,6 +155,7 @@ class StateDB:
                 (event_id,),
             )
         logger.info("event_marked_in_progress", event_id=event_id)
+        self._notify_write()
 
     # ── Publicado ─────────────────────────────────────────────────────────────
 
@@ -159,6 +186,7 @@ class StateDB:
                 (x_post_id, event_id),
             )
         logger.info("x_post_id_persisted", event_id=event_id, x_post_id=x_post_id)
+        self._notify_write()
 
     def mark_linkedin_published(self, event_id: str, linkedin_post_id: str) -> None:
         """Persiste el post_id de LinkedIn inmediatamente tras la publicación."""
@@ -172,6 +200,7 @@ class StateDB:
             event_id=event_id,
             linkedin_post_id=linkedin_post_id,
         )
+        self._notify_write()
 
     def mark_as_published(
         self,
@@ -240,6 +269,7 @@ class StateDB:
             data_source=data_source,
             macro_persisted=macro is not None,
         )
+        self._notify_write()
 
     # ── Fallos y expiración ───────────────────────────────────────────────────
 
@@ -260,6 +290,17 @@ class StateDB:
                 (event_id,),
             )
         logger.warning("event_marked_failed", event_id=event_id, reason=reason)
+        # La unica escritura que NO propaga el fallo del hook, porque es la
+        # unica que se llama desde dentro del `except` general del orquestador.
+        # Si levantara aca, la excepcion saldria del propio manejador de fallos
+        # y taparia la causa original. Mismo principio que
+        # `TelegramBot.send_alert()`, que nunca levanta porque llega cuando la
+        # publicacion ya se decidio. La escritura local ya ocurrio: lo que se
+        # pierde es la subida, no el registro.
+        try:
+            self._notify_write()
+        except Exception as e:
+            logger.error("state_sync_failed_after_mark_failed", error=str(e))
 
     def mark_expired(self, event_id: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -268,3 +309,4 @@ class StateDB:
                 (event_id,),
             )
         logger.warning("event_marked_expired", event_id=event_id)
+        self._notify_write()
