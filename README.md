@@ -24,7 +24,7 @@ Cada viernes, cuando cierra el mercado americano, el pipeline:
 6. Envía el draft a un bot de Telegram con preview y botones de aprobación.
 7. Si aprueba, publica vía APIs nativas. Si no, descarta y queda registrado.
 
-Toda la ejecución se observa con OpenTelemetry y Grafana Cloud. Los datos crudos de cada run se archivan como snapshots inmutables en Cloudflare R2 para reproducibilidad.
+Toda la ejecución se observa con OpenTelemetry y Grafana Cloud. Los datos crudos de cada run se archivan como snapshots inmutables en Cloudflare R2 para reproducibilidad. El fichero de estado de SQLite también viaja por R2: no sobrevive a un entorno efímero, y sin él la deduplicación que promete ADR-002 no se sostiene.
 
 ---
 
@@ -60,7 +60,7 @@ Diagrama detallado en [`PLAN.md`](./PLAN.md).
 | Publicación | X API v2 · LinkedIn API (Company Page) |
 | Aprobación | Telegram bot (long polling) |
 | Observabilidad | structlog · OpenTelemetry · Grafana Cloud |
-| Storage | SQLite (queue) · Cloudflare R2 (snapshots) |
+| Storage | SQLite (queue, sincronizado contra R2) · Cloudflare R2 (snapshots + estado) |
 | CI/CD | GitHub Actions · pre-commit · Codecov |
 
 ---
