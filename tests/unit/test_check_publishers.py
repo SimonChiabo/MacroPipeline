@@ -368,3 +368,43 @@ def test_el_aviso_de_vencimiento_no_depende_de_que_linkedin_conteste(
 
     salida = capsys.readouterr().out
     assert "Token emitido hace" in salida
+
+
+def test_un_corte_de_red_deja_el_marcador_que_el_nightly_grepea(
+    check_publishers, monkeypatch, capsys
+):
+    """`LINKEDIN_UNREACHABLE` es un contrato con el workflow, no un print.
+
+    El nightly lo grepea para distinguir un corte de red de un token muerto:
+    solo uno de los dos pide ir al portal. Si alguien lo borra, la alerta cae
+    a la rama generica sin que nada se ponga en rojo.
+    """
+    monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", "un-token-cualquiera")
+    monkeypatch.setenv("LINKEDIN_PERSON_URN", "urn:li:person:abc")
+
+    def _revienta(*a, **k):
+        raise check_publishers.requests.RequestException("sin ruta al host")
+
+    monkeypatch.setattr(check_publishers.requests, "get", _revienta)
+
+    assert check_publishers.check_linkedin() is False
+    assert "LINKEDIN_UNREACHABLE" in capsys.readouterr().out
+
+
+def test_un_401_deja_el_marcador_que_el_nightly_grepea(
+    check_publishers, monkeypatch, capsys
+):
+    """`LINKEDIN_TOKEN_DEAD` es la otra mitad del mismo contrato."""
+    monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", "un-token-cualquiera")
+    monkeypatch.setenv("LINKEDIN_PERSON_URN", "urn:li:person:abc")
+
+    class Respuesta401:
+        status_code = 401
+        text = ""
+
+    monkeypatch.setattr(
+        check_publishers.requests, "get", lambda *a, **k: Respuesta401()
+    )
+
+    assert check_publishers.check_linkedin() is False
+    assert "LINKEDIN_TOKEN_DEAD" in capsys.readouterr().out
