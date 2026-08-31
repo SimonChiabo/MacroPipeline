@@ -97,6 +97,12 @@ jobs:
       - name: Reactivar contract-tests.yml si GitHub lo apago
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # El job no hace checkout, asi que el working dir no es un repo git y
+          # `gh workflow enable` no tiene de donde deducir el repositorio. Sin
+          # esto fallaria con "not a git repository" — y solo en la rama de
+          # `disabled_inactivity`, que es la unica que importa y la que casi
+          # nunca se ejercita.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
