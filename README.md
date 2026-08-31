@@ -111,6 +111,32 @@ python -m macro_pipeline run weekly-close --dry-run
 
 ---
 
+## El token de LinkedIn vence cada ~60 días
+
+Se reemite a mano desde el token generator del portal: con este montaje
+(`w_member_social`) no hay refresh programático, así que rotar es coste externo
+y lo único que el repo puede hacer es avisar a tiempo.
+
+El nightly avisa por Telegram los días **50, 55, 58 y después todos los días**,
+y además autentica la credencial contra `/v2/userinfo` en cada corrida, así que
+un token **revocado** también se caza.
+
+**Al rotar hay que actualizar la fecha en dos sitios:**
+
+```sh
+# 1. El .env local
+LINKEDIN_TOKEN_ISSUED=2026-10-20
+
+# 2. La variable del repo, que es la que lee el nightly
+gh variable set LINKEDIN_TOKEN_ISSUED --body "2026-10-20"
+```
+
+Si no querés rotarlo, `PUBLISH_LINKEDIN=false` apaga la red y silencia el aviso
+—en el `.env` y en `gh variable set PUBLISH_LINKEDIN --body "false"`—. Al
+volver a encenderlo, la fecha vieja hace que el primer nightly avise solo.
+
+---
+
 ## Secrets en GitHub
 
 El nightly de contract tests (`.github/workflows/contract-tests.yml`) corre
