@@ -784,7 +784,7 @@ git commit -m "feat(llm): sin nivel de cierre la capa no participa y el data_str
 - Modify: `src/macro_pipeline/orchestration/main.py:790-810` (justo antes del bloque de `macro_error`)
 - Test: `tests/integration/test_orchestrator_exit_states.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 ```python
 def test_ruta_av_avisa_antes_de_pedir_aprobacion(state, data):
@@ -809,13 +809,13 @@ def test_fmp_sin_key_no_alerta_dos_veces_en_la_run(state, data):
     assert not any("Alpha Vantage" in a for a in alertas)
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -k "ruta_av_avisa or dos_veces" -v`
 
 Expected: el primero FAIL (no existe la alerta), el segundo PASS por vacuidad. **El segundo recién vale como test después del Step 3** — es el que impide que la alerta se mande siempre.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Insertar justo **antes** del bloque `if self.macro_error:`:
 
@@ -846,13 +846,13 @@ Insertar justo **antes** del bloque `if self.macro_error:`:
                     )
 ```
 
-- [ ] **Step 4: Correr los tests**
+- [x] **Step 4: Correr los tests**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -v`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/macro_pipeline/orchestration/main.py tests/integration/test_orchestrator_exit_states.py
