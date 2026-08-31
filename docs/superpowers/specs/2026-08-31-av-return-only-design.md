@@ -107,12 +107,34 @@ y tiene que reventar en el esquema y no tres capas más abajo. Es lo que habilit
 a que todo el resto del código pregunte una sola cosa —`data.sp500_close is
 None`— sin volver a razonar la correlación.
 
-**Una guarda `if self.fmp is None` al principio del `try`.** AV ya tiene la
-suya, agregada precisamente porque sin ella salía un `AttributeError` y la
-alerta del `except` general culpaba a un bug en vez de nombrar al componente.
-Hoy la de FMP sería inalcanzable —la rama 4 aborta antes de llegar—, pero **en
-cuanto FMP pasa a degradar deja de serlo**. Sin la guarda, este mismo cambio
-reintroduce el fallo que ya se arregló una vez, en el componente de al lado.
+**La guarda `if self.fmp is None` cambia de significado.** Ya existe
+(`main.py:294-299`), pero está *fuera* del `try` y levanta un `RuntimeError`
+cuyo propio comentario dice «No lo alcanza ningun camino: el punto de decision
+aborta cuando FMP no esta. Es la red por si alguien reordena sus ramas».
+
+Ese comentario deja de ser cierto con este cambio. FMP sin key ya no aborta en
+la rama 4, así que el método se ejecuta con `self.fmp is None` **en el camino
+normal** — y la guarda, tal como está, volvería a convertir la degradación en
+un abort. Hay que moverla *dentro* del `try`, con el motivo legible que ya usa
+la guarda de AV, para que caiga al fallback en vez de matar la run:
+
+```python
+data_source = "fmp"
+try:
+    if self.fmp is None:
+        motivo = self.component_errors.get(
+            "fmp", f"apagado con {USE_FMP_VAR}=false"
+        )
+        raise RuntimeError(f"FMP no disponible: {motivo}")
+    sp500_df = self.fmp.get_historical_prices("^GSPC")
+    nasdaq_df = self.fmp.get_historical_prices("^IXIC")
+except Exception as e:
+    ...
+```
+
+No es una guarda nueva: es una que hoy es red de seguridad y pasa a ser camino
+de ejecución. Dejarla como está es la forma más silenciosa de que este trabajo
+no haga nada — la política diría «degrada» y el código seguiría abortando.
 
 ---
 
@@ -249,7 +271,8 @@ TDD. Los tests nuevos cubren, como mínimo:
 
 - La rama de AV produce los dos cierres en `None`; la de FMP no.
 - El `model_validator` rechaza el par a medias.
-- La guarda de `self.fmp is None` nombra a FMP y no larga un `AttributeError`.
+- Con `self.fmp is None` la run **cae a AV** en vez de abortar, y el motivo
+  nombra a FMP.
 - `validate_weekly_close` pasa con cierres en `None`, y **sigue abortando** con
   un cierre poblado fuera de rango.
 - El render sin cierre no contiene el número y sí el retorno.
@@ -263,7 +286,7 @@ TDD. Los tests nuevos cubren, como mínimo:
 deshacer sin que nadie lo note:
 
 1. Poblar el cierre en la rama de AV.
-2. Sacar la guarda de `self.fmp is None`.
+2. Devolver la guarda de `self.fmp is None` a un `raise` fuera del `try`.
 3. Dejar `"fmp"` en el filtro de la rama 5.
 4. Devolver el `data_str` con cierre a la capa LLM.
 
