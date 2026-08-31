@@ -122,6 +122,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        id: install
         run: pip install -e ".[dev]"
 
       # Los contract tests requieren API keys reales.
@@ -146,9 +147,13 @@ jobs:
       # secrets estan en CI, hacerlo siempre no necesita detectar el hueco y
       # ademas caza un token *revocado* dentro del dia. `PUBLISH_X=false` hace
       # que el script se saltee X entero, asi que no hacen falta sus cuatro
-      # credenciales. `always()` para que un contract test en rojo no lo saltee.
+      # credenciales. La guarda corre igual con un contract test en rojo, pero
+      # no si el entorno nunca se construyo: sin `pip install` el script muere
+      # con ModuleNotFoundError, cae en la rama generica y manda una alerta
+      # culpando a LinkedIn de que falta una key de FRED. Una alerta que
+      # senala al componente equivocado es peor que ninguna.
       - name: Verificar la credencial de LinkedIn
-        if: always()
+        if: (success() || failure()) && steps.install.outcome == 'success'
         env:
           PUBLISH_X: "false"
           PUBLISH_LINKEDIN: ${{ vars.PUBLISH_LINKEDIN }}
