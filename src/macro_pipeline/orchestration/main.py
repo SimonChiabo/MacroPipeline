@@ -821,6 +821,31 @@ class MacroOrchestrator:
                             headline = _generic_headline(data)
                     prompt_version = _PROMPT_VERSION
 
+                # ── Degradación: el cierre sale por la ruta de Alpha Vantage ───
+                # Mismo lugar y mismo motivo que el aviso del bloque macro de
+                # abajo: quien aprueba tiene que saber que ese cierre sale con
+                # menos. `fmp_runtime_error` esta cargado solo cuando FMP se
+                # cayo en ejecucion; FMP sin key no llega aca porque lo aviso el
+                # punto de decision, que es donde nace.
+                if self.fmp_runtime_error:
+                    logger.warning(
+                        "data_source_degraded",
+                        event_id=event_id,
+                        reason=self.fmp_runtime_error,
+                    )
+                    telegram.send_alert(
+                        "⚠️ FMP falló y el cierre sale por Alpha Vantage.\n\n"
+                        f"Motivo: {self.fmp_runtime_error}\n\n"
+                        "AV cotiza los ETF (`SPY`, `QQQ`) donde FMP cotiza los "
+                        "índices (`^GSPC`, `^IXIC`), así que el nivel de cierre "
+                        "no se publica: la imagen sale sólo con la variación "
+                        "semanal, que sí es la misma cifra en los dos "
+                        "instrumentos.\n\n"
+                        "El titular sale del bloque genérico: la capa LLM no "
+                        "participa cuando no hay nivel que redactar.\n\n"
+                        "Se publica igual si lo aprobás."
+                    )
+
                 # ── Degradación: el bloque macro no llegó ──────────────────────
                 # Mismo lugar y mismo motivo que el aviso de la capa LLM de
                 # arriba: quien aprueba tiene que saber que ese cierre sale con

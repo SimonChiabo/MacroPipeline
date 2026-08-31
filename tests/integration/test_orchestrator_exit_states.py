@@ -588,3 +588,25 @@ def test_a_degraded_but_configured_run_still_records_the_prompt_version(data, st
     row = state.get_publication_state(EVENT_ID)
     assert row["prompt_version"] is not None
     assert row["validator_approved"] == 1
+
+
+def test_ruta_av_avisa_antes_de_pedir_aprobacion(state, data):
+    """Quien aprueba tiene que saber que ese cierre sale con menos."""
+    orch = _build_orchestrator(data, state)
+    orch.fmp_runtime_error = "FMPClientError: 503"
+
+    orch.run_weekly_close()
+
+    alertas = [c[0][0] for c in orch.telegram.send_alert.call_args_list]
+    assert any("Alpha Vantage" in a and "variación semanal" in a for a in alertas)
+
+
+def test_fmp_sin_key_no_alerta_dos_veces_en_la_run(state, data):
+    """El arranque ya avisó: `fmp_runtime_error` en None es como llega ese caso."""
+    orch = _build_orchestrator(data, state)
+    orch.fmp_runtime_error = None
+
+    orch.run_weekly_close()
+
+    alertas = [c[0][0] for c in orch.telegram.send_alert.call_args_list]
+    assert not any("Alpha Vantage" in a for a in alertas)
