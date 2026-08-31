@@ -987,7 +987,7 @@ git commit -m "feat(politica): FMP sin key degrada a la ruta de AV en vez de abo
 **Files:**
 - Modify: `docs/adr/009-degradation-policy.md:126-129` (tabla) y `:451-467` (divergencia 4)
 
-- [ ] **Step 1: Actualizar las cuatro filas de la tabla**
+- [x] **Step 1: Actualizar las cuatro filas de la tabla**
 
 ```markdown
 | FMP (índices) | Sin key | **Degrada** a Alpha Vantage — el cierre sale sin el nivel, con alerta desde el punto de decisión | — |
@@ -1002,11 +1002,11 @@ Y la fila del validador, que gana la excepción declarada:
 | `ValidationEngine` | Cifra **del cierre semanal** fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001. Sin nivel (ruta de AV) no hay rango de nivel que aplicar; los de retorno siguen | `failed` |
 ```
 
-- [ ] **Step 2: Cerrar la divergencia 4**
+- [x] **Step 2: Cerrar la divergencia 4**
 
 Reescribir el bloque de la divergencia 4 para que diga qué la cerró: que el nivel pasó a `float | None`, que la ruta de AV lo deja en `None` y por eso el validador no tiene rango que aplicar, que FMP sin key se mudó al bloque de degradaciones tal como esa misma divergencia lo dejó escrito de antemano, y que la capa LLM no participa sin nivel porque el `data_str` no se construye. Marcarla **cerrada el 2026-08-31** con el commit.
 
-- [ ] **Step 3: Recorrer la tabla entera, fila por fila, contra el código**
+- [x] **Step 3: Recorrer la tabla entera, fila por fila, contra el código**
 
 **Obligatorio, no opcional.** Es lo que lleva seis hallazgos acumulados, uno de ellos un fallo introducido por el propio trabajo que lo encontró. Para cada fila de la tabla de `docs/adr/009-degradation-policy.md:121-152`, abrir el código que la implementa y verificar que la celda sigue siendo cierta después de estos cambios. Anotar cualquier divergencia nueva en la sección de divergencias en vez de arreglarla en silencio.
 
@@ -1016,7 +1016,7 @@ Prestar atención especial a:
 - La fila de Mock Data, que sigue con nivel poblado a propósito.
 - **El compuesto «FMP sin key **y además** AV caído», que cambia de forma.** Antes de este trabajo se resolvía antes del lock: la rama 4 abortaba y no quedaba fila. Ahora la run pasa el punto de decisión, toma el lock, y muere en la fase de datos con el `RuntimeError` de «todas las fuentes fallaron» — o sea fila en `failed` y la alerta de «murió a mitad de camino». Es coherente con las filas de AV caída y Mock Data, pero **ninguna celda de la tabla lo dice**, y el sitio donde corresponde anotarlo es el texto nuevo de la fila de AV-sin-key. Verificarlo explícitamente en vez de darlo por deducible.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/adr/009-degradation-policy.md

@@ -8,9 +8,11 @@ weekly_close:
   nasdaq_return_max: 0.30
 
   # Niveles de cierre. El pipeline pide a FMP `^GSPC`/`^IXIC` (indices) y cae a
-  # Alpha Vantage con `SPY`/`QQQ` (ETFs, ~10x mas chicos), pero guarda el nivel
-  # venga de donde venga y lo publica rotulado "SP500: Cierre". Estos rangos son
-  # lo unico que impide publicar 765,72 como cierre del S&P 500.
+  # Alpha Vantage con `SPY`/`QQQ` (ETFs, ~10x mas chicos). Desde 2026-08-31 la
+  # ruta de AV no publica el nivel —lo deja en `None`, ADR-009 divergencia 4—,
+  # asi que la primera defensa contra publicar 765,72 como cierre del S&P 500 es
+  # que ese numero no se puebla. Estos rangos son la segunda: atrapan un nivel
+  # de otro instrumento que llegue *poblado* por cualquier otro camino.
   # Anchos a proposito: detectan un cambio de instrumento o de unidad, no la
   # fluctuacion normal del mercado.
   sp500_close_min: 2000
