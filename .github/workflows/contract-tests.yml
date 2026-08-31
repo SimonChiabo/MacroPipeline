@@ -48,10 +48,16 @@ jobs:
 
           # `curl -s` a secas devuelve 0 aunque la API conteste 404, asi que
           # una alerta que nunca llego se ve igual que una entregada.
+          #
+          # El `|| status="000"` es lo que salva al mensaje de abajo. Si curl
+          # falla a nivel de transporte —DNS, conexion, TLS— sale con 6/7/28 y
+          # `set -e` mataria el script justo aca, sin llegar a la anotacion que
+          # explica que el aviso no se entrego. El paso queda rojo igual, pero
+          # diciendo por que.
           status=$(curl -sS -o /dev/null -w '%{http_code}' \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d text="${mensaje}")
+            -d text="${mensaje}") || status="000"
 
           if [ "${status}" != "200" ]; then
             echo "::error title=Aviso de LinkedIn no entregado::sendMessage devolvio HTTP ${status}."
