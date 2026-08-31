@@ -49,7 +49,7 @@
 
 ---
 
-## Task 1: get/put genérico en `R2Client`
+## Task 1: get/put genérico en `R2Client` — HECHA (`58a415e`)
 
 **Files:**
 - Modify: `src/macro_pipeline/storage/r2_client.py`
@@ -57,19 +57,19 @@
 
 **Verificado el 2026-08-31: `r2_client.py` no tiene ningún test unitario.** Lo único que lo toca es `tests/integration/test_orchestrator_persistence.py`, de refilón. Estamos por convertirlo en la pieza de la que depende la deduplicación, así que el fichero de tests nace acá.
 
-- [ ] **Step 1: Tests que fallan**
+- [x] **Step 1: Tests que fallan**
 
 Cubrir: `put_object` con bytes arbitrarios y content-type; `get_object` devolviendo bytes; y **la distinción que sostiene la tabla entera** — una key ausente contra un fallo de transporte.
 
-- [ ] **Step 2: Implementar**
+- [x] **Step 2: Implementar**
 
 Añadir `download_object(key) -> bytes | None` (None si no existe) y `upload_object(key, body, content_type)`. `upload_image` pasa a delegar en `upload_object` sin cambiar su firma ni su retorno.
 
-- [ ] **Step 3: Verificar la forma real del error**
+- [x] **Step 3: Verificar la forma real del error**
 
 **No confiar en la memoria acá.** Comprobar contra botocore/R2 si una key ausente llega como `NoSuchKey` o como `404` en `e.response["Error"]["Code"]`, y que un corte de red sale como `EndpointConnectionError` de botocore y no como `ClientError` — es la misma razón por la que el `except` de `upload_image` es ancho a propósito (ADR-009, divergencia b). Distinguir esos dos casos **es** la tabla de decisión.
 
-- [ ] **Step 4:** `./.venv/Scripts/python.exe -m pytest tests/unit/test_r2_client.py -q`
+- [x] **Step 4:** `./.venv/Scripts/python.exe -m pytest tests/unit/test_r2_client.py -q`
 
 ---
 
