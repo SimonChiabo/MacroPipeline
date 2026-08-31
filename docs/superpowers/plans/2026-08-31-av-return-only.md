@@ -35,7 +35,7 @@
 - Modify: `src/macro_pipeline/validators/schemas.py:31-48`
 - Test: `tests/unit/test_validators.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Agregar al final de `tests/unit/test_validators.py`:
 
@@ -88,13 +88,13 @@ def test_weekly_close_rechaza_el_par_a_medias():
 
 **No agregar un test del cierre negativo:** `test_pydantic_schema_strictness` (`tests/unit/test_validators.py:63`) ya lo cubre con `sp500_close=-100.0`. Lo que hay que hacer con él es **verificar que sigue pasando** después del Step 3 — es la prueba de que `gt=0` no se perdió al volver el campo opcional en el tipo. Duplicarlo no agrega cobertura, agrega un sitio más donde mentir.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_validators.py -k "par_de_cierres or omitir or par_a_medias" -v`
 
 Expected: FAIL. Los dos primeros con `ValidationError` por `sp500_close` (hoy no admite `None` ni se puede omitir); el tercero pasa por el motivo equivocado — hoy no existe el mensaje "mismo instrumento", así que falla el `match`.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 En `src/macro_pipeline/validators/schemas.py`, cambiar el import:
 
@@ -149,25 +149,25 @@ Reemplazar los dos campos de cierre y agregar el validador de modelo dentro de `
 
 **Nota sobre el `...`:** es obligatorio y no `default=None`. Con un default, omitir el campo devuelve `None` en silencio, que es una degradación por descuido — exactamente lo que este trabajo existe para no tener.
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_validators.py -v`
 
 Expected: PASS, todos. Los tests viejos del fichero no cambian: siguen pasando las dos cifras.
 
-- [ ] **Step 5: Correr la suite entera — este cambio toca un tipo compartido**
+- [x] **Step 5: Correr la suite entera — este cambio toca un tipo compartido**
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 
 Expected: PASS, 286 tests (283 + 3). Si algo falla, es un sitio que construía `WeeklyCloseData` sin cierre y hasta ahora nadie lo notaba: arreglarlo antes de seguir.
 
-- [ ] **Step 6: Lint y tipos**
+- [x] **Step 6: Lint y tipos**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: sin errores.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/macro_pipeline/validators/schemas.py tests/unit/test_validators.py
@@ -182,7 +182,7 @@ git commit -m "feat(schemas): el nivel de cierre puede faltar, pero nunca a medi
 - Modify: `src/macro_pipeline/validators/engine.py:82-110`
 - Test: `tests/unit/test_validators.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 ```python
 def test_validate_weekly_close_pasa_sin_niveles(engine):
@@ -215,13 +215,13 @@ def test_validate_weekly_close_sin_niveles_sigue_validando_retornos(engine):
 
 Usar la misma fixture `engine` que ya usan los tests del fichero.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_validators.py -k "sin_niveles" -v`
 
 Expected: FAIL con `TypeError: '<=' not supported between instances of 'int' and 'NoneType'` — hoy el bucle compara `None` contra el mínimo.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 En `src/macro_pipeline/validators/engine.py`, reemplazar el comentario y el bucle de niveles:
 
@@ -257,13 +257,13 @@ En `src/macro_pipeline/validators/engine.py`, reemplazar el comentario y el bucl
 
 El cuerpo del `if` (el `logger.error` y el `raise`) queda igual.
 
-- [ ] **Step 4: Correr los tests**
+- [x] **Step 4: Correr los tests**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_validators.py -v`
 
 Expected: PASS. **Verificar en particular que `test_validate_weekly_close_rejects_an_etf_scale_level` (`tests/unit/test_validators.py:98`, el `sp500_close=765.72`, el SPY real del 2026-08-21) sigue pasando** — no perdió cobertura, cambió de significado: ahora prueba que un 765 que se coló *poblado* sigue siendo un abort.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/macro_pipeline/validators/engine.py tests/unit/test_validators.py
