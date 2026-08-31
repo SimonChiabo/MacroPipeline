@@ -452,7 +452,7 @@ git commit -m "feat(render): la tarjeta de metrica se arma en Python y omite el 
 - Modify: los seis helpers de test que arman el orquestador a mano
 - Test: `tests/unit/test_orchestrator_startup.py` — es donde ya viven los tests de `_fetch_weekly_close`, con la fixture `data_orch` (línea 39). **Reusarla; no crear una fixture paralela.**
 
-- [ ] **Step 0: Reescribir el test que este trabajo invalida**
+- [x] **Step 0: Reescribir el test que este trabajo invalida**
 
 `tests/unit/test_orchestrator_startup.py:188` afirma hoy exactamente lo contrario de lo que va a pasar:
 
@@ -486,7 +486,7 @@ def test_the_etl_falls_back_to_av_without_fmp(data_orch):
     assert data.sp500_close is None
 ```
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Agregar a `tests/unit/test_orchestrator_startup.py`, junto a los tests de AV que ya están ahí:
 
@@ -520,7 +520,9 @@ def test_la_ruta_de_av_no_publica_el_nivel(data_orch):
     assert data.sp500_close is None
     assert data.nasdaq_close is None
     # El retorno sí sobrevive al cambio de instrumento: es el punto entero.
-    assert data.sp500_weekly_return == pytest.approx(0.018, abs=0.002)
+    # 0.0099 y no 0.018: `_precios` sube 0.2% diario y el retorno mide la
+    # ventana de 5 ruedas hábiles, no el tramo completo de 9.
+    assert data.sp500_weekly_return == pytest.approx(0.0099, abs=0.002)
 
 
 def test_fmp_caido_en_ejecucion_deja_motivo_para_la_alerta(data_orch):
@@ -546,13 +548,13 @@ def test_fmp_sin_key_no_deja_motivo_in_run(data_orch):
 
 Si el fichero no importa `pandas`, agregar `import pandas as pd` arriba.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_orchestrator_startup.py -v`
 
 Expected: FAIL. `test_la_ruta_de_av_no_publica_el_nivel` falla porque hoy `data.sp500_close == 765.x`; `test_the_etl_falls_back_to_av_without_fmp` falla con el `RuntimeError` de la guarda actual; los dos de `fmp_runtime_error` fallan con `AttributeError`.
 
-- [ ] **Step 3: Implementar — mover la guarda dentro del `try`**
+- [x] **Step 3: Implementar — mover la guarda dentro del `try`**
 
 En `_fetch_weekly_close`, **borrar** la guarda actual (que está fuera del `try`):
 
@@ -598,7 +600,7 @@ y reemplazar el arranque del `try` por:
 
 El resto de la rama de AV (la guarda de `self.av is None`, las dos llamadas a `get_daily_prices`, y el `except` de mock) queda **exactamente igual**.
 
-- [ ] **Step 4: Implementar — el `None` en la construcción del modelo**
+- [x] **Step 4: Implementar — el `None` en la construcción del modelo**
 
 Reemplazar la construcción de `WeeklyCloseData` al final del método:
 
@@ -627,7 +629,7 @@ Reemplazar la construcción de `WeeklyCloseData` al final del método:
         )
 ```
 
-- [ ] **Step 5: Implementar — el atributo en `__init__`**
+- [x] **Step 5: Implementar — el atributo en `__init__`**
 
 Junto a donde `__init__` inicializa `self.macro_error`, agregar:
 
@@ -637,7 +639,7 @@ Junto a donde `__init__` inicializa `self.macro_error`, agregar:
         self.fmp_runtime_error: str | None = None
 ```
 
-- [ ] **Step 6: Actualizar los seis helpers de test que arman el orquestador a mano**
+- [x] **Step 6: Actualizar los seis helpers de test que arman el orquestador a mano**
 
 Estos usan `MacroOrchestrator.__new__`, así que no pasan por `__init__` y hay que darles el atributo. En cada uno, agregar `orch.fmp_runtime_error = None` justo debajo de la línea `orch.macro_error = None`:
 
@@ -648,19 +650,19 @@ Estos usan `MacroOrchestrator.__new__`, así que no pasan por `__init__` y hay q
 - `tests/unit/test_orchestrator_macro.py:36`
 - `tests/unit/test_orchestrator_startup.py:45`
 
-- [ ] **Step 7: Correr los tests**
+- [x] **Step 7: Correr los tests**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_orchestrator_startup.py -v && ./.venv/Scripts/python.exe -m pytest -q`
 
 Expected: PASS en los dos.
 
-- [ ] **Step 8: Lint y tipos**
+- [x] **Step 8: Lint y tipos**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: sin errores.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A
