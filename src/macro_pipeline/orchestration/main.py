@@ -494,19 +494,6 @@ class MacroOrchestrator:
             )
             return 1
 
-        # El remoto ausente no aborta —una primera corrida legítima tiene que
-        # poder publicar— pero tampoco calla: la otra mitad del caso es que el
-        # estado se haya perdido, y los dos son indistinguibles desde acá. El
-        # aviso lo dice así en vez de elegir uno.
-        if self.state_sync is not None and self.state_sync.remote_absent:
-            logger.warning("state_remote_absent_continuing", event_id=event_id)
-            self.telegram.send_alert(
-                "⚠️ No había estado remoto en R2: puede ser la primera corrida "
-                "o el estado se perdió.\n\n"
-                "El cierre sigue adelante. Si no era la primera corrida, la "
-                "deduplicación de hoy salió de una base vacía."
-            )
-
         # ── 4. Abortos: lo que impide publicar ─────────────────────────────
         if self.fmp is None:
             if "fmp" not in self.component_errors:
@@ -564,6 +551,25 @@ class MacroOrchestrator:
                 "demás sólo comprueba que la variable esté puesta: una key "
                 "presente pero rotada no la detecta nadie todavía."
             )
+        # El remoto ausente no aborta —una primera corrida legitima tiene que
+        # poder publicar— pero tampoco calla: la otra mitad del caso es que el
+        # estado se haya perdido, y los dos son indistinguibles desde aca.
+        #
+        # Va al final a proposito: **solo se debe en las corridas que llegan a
+        # publicar**. Una corrida que aborta deliberadamente —el pipeline en
+        # pausa, la unica fuente apagada— no publica, asi que un estado perdido
+        # no le cuesta nada, y avisar ahi seria ruido sobre una decision propia.
+        # Es la misma razon por la que la pausa con `USE_TELEGRAM=false` no lo
+        # manda: ahi directamente no hay canal.
+        if self.state_sync is not None and self.state_sync.remote_absent:
+            logger.warning("state_remote_absent_continuing", event_id=event_id)
+            self.telegram.send_alert(
+                "⚠️ No había estado remoto en R2: puede ser la primera corrida "
+                "o el estado se perdió.\n\n"
+                "El cierre sigue adelante. Si no era la primera corrida, la "
+                "deduplicación de hoy salió de una base vacía."
+            )
+
         return None
 
     def run_weekly_close(self) -> int:

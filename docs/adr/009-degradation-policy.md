@@ -140,9 +140,14 @@ haber dos cosas que distinguir.
 | Telegram (aprobación) | Envío fallido | **Aborta** — ADR-004 exige aprobación humana | `failed` |
 | Telegram (aprobación) | Timeout de 1h | **Aborta** | `expired` |
 | Telegram (`send_alert`) | Envío fallido | **Degrada** — devuelve `False`, nunca levanta | — |
-| R2 | Sin configurar | **Degrada**, con alerta desde el punto de decisión | — |
-| R2 | Apagado con `USE_R2=false` | **No participa**, sin alerta | — |
-| R2 | Subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
+| R2 (snapshot de imagen) | Sin configurar | **Degrada**, con alerta desde el punto de decisión | — |
+| R2 (snapshot de imagen) | Apagado con `USE_R2=false` | **No participa**, sin alerta | — |
+| R2 (snapshot de imagen) | Subida fallida | **Degrada** — sin snapshot remoto, con aviso | — |
+| R2 (estado) | Sin configurar, o `USE_R2=false` | **No participa** — el estado corre solo contra disco local | — |
+| R2 (estado) | Bajada fallida al arrancar | **Aborta** antes del lock, con alerta — sin estado confiable no se sabe si este cierre ya salió | Ninguna fila |
+| R2 (estado) | No hay estado remoto todavía | **Sigue**, con aviso que dice «primera corrida o pérdida» — desde el código son indistinguibles | — |
+| R2 (estado) | Subida fallida tras una escritura | **Aborta** — la excepción sube al manejador general | `failed` |
+| R2 (estado) | Subida fallida dentro de `mark_failed` | **Degrada** — se loguea y no levanta, para no reventar el manejador de fallos | `failed` (local) |
 | X / LinkedIn | Credenciales ausentes en **una** de las dos | **Degrada** — publica en la otra, con alerta antes de pedir aprobación | `published` |
 | X / LinkedIn | Credenciales ausentes en **las dos** | **Aborta** antes del lock, con alerta | Ninguna fila |
 | X / LinkedIn | Apagada con `PUBLISH_X` / `PUBLISH_LINKEDIN` en `false` | **No es un fallo** — no se construye, no publica y **no alerta** | — (Ninguna fila si están apagadas las dos) |
@@ -206,6 +211,50 @@ es el ruido que hace que se deje de leer el aviso que importa. La distinción qu
 queda fijada es **si llega una alerta, es porque algo se rompió**.
 
 ---
+
+### El estado de R2 rompe el tercer eje a propósito (2026-08-31)
+
+El tercer eje dice que un componente **declarado opcional** que no está
+configurado no participa, y no participar no es degradar. R2 era el ejemplo
+canónico. Desde que el fichero de `StateDB` viaja por R2 —porque no sobrevive a
+un entorno efímero, que es lo que ADR-002 decide para el pipeline— **eso deja
+de valer para la mitad de estado**: R2 caído ya no cuesta un snapshot
+prescindible, cuesta no saber si este cierre ya se publicó. Por eso las filas
+están partidas: la imagen sigue bajo el tercer eje, el estado no.
+
+**El aviso de «no había estado remoto» solo se debe en las corridas que llegan a
+publicar.** Vive al final del punto de decisión, después de todas las ramas de
+aborto. Una corrida que aborta a propósito —el pipeline en pausa, la única
+fuente apagada— no publica nada, así que no puede duplicar nada y el estado
+perdido no le cuesta nada *a esa corrida*; avisar ahí sería ruido sobre una
+decisión propia. En el caso extremo (`USE_TELEGRAM=false`) ni siquiera hay
+canal, porque esa pausa implica `self.telegram is None`.
+
+Esto salió de recorrer esta tabla contra el código: el aviso estaba antes de las
+ramas de aborto, así que una corrida deliberadamente apagada mandaba un Telegram
+que la fila «FMP apagado → aborta **en silencio**» dice que no manda. Hay test
+que lo fija.
+
+El precio, anotado: una pérdida de estado ocurrida durante un período de pausa
+no se ve hasta la primera corrida que reanude.
+
+**Residuo conocido, no cerrado:** cuando la excepción que mata la corrida **no**
+es del sincronizado, el push de `mark_failed` es el que registra la fila
+`failed` en el remoto, y ese push se traga su propio error a propósito (si
+levantara, reventaría el manejador de fallos y taparía la causa original). Un
+crash cualquiera coincidiendo con un corte de R2 deja el remoto diciendo
+`in_progress` y el local `failed`; en un runner efímero, la corrida siguiente
+baja ese `in_progress` y **se salta el cierre en silencio**, que es la forma que
+la tabla de arriba no acepta. La cadencia semanal lo hace raro y cerrarlo
+pediría un segundo canal de escritura, pero queda escrito porque es el tipo de
+promesa que esta tabla ya ha hecho de más dos veces.
+
+**Fail-silent que este trabajo no puede cerrar:** el sincronizado participa
+siempre que R2 esté configurado, así que un workflow programado al que se le
+olviden los secrets de R2 correría solo contra disco local, sin sincronizar y
+sin quejarse. Hoy no existe ningún workflow que corra el pipeline. **Cuando se
+escriba, los secrets de R2 van en su paso de pre-chequeo**, igual que las seis
+keys del nightly.
 
 ## Consecuencias
 

@@ -39,3 +39,10 @@ Una base de datos relacional puede cubrir ambos, pero mezcla concerns distintos.
 
 **Implicación de reproducibilidad:**  
 La combinación SQLite (metadatos) + R2 (imagen generada) permite responder, dado un `event_id`, qué datos produjeron qué imagen. Para reproducir el headline, se necesita además `prompt_version` (en SQLite) y el código en el commit correspondiente.
+
+**Corrección del 2026-08-31 — la mitad SQLite también vive en R2 ahora.**  
+La mitigación de más arriba («SQLite es local: si se cambia de máquina sin migrar el archivo, se pierde el estado. Mitigado por `STATE_DB_PATH` configurable») es sobre **migrar de máquina**, y no cubre un entorno efímero, donde ninguna ruta sobrevive. En ese escenario esta promesa de reproducibilidad se perdía corrida tras corrida **aunque todas terminaran bien**, porque los metadatos viven en el mismo fichero que el candado.
+
+Desde el 2026-08-31 el fichero entero se sincroniza contra R2 (`storage/state_sync.py`). Se eligió mover el fichero completo y no un registro por evento justamente para que viajen todas las columnas: es lo que mantiene esta promesa sin escribirla dos veces.
+
+Consecuencia de estatus: **R2 deja de ser opcional para el estado** (sigue siéndolo para el snapshot de imagen). Ver ADR-009, filas «R2 (estado)».

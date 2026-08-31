@@ -263,3 +263,27 @@ def test_sin_r2_no_sincroniza_y_todo_sigue_igual(tmp_path, data):
 
     assert orch.run_weekly_close() == 0
     assert state.get_publication_state(EVENT_ID)["status"] == "published"
+
+
+def test_una_corrida_que_aborta_a_proposito_no_avisa_del_remoto_ausente(tmp_path, data):
+    """El aviso solo se debe en las corridas que llegan a publicar.
+
+    Salio de recorrer la tabla de ADR-009 contra el codigo: el aviso estaba
+    antes de las ramas de aborto, asi que una corrida apagada a proposito —FMP
+    desactivado, que la tabla describe como «aborta en silencio»— igual mandaba
+    un Telegram. Un cierre que no publica no puede duplicar nada, asi que el
+    estado perdido no le cuesta nada a *esa* corrida, y avisar seria ruido
+    sobre una decision propia.
+
+    Si alguien vuelve a subir ese bloque por delante de los abortos, esto lo
+    caza.
+    """
+    sync = _FakeSync(remote_absent=True)
+    state = _state(tmp_path, sync)
+    orch = _orchestrator(data, state, sync)
+    orch.fmp = None  # apagado a proposito: no hay motivo en component_errors
+
+    assert orch.run_weekly_close() == 0
+
+    orch.telegram.send_alert.assert_not_called()
+    assert state.get_publication_state(EVENT_ID) == {}
