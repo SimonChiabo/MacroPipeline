@@ -73,6 +73,11 @@
             font-size: 36px;
             font-weight: bold;
         }}
+        .metric-note {{
+            font-size: 20px;
+            opacity: 0.5;
+            margin-top: 4px;
+        }}
         .positive {{ color: var(--success); }}
         .negative {{ color: var(--danger); }}
         
@@ -120,19 +125,8 @@
             <p>{date}</p>
         </div>
         
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="metric-title">S&P 500</div>
-                <div class="metric-value">{sp500_close}</div>
-                <div class="metric-return {sp500_class}">{sp500_return}</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-title">NASDAQ</div>
-                <div class="metric-value">{nasdaq_close}</div>
-                <div class="metric-return {nasdaq_class}">{nasdaq_return}</div>
-            </div>
-        </div>
-        
+        {metrics_grid}
+
         {macro_block}
 
         <div class="footer">

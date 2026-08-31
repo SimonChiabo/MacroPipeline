@@ -68,6 +68,54 @@ class PlaywrightEngine:
         )
         return f'<div class="macro-strip">{cells}</div>'
 
+    def _build_metric_card(
+        self, title: str, close: float | None, weekly_return: float
+    ) -> str:
+        """Una tarjeta de métrica. Sin nivel, el retorno ocupa su lugar.
+
+        Se arma en Python y no en la plantilla por el mismo motivo que
+        `_build_macro_block`: es un bloque que a veces no está entero, y una
+        plantilla con `.format()` no sabe omitir una fila.
+        """
+        clase = "positive" if weekly_return >= 0 else "negative"
+        retorno = f"{weekly_return * 100:+.2f}%"
+
+        if close is None:
+            # La fuente no cotiza el índice (ADR-009, divergencia 4). El nivel
+            # no se publica: sería el del ETF bajo la etiqueta del índice.
+            cuerpo = (
+                f'<div class="metric-value {clase}">{retorno}</div>'
+                '<div class="metric-note">variación semanal</div>'
+            )
+        else:
+            cuerpo = (
+                f'<div class="metric-value">{close:,.2f}</div>'
+                f'<div class="metric-return {clase}">{retorno}</div>'
+            )
+
+        return (
+            '<div class="metric-card">'
+            f'<div class="metric-title">{title}</div>'
+            f"{cuerpo}"
+            "</div>"
+        )
+
+    def _build_metrics_grid(self, data: WeeklyCloseData) -> str:
+        """Las dos tarjetas de índices."""
+        return (
+            '<div class="metrics-grid">'
+            # `S&P 500` crudo, exactamente como lo tiene la plantilla hoy
+            # (`weekly_close.html:125`). El refactor es de cero deriva: no es
+            # el momento de cambiar el escapado del ampersand.
+            + self._build_metric_card(
+                "S&P 500", data.sp500_close, data.sp500_weekly_return
+            )
+            + self._build_metric_card(
+                "NASDAQ", data.nasdaq_close, data.nasdaq_weekly_return
+            )
+            + "</div>"
+        )
+
     def render_weekly_close(self, data: WeeklyCloseData) -> bytes:
         """
         Renderiza el HTML de cierre semanal inyectando los datos de WeeklyCloseData
@@ -83,20 +131,11 @@ class PlaywrightEngine:
         with open(template_path, encoding="utf-8") as f:
             template = f.read()
 
-        # Determinar clases CSS según si el retorno es positivo o negativo
-        sp500_class = "positive" if data.sp500_weekly_return >= 0 else "negative"
-        nasdaq_class = "positive" if data.nasdaq_weekly_return >= 0 else "negative"
-
         # Inyección simple de texto usando el formato estándar de Python
         try:
             html_content = template.format(
                 date=data.date.strftime("%Y-%m-%d"),
-                sp500_close=f"{data.sp500_close:,.2f}",
-                sp500_return=f"{data.sp500_weekly_return * 100:+.2f}%",
-                sp500_class=sp500_class,
-                nasdaq_close=f"{data.nasdaq_close:,.2f}",
-                nasdaq_return=f"{data.nasdaq_weekly_return * 100:+.2f}%",
-                nasdaq_class=nasdaq_class,
+                metrics_grid=self._build_metrics_grid(data),
                 macro_block=self._build_macro_block(data.macro),
             )
         except KeyError as e:

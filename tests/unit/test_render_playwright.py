@@ -125,3 +125,50 @@ def test_render_omits_macro_block_when_absent(mock_sync_playwright):
     assert "IPC interanual" not in html
     # El bloque de mercado sigue intacto
     assert "7,712.33" in html
+
+
+def _weekly_close_sin_niveles(macro=None):
+    return WeeklyCloseData(
+        date=date(2026, 8, 7),
+        sp500_close=None,
+        sp500_weekly_return=0.0369,
+        nasdaq_close=None,
+        nasdaq_weekly_return=-0.0498,
+        macro=macro,
+    )
+
+
+@patch("macro_pipeline.render.playwright_engine.sync_playwright")
+def test_render_sin_niveles_muestra_el_retorno_y_ningun_nivel(mock_sync_playwright):
+    """Lo que no se puede rotular, no aparece: la imagen nunca miente."""
+    html = _rendered_html(mock_sync_playwright, _weekly_close_sin_niveles())
+
+    assert "+3.69%" in html
+    assert "-4.98%" in html
+    assert "variación semanal" in html
+    # El assert va contra el markup y NO contra `"metric-return" in html`:
+    # la regla `.metric-return` vive en el `<style>` de la plantilla y está
+    # siempre, con nivel o sin él. Ese assert quedaría rojo contra una
+    # implementación correcta, y el arreglo tentador —borrar la regla CSS—
+    # rompería la ruta de FMP, que sí la usa.
+    assert '<div class="metric-return' not in html
+
+
+@patch("macro_pipeline.render.playwright_engine.sync_playwright")
+def test_render_con_niveles_no_cambia(mock_sync_playwright):
+    """La ruta de FMP renderiza exactamente como antes."""
+    html = _rendered_html(mock_sync_playwright, _weekly_close())
+
+    assert "7,712.33" in html
+    assert "26,372.33" in html
+    assert "+3.69%" in html
+    assert "variación semanal" not in html
+
+
+@patch("macro_pipeline.render.playwright_engine.sync_playwright")
+def test_render_sin_niveles_conserva_el_bloque_macro(mock_sync_playwright):
+    """Las dos degradaciones son independientes y se combinan."""
+    html = _rendered_html(mock_sync_playwright, _weekly_close_sin_niveles(_macro()))
+
+    assert "IPC interanual" in html
+    assert "variación semanal" in html
