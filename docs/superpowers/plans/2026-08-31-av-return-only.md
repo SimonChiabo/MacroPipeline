@@ -870,7 +870,7 @@ git commit -m "feat(alertas): la ruta de AV avisa antes de pedir aprobacion"
 
 **Peligro de esta tarea:** la rama 5 renderiza `_CONSECUENCIA[c]` con indexación directa, no con `.get()`. Sacar `"fmp"` del filtro sin agregar la clave hace que **la alerta de la degradación sea la excepción que mata la run**. Los dos cambios van juntos.
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Agregar a `tests/integration/test_orchestrator_startup_gate.py`:
 
@@ -913,13 +913,13 @@ def test_use_fmp_false_sigue_siendo_pausa_en_silencio(data, state):
 
 Si el fichero no define `EVENT_ID`, usar `f"weekly_close_{date.today()}"` como en `test_orchestrator_exit_states.py:27`.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_startup_gate.py -k "fmp" -v`
 
 Expected: los dos primeros FAIL (hoy devuelve `1` y alerta con el texto viejo); el tercero PASS ya (esa rama no cambia, y el test la fija para que no se rompa).
 
-- [ ] **Step 3: Implementar — `_CONSECUENCIA`**
+- [x] **Step 3: Implementar — `_CONSECUENCIA`**
 
 ```python
 _CONSECUENCIA = {
@@ -938,7 +938,7 @@ _CONSECUENCIA = {
 
 El texto de `"av"` cambia porque el viejo —*"y hoy esa ruta tampoco publicaría"*— pasa a ser falso con este trabajo.
 
-- [ ] **Step 4: Implementar — la rama 4**
+- [x] **Step 4: Implementar — la rama 4**
 
 Reemplazar el bloque entero de FMP en `_startup_exit_code` por sólo la pausa:
 
@@ -953,7 +953,7 @@ Reemplazar el bloque entero de FMP en `_startup_exit_code` por sólo la pausa:
             return 0
 ```
 
-- [ ] **Step 5: Implementar — el filtro de la rama 5**
+- [x] **Step 5: Implementar — el filtro de la rama 5**
 
 ```python
         degradaciones = {
@@ -961,19 +961,19 @@ Reemplazar el bloque entero de FMP en `_startup_exit_code` por sólo la pausa:
         }
 ```
 
-- [ ] **Step 6: Correr los tests**
+- [x] **Step 6: Correr los tests**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_startup_gate.py -v && ./.venv/Scripts/python.exe -m pytest -q`
 
 Expected: PASS en los dos.
 
-- [ ] **Step 7: Lint y tipos**
+- [x] **Step 7: Lint y tipos**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: sin errores.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/macro_pipeline/orchestration/main.py tests/integration/test_orchestrator_startup_gate.py
