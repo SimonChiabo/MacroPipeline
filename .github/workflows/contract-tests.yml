@@ -141,6 +141,62 @@ jobs:
           set -o pipefail
           pytest tests/contract/ -v --timeout=30 -m contract | tee pytest-output.txt
 
+      # El chequeo real de la credencial de LinkedIn, no solo su fecha. Corre
+      # en todas las corridas y no solo tras una reconexion: una vez que los
+      # secrets estan en CI, hacerlo siempre no necesita detectar el hueco y
+      # ademas caza un token *revocado* dentro del dia. `PUBLISH_X=false` hace
+      # que el script se saltee X entero, asi que no hacen falta sus cuatro
+      # credenciales. `always()` para que un contract test en rojo no lo saltee.
+      - name: Verificar la credencial de LinkedIn
+        if: always()
+        env:
+          PUBLISH_X: "false"
+          PUBLISH_LINKEDIN: ${{ vars.PUBLISH_LINKEDIN }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_PERSON_URN: ${{ secrets.LINKEDIN_PERSON_URN }}
+          LINKEDIN_TOKEN_ISSUED: ${{ vars.LINKEDIN_TOKEN_ISSUED }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -o pipefail
+
+          if python scripts/check_publishers.py | tee linkedin-check.txt; then
+            echo "Credencial de LinkedIn verificada."
+            exit 0
+          fi
+
+          # Un corte de red y un token muerto ponen los dos el chequeo en rojo,
+          # pero solo uno pide ir al portal. Mismo criterio que AV_RATE_LIMIT.
+          if grep -q "LINKEDIN_UNREACHABLE" linkedin-check.txt 2>/dev/null; then
+            texto="⚠️ No se pudo contactar la API de LinkedIn, asi que la credencial quedo sin verificar. NO es necesariamente el token: basta con relanzar."
+          elif grep -q "LINKEDIN_TOKEN_DEAD" linkedin-check.txt 2>/dev/null; then
+            texto="🔴 El token de LinkedIn no sirve (401): esta vencido o revocado. Reemitirlo desde el token generator del portal y actualizar LINKEDIN_TOKEN_ISSUED en el .env y en las variables del repo."
+          else
+            texto="⚠️ La verificacion de la credencial de LinkedIn fallo por otro motivo. Revisar el run."
+          fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          texto="${texto} ${run_url}"
+
+          echo "> ⚠️ ${texto}" >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "::warning title=Alerta no enviada::Sin credenciales de Telegram; el aviso queda solo en el resumen del run."
+            exit 1
+          fi
+
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="${texto}")
+
+          if [ "${status}" != "200" ]; then
+            echo "::error title=Alerta de LinkedIn no entregada::sendMessage devolvio HTTP ${status}."
+            echo "> ❌ La alerta no se entrego (HTTP ${status})." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          exit 1
+
       # El resumen del run es el canal que no puede fallar: no depende de
       # ninguna credencial y queda en la pagina del workflow.
       - name: Registrar el fallo en el resumen del run
