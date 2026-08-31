@@ -697,7 +697,13 @@ class MacroOrchestrator:
                     image_bytes = self.renderer.render_weekly_close(data)
 
                 # ── FASE LLM ───────────────────────────────────────────────────
-                if self.llm is None or self.validator_agent is None:
+                # La capa LLM tampoco participa sin nivel de cierre. No es una
+                # politica sobre el LLM sino sobre el dato: sin nivel el
+                # `data_str` no se construye, asi que la cifra mal rotulada no
+                # llega a existir para el modelo y ADR-001 se sostiene por
+                # construccion y no por una clausula del prompt.
+                sin_nivel = data.sp500_close is None
+                if self.llm is None or self.validator_agent is None or sin_nivel:
                     # ADR-001 declara auxiliar a la capa LLM, así que el cierre
                     # sale igual con el bloque genérico: las cifras las pone el
                     # pipeline.
@@ -711,7 +717,15 @@ class MacroOrchestrator:
                     # decisión propia no es un fallo.
                     #
                     # No se abre el span `llm_headline`: no hubo llamada.
-                    logger.info("llm_layer_not_participating", event_id=event_id)
+                    logger.info(
+                        "llm_layer_not_participating",
+                        event_id=event_id,
+                        cause=(
+                            "sin_nivel_publicable"
+                            if sin_nivel
+                            else "capa_no_disponible"
+                        ),
+                    )
                     headline = _generic_headline(data)
                     validator_approved = None
                     prompt_version = None

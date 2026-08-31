@@ -519,6 +519,53 @@ def test_a_normal_run_still_records_the_prompt_version(data, state):
     assert row["validator_approved"] == 1
 
 
+@pytest.fixture
+def data_sin_niveles():
+    """Lo que devuelve la ruta de Alpha Vantage: retorno sí, nivel no."""
+    return WeeklyCloseData(
+        date=date(2026, 8, 21),
+        sp500_close=None,
+        sp500_weekly_return=0.012,
+        nasdaq_close=None,
+        nasdaq_weekly_return=0.019,
+        macro=None,
+    )
+
+
+def test_sin_nivel_la_capa_llm_no_participa(data_sin_niveles, state):
+    """Sin nivel no hay cifra que el LLM pueda re-rotular mal.
+
+    Es ADR-001 sostenida por construcción: el `data_str` ni se arma.
+    """
+    orch = _build_orchestrator(data_sin_niveles, state)
+    orch._fetch_weekly_close.return_value = (data_sin_niveles, "av")
+
+    orch.run_weekly_close()
+
+    orch.llm.generate_headline.assert_not_called()
+    orch.validator_agent.review_draft.assert_not_called()
+
+
+def test_sin_nivel_el_titular_es_el_generico(data_sin_niveles, state):
+    orch = _build_orchestrator(data_sin_niveles, state)
+    orch._fetch_weekly_close.return_value = (data_sin_niveles, "av")
+
+    orch.run_weekly_close()
+
+    texto = orch.x_client.post_tweet.call_args[0][0]
+    assert "Cierre de Mercado Semanal" in texto
+    assert "Titular de prueba" not in texto
+
+
+def test_con_nivel_la_capa_llm_sigue_participando(data, state):
+    """La ruta de FMP no cambia: el cambio es sobre el dato, no sobre el LLM."""
+    orch = _build_orchestrator(data, state)
+
+    orch.run_weekly_close()
+
+    orch.llm.generate_headline.assert_called_once()
+
+
 def test_a_degraded_but_configured_run_still_records_the_prompt_version(data, state):
     """El caso del medio, y el que fija donde vive `prompt_version`.
 
