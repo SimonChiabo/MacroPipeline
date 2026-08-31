@@ -1029,42 +1029,58 @@ git commit -m "docs(adr): la ruta de AV degrada, y la divergencia 4 queda cerrad
 
 Es el estándar de la casa: si romper algo a propósito deja la suite verde, ese algo no está cubierto. **Cada mutación se revierte antes de la siguiente.**
 
-- [ ] **Mutación 1: poblar el cierre en la rama de AV**
+- [x] **Mutación 1: poblar el cierre en la rama de AV**
 
 En `_fetch_weekly_close`, cambiar `publica_nivel = data_source != "av"` por `publica_nivel = True`.
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 Expected: **FAIL**, al menos `test_la_ruta_de_av_no_publica_el_nivel`. Si pasa, falta un test. Revertir.
 
-- [ ] **Mutación 2: devolver la guarda de FMP a un `raise` fuera del `try`**
+- [x] **Mutación 2: devolver la guarda de FMP a un `raise` fuera del `try`**
 
 Mover el `if self.fmp is None: raise ...` a antes del `try`.
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 Expected: **FAIL**, al menos `test_the_etl_falls_back_to_av_without_fmp`. Revertir.
 
-- [ ] **Mutación 3: dejar `"fmp"` en el filtro de la rama 5**
+- [x] **Mutación 3: dejar `"fmp"` en el filtro de la rama 5**
 
 Volver a `if c not in ("fmp", "telegram")`.
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 Expected: **FAIL**, al menos `test_fmp_sin_key_alerta_y_nombra_la_consecuencia`. Revertir.
 
-- [ ] **Mutación 4: devolver el `data_str` con cierre a la capa LLM**
+- [x] **Mutación 4: devolver el `data_str` con cierre a la capa LLM**
 
 Quitar `or sin_nivel` de la condición de la rama.
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 Expected: **FAIL**, al menos `test_sin_nivel_la_capa_llm_no_participa`. Revertir.
 
-- [ ] **Mutación 5: saltear también el rango de retorno cuando no hay nivel**
+- [x] **Mutación 5: saltear también el rango de retorno cuando no hay nivel**
 
 En `validate_weekly_close`, poner un `return True` temprano cuando `data.sp500_close is None`.
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 Expected: **FAIL**, al menos `test_validate_weekly_close_sin_niveles_sigue_validando_retornos`. Revertir.
 
-- [ ] **Verificar que el árbol quedó limpio tras revertir todo**
+- [x] **Mutación 6 (agregada durante la ejecución): condicionar el rango de retorno del NASDAQ a que haya nivel**
+
+En `validate_weekly_close`, cambiar el chequeo del retorno del NASDAQ por
+`if data.nasdaq_close is not None and not (...)`.
+
+Run: `./.venv/Scripts/python.exe -m pytest -q`
+Expected: **FAIL**, `test_validate_weekly_close_sin_niveles_sigue_validando_el_retorno_del_nasdaq`. Revertir.
+
+**Por qué se agregó:** la primera pasada dejó la suite **entera verde** con esta
+mutación. El chequeo del SP500 corta antes, así que el gemelo del NASDAQ no lo
+miraba nadie, y «los rangos de retorno son la única defensa numérica en la ruta
+de AV» quedaba custodiado a medias. El test que la mata se agregó en `c250bbb`,
+junto con la anotación de `niveles` que le devuelve la vista a mypy: sin ella,
+borrar el `continue` de la Task 2 tampoco lo detectaba nadie, porque `rules` es
+`dict[str, Any]`.
+
+- [x] **Verificar que el árbol quedó limpio tras revertir todo**
 
 Run: `git status --porcelain`
 Expected: sin salida.
