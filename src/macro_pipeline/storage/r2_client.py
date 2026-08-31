@@ -6,11 +6,15 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 logger = structlog.get_logger(__name__)
 
-# Códigos con los que R2 responde a un objeto que no está. `NoSuchKey` es lo
-# que devuelve la API de S3 en `get_object`; el `404` está porque algunos
-# servicios compatibles lo usan en su lugar y R2 no promete cuál. `NoSuchBucket`
-# entra por la misma puerta: un bucket todavía sin crear es indistinguible,
-# para quien llama, de un objeto que aún no existe.
+# Códigos con los que R2 responde a un objeto que no está.
+#
+# **Verificado en vivo el 2026-08-31** contra el bucket real
+# (`macropipeline-snapshots`), no deducido de la API de S3: R2 devuelve
+# `NoSuchKey` con `HTTPStatusCode` 404. El `404` a secas se queda igual porque
+# algunos servicios compatibles lo ponen en `Code`, y no cuesta nada.
+# `NoSuchBucket` entra por la misma puerta: un bucket todavía sin crear es
+# indistinguible, para quien llama, de un objeto que aún no existe — y la
+# corrida muere igual en el primer push, antes de publicar nada.
 #
 # Todo lo demás —`AccessDenied` el primero— es un error de verdad. Leer un
 # permiso denegado como "todavía no hay nada" es lo que haría que el pipeline
