@@ -381,6 +381,10 @@ def test_un_corte_de_red_deja_el_marcador_que_el_nightly_grepea(
     """
     monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", "un-token-cualquiera")
     monkeypatch.setenv("LINKEDIN_PERSON_URN", "urn:li:person:abc")
+    # El fixture es `scope="module"` y solo restaura `os.environ` al final, asi
+    # que sin esto el `.env` del desarrollador se cuela y el test depende de la
+    # maquina. Es el mismo agujero que el `load_dotenv` de contract/conftest.
+    monkeypatch.delenv("LINKEDIN_TOKEN_ISSUED", raising=False)
 
     def _revienta(*a, **k):
         raise check_publishers.requests.RequestException("sin ruta al host")
@@ -397,6 +401,7 @@ def test_un_401_deja_el_marcador_que_el_nightly_grepea(
     """`LINKEDIN_TOKEN_DEAD` es la otra mitad del mismo contrato."""
     monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", "un-token-cualquiera")
     monkeypatch.setenv("LINKEDIN_PERSON_URN", "urn:li:person:abc")
+    monkeypatch.delenv("LINKEDIN_TOKEN_ISSUED", raising=False)
 
     class Respuesta401:
         status_code = 401
