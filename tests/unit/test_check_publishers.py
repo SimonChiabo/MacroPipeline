@@ -340,3 +340,31 @@ def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
     salida = capsys.readouterr().out
     assert "PUBLISH_X" in salida
     assert "yes" in salida
+
+
+def test_el_aviso_de_vencimiento_no_depende_de_que_linkedin_conteste(
+    check_publishers, monkeypatch, capsys
+):
+    """Un 403 por scopes se comía el aviso de edad.
+
+    El bloque de vencimiento estaba después de tres `return` tempranos, así que
+    la rama de 403 —y la API caída, y un PERSON_URN que no coincide— salían sin
+    imprimirlo. La edad se calcula contra una fecha local y no necesita que
+    LinkedIn conteste.
+    """
+    monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", "un-token-cualquiera")
+    monkeypatch.setenv("LINKEDIN_PERSON_URN", "urn:li:person:abc")
+    monkeypatch.setenv("LINKEDIN_TOKEN_ISSUED", "2020-01-01")
+
+    class Respuesta403:
+        status_code = 403
+        text = ""
+
+    monkeypatch.setattr(
+        check_publishers.requests, "get", lambda *a, **k: Respuesta403()
+    )
+
+    check_publishers.check_linkedin()
+
+    salida = capsys.readouterr().out
+    assert "Token emitido hace" in salida

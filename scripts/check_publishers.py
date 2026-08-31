@@ -199,6 +199,27 @@ def check_x() -> bool:
     return True
 
 
+def _avisar_vencimiento() -> None:
+    """Imprime la edad del token. Corre pase lo que pase con la API.
+
+    Estaba al final de `check_linkedin()`, después de tres `return` tempranos,
+    así que un 403 por scopes —o la API caída, o un PERSON_URN que no coincide—
+    se comía el aviso de vencimiento incluso corriendo el script a mano. La edad
+    se calcula contra una fecha local: no necesita que LinkedIn conteste.
+    """
+    issued = os.environ.get("LINKEDIN_TOKEN_ISSUED", "").strip()
+    if not issued:
+        print(f"{WARN} Sin LINKEDIN_TOKEN_ISSUED: no se puede avisar del vencimiento.")
+        return
+    try:
+        age = (date.today() - date.fromisoformat(issued)).days
+    except ValueError:
+        print(f"{WARN} LINKEDIN_TOKEN_ISSUED no es una fecha ISO válida.")
+        return
+    marker = WARN if age > 50 else OK
+    print(f"{marker} Token emitido hace {age} días (expira a los ~60).")
+
+
 def check_linkedin() -> bool:
     """GET /v2/userinfo: confirma el token y muestra el PERSON_URN correcto."""
     print("\n-- LinkedIn ---------------------------------------")
@@ -208,6 +229,8 @@ def check_linkedin() -> bool:
     if not token or _is_placeholder(token):
         return False
 
+    _avisar_vencimiento()
+
     try:
         response = requests.get(
             "https://api.linkedin.com/v2/userinfo",
@@ -216,10 +239,12 @@ def check_linkedin() -> bool:
         )
     except requests.RequestException as e:
         print(f"{FAIL} No se pudo contactar la API de LinkedIn: {e}")
+        print("LINKEDIN_UNREACHABLE")
         return False
 
     if response.status_code == 401:
         print(f"{FAIL} 401: el token es inválido o expiró (duran ~60 días).")
+        print("LINKEDIN_TOKEN_DEAD")
         return False
     if response.status_code == 403:
         print(f"{WARN} 403 en /v2/userinfo: el token no tiene los scopes")
@@ -240,17 +265,6 @@ def check_linkedin() -> bool:
     if configured and not _is_placeholder(configured) and configured != urn:
         print(f"{FAIL} El LINKEDIN_PERSON_URN cargado no coincide con el del token.")
         return False
-
-    issued = os.environ.get("LINKEDIN_TOKEN_ISSUED", "").strip()
-    if issued:
-        try:
-            age = (date.today() - date.fromisoformat(issued)).days
-            marker = WARN if age > 50 else OK
-            print(f"{marker} Token emitido hace {age} días (expira a los ~60).")
-        except ValueError:
-            print(f"{WARN} LINKEDIN_TOKEN_ISSUED no es una fecha ISO válida.")
-    else:
-        print(f"{WARN} Sin LINKEDIN_TOKEN_ISSUED: no se puede avisar del vencimiento.")
 
     return not missing
 
