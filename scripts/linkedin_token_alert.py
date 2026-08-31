@@ -76,6 +76,12 @@ def mensaje_de_aviso(hoy: date, bandera: str, emitido: str) -> str | None:
         )
 
     edad = (hoy - dia).days
+    if edad < 0:
+        return (
+            f"[LinkedIn] {EMITIDO} esta en el futuro, asi que no puedo "
+            f"calcular el vencimiento. La alarma esta desarmada hasta que se "
+            f"corrija."
+        )
     if edad >= VIDA_UTIL_DIAS:
         return (
             f"[LinkedIn] El token esta vencido: emitido hace {edad} dias "

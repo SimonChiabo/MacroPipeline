@@ -100,11 +100,36 @@ def test_una_bandera_ilegible_no_silencia(alerta):
     `_startup_exit_code`: el valor que no se entiende tiene que caer del lado
     ruidoso, nunca del silencioso.
     """
-    hoy, emitido = _hoy_con_edad(60)
+    hoy, emitido = _hoy_con_edad(400)
     assert alerta.mensaje_de_aviso(hoy, "maybe", emitido) is not None
 
 
 def test_la_bandera_ausente_no_silencia(alerta):
     """Ausente = participar, igual que `component_enabled`."""
-    hoy, emitido = _hoy_con_edad(60)
+    hoy, emitido = _hoy_con_edad(400)
     assert alerta.mensaje_de_aviso(hoy, "", emitido) is not None
+
+
+@pytest.mark.parametrize("bandera", ["false", "False", "FALSE", "  false  ", "FaLsE"])
+def test_la_bandera_apagada_se_normaliza(alerta, bandera):
+    """`.strip()` y `.lower()` de la guarda no los fijaba ningun test.
+
+    Quitando cualquiera de los dos los 26 tests seguian en verde, y una
+    variable de repo tipeada como `False` es perfectamente plausible.
+    """
+    hoy, emitido = _hoy_con_edad(400)
+    assert alerta.mensaje_de_aviso(hoy, bandera, emitido) is None
+
+
+def test_una_fecha_futura_avisa(alerta):
+    """Un typo de anio no puede desarmar la alarma en silencio.
+
+    `2027-08-21` por `2026-08-21` daba edad negativa, caia al `return None`
+    final, y la alarma quedaba muda un anio entero. Es la misma familia que la
+    fecha ausente y la ilegible.
+    """
+    hoy = date(2026, 10, 15)
+    futuro = (hoy + timedelta(days=30)).isoformat()
+    mensaje = alerta.mensaje_de_aviso(hoy, "true", futuro)
+    assert mensaje is not None
+    assert "desarmada" in mensaje
