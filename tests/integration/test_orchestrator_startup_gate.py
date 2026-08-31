@@ -77,21 +77,22 @@ def _orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestrator:
     return orch
 
 
-def test_a_broken_fmp_aborts_with_the_real_cause_and_leaves_no_row(data, state):
-    """FMP no tiene ruta viva: la de AV no publica (ADR-009, divergencia 4).
+def test_a_broken_fmp_degrades_to_alpha_vantage_and_publishes(data, state):
+    """FMP sin key ya no aborta: degrada a la ruta de AV (ADR-009, divergencia 4).
 
-    Lo que importa tanto como el abort es **donde**: antes del lock, asi que no
-    queda fila y la proxima run reintenta sola.
+    Esa ruta ahora publica el retorno sin el nivel, asi que la run sigue.
     """
     orch = _orchestrator(data, state)
     orch.fmp = None
     orch.component_errors["fmp"] = "Se requiere FMP_API_KEY en el entorno."
 
-    assert orch.run_weekly_close() == 1
+    assert orch.run_weekly_close() == 0
 
     orch.telegram.send_alert.assert_called_once()
-    assert "FMP_API_KEY" in orch.telegram.send_alert.call_args[0][0]
-    assert state.get_publication_state(EVENT_ID) == {}
+    texto = orch.telegram.send_alert.call_args[0][0]
+    assert "FMP_API_KEY" in texto
+    assert "Alpha Vantage" in texto
+    assert state.get_publication_state(EVENT_ID) != {}
 
 
 def test_fmp_switched_off_aborts_in_silence(data, state):
@@ -106,6 +107,42 @@ def test_fmp_switched_off_aborts_in_silence(data, state):
 
     orch.telegram.send_alert.assert_not_called()
     assert state.get_publication_state(EVENT_ID) == {}
+
+
+def test_fmp_sin_key_degrada_en_vez_de_abortar(data, state):
+    """La consecuencia que ADR-009 dejó escrita de antemano."""
+    orch = _orchestrator(data, state)
+    orch.fmp = None
+    orch.component_errors = {"fmp": "Se requiere FMP_API_KEY."}
+
+    assert orch._startup_exit_code(EVENT_ID) is None
+
+
+def test_fmp_sin_key_alerta_y_nombra_la_consecuencia(data, state):
+    """La rama 5 indexa `_CONSECUENCIA[c]` directo: sin la clave, KeyError.
+
+    Este test es el que impide que el aviso de la degradación se convierta en
+    la excepción que mata la run.
+    """
+    orch = _orchestrator(data, state)
+    orch.fmp = None
+    orch.component_errors = {"fmp": "Se requiere FMP_API_KEY."}
+
+    orch._startup_exit_code(EVENT_ID)
+
+    alerta = orch.telegram.send_alert.call_args[0][0]
+    assert "fmp" in alerta
+    assert "Alpha Vantage" in alerta
+
+
+def test_use_fmp_false_sigue_siendo_pausa_en_silencio(data, state):
+    """Un switch apagado es una decisión, no un fallo: no se sustituye."""
+    orch = _orchestrator(data, state)
+    orch.fmp = None
+    orch.component_errors = {}
+
+    assert orch._startup_exit_code(EVENT_ID) == 0
+    orch.telegram.send_alert.assert_not_called()
 
 
 def test_a_broken_telegram_aborts_without_trying_to_alert(data, state):

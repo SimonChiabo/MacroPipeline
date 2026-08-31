@@ -59,9 +59,14 @@ _PROMPT_VERSION = (
 # Que le pasa al cierre cuando cada componente esta encendido y sin
 # credenciales. Viaja a la alerta, asi que dice la consecuencia y no el nombre
 # interno: quien la lee tiene que poder decidir si aprueba sin abrir el codigo.
-# FMP y Telegram no estan porque no degradan — abortan, y cada uno con su texto.
+# Telegram no esta porque no degrada — aborta, con su propio texto. FMP ahora
+# si esta: degrada a la ruta de Alpha Vantage en vez de abortar.
 _CONSECUENCIA = {
-    "av": "sin fallback si FMP falla, y hoy esa ruta tampoco publicaría",
+    "fmp": (
+        "el cierre sale por Alpha Vantage, sólo con la variación semanal y "
+        "sin el nivel de cierre"
+    ),
+    "av": "sin fallback si FMP falla, y el cierre no saldría",
     "fred": "el cierre sale sin bloque macro",
     "anthropic": "el cierre sale con el titular genérico",
     "r2": "sin copia remota de la imagen",
@@ -515,22 +520,14 @@ class MacroOrchestrator:
             return 1
 
         # ── 4. Abortos: lo que impide publicar ─────────────────────────────
-        if self.fmp is None:
-            if "fmp" not in self.component_errors:
-                logger.info("pipeline_paused_fmp_disabled", event_id=event_id)
-                return 0
-            logger.error("data_source_unavailable_aborting", event_id=event_id)
-            self.telegram.send_alert(
-                "⛔ El cierre semanal no se ejecutó: FMP es la única fuente con "
-                "una ruta capaz de publicar.\n\n"
-                f"Motivo: {self.component_errors['fmp']}\n\n"
-                "La ruta de Alpha Vantage no publica: pide `SPY` donde FMP pide "
-                "`^GSPC`, y el validador la rechaza por rango (ADR-009, "
-                "divergencia 4).\n\n"
-                "No se publicó nada y el evento queda sin marcar: la próxima "
-                "run lo reintenta."
-            )
-            return 1
+        # FMP sin key ya no aborta: degrada a la ruta de Alpha Vantage, que
+        # publica el retorno sin el nivel (ADR-009, divergencia 4, cerrada).
+        # Cae sola al bloque 5. Lo que queda aca es la pausa deliberada: un
+        # switch apagado es una decision y no un fallo, asi que no se sustituye
+        # por el fallback.
+        if self.fmp is None and "fmp" not in self.component_errors:
+            logger.info("pipeline_paused_fmp_disabled", event_id=event_id)
+            return 0
 
         if not (self.x_ready or self.linkedin_ready):
             fallos = self._publisher_failures()
@@ -550,9 +547,7 @@ class MacroOrchestrator:
 
         # ── 5. Degradaciones de arranque: una sola alerta ──────────────────
         degradaciones = {
-            c: m
-            for c, m in self.component_errors.items()
-            if c not in ("fmp", "telegram")
+            c: m for c, m in self.component_errors.items() if c != "telegram"
         }
         if degradaciones:
             logger.warning(
