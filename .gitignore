@@ -38,3 +38,6 @@ revision_*.md
 .coverage
 coverage.xml
 htmlcov/
+
+# Brainstorming visual (superpowers)
+.superpowers/
