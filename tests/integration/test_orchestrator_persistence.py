@@ -237,10 +237,12 @@ def _with_failing_r2(orch: MacroOrchestrator, error: Exception) -> MacroOrchestr
     "error",
     [
         R2ClientError("Error subiendo a R2: AccessDenied"),
-        # `upload_image` solo convierte `ClientError` en `R2ClientError`; un
-        # corte de red llega como `EndpointConnectionError` de botocore y sale
-        # crudo. Atrapar solo `R2ClientError` dejaria abierto justo el fallo
-        # mas probable.
+        # Desde `58a415e` `upload_image` delega en `upload_object`, que traduce
+        # tambien los fallos de transporte, asi que un corte de red ya llega
+        # como `R2ClientError`. Este caso se queda igualmente: fija que la
+        # degradacion no depende de que el cliente traduzca. Si alguien vuelve
+        # a estrechar la captura alla, el `except` ancho del orquestador tiene
+        # que seguir sosteniendo la garantia, y esto es lo que lo prueba.
         ConnectionError("Could not connect to the endpoint URL"),
     ],
     ids=["r2_client_error", "red_caida"],

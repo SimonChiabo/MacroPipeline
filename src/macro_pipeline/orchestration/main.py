@@ -742,11 +742,15 @@ class MacroOrchestrator:
                             image_url = self.r2.upload_image(
                                 image_bytes, f"{event_id}.png"
                             )
-                        # Ancho a proposito: `upload_image` solo convierte
-                        # `ClientError` en `R2ClientError`, asi que un corte de
-                        # red sale como `EndpointConnectionError` de botocore y
-                        # atrapar solo lo nuestro dejaria abierto justo el
-                        # fallo mas probable. R2 es opcional (ADR-007) y nada
+                        # Ancho a proposito, hoy como defensa en profundidad:
+                        # desde `58a415e` `upload_image` delega en
+                        # `upload_object`, que atrapa las dos ramas de botocore
+                        # (`ClientError` y `BotoCoreError` son hermanas, sin
+                        # herencia entre ellas), asi que un corte de red ya sale
+                        # traducido a `R2ClientError`. El `except` ancho se
+                        # queda igual: es lo que sostiene la garantia si alguien
+                        # vuelve a estrechar la captura del cliente.
+                        # R2 es opcional (ADR-007) y nada
                         # de lo que sigue depende de `image_url`: la unica
                         # forma de que un componente opcional tumbe la run
                         # —encima despues de que el humano aprobo y antes de
