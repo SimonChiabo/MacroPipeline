@@ -677,7 +677,7 @@ git commit -m "feat(etl): la ruta de AV no publica el nivel, y FMP ausente cae a
 - Modify: `src/macro_pipeline/orchestration/main.py:678-697`
 - Test: `tests/integration/test_orchestrator_exit_states.py` — **no** `tests/unit/test_orchestrator_llm.py`, que sólo cubre la construcción de la capa y no tiene orquestador de run completa. El helper a reusar es `_build_orchestrator(data, state)` (línea 45), que ya mockea `llm`, `validator_agent`, `telegram` y `_fetch_weekly_close`.
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Agregar a `tests/integration/test_orchestrator_exit_states.py`:
 
@@ -729,13 +729,13 @@ def test_con_nivel_la_capa_llm_sigue_participando(data, state):
     orch.llm.generate_headline.assert_called_once()
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -k "sin_nivel or con_nivel" -v`
 
 Expected: los dos de `sin_nivel` FAIL — hoy `generate_headline` se llama igual, y el `data_str` se construye con `f"{None:,.2f}"`, así que puede reventar con `TypeError` antes de llegar al assert. Las dos formas de fallar son correctas. `test_con_nivel_la_capa_llm_sigue_participando` pasa ya: es el que fija que la ruta de FMP no se toca.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Reemplazar la condición de la rama y el log:
 
@@ -763,13 +763,13 @@ y dentro de esa rama, cambiar el log para que nombre la causa — es la cuarta f
 
 El resto de la rama (`headline = _generic_headline(data)`, `validator_approved = None`, `prompt_version = None`) no cambia.
 
-- [ ] **Step 4: Correr los tests**
+- [x] **Step 4: Correr los tests**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -v`
 
 Expected: PASS, todos — incluidos los que ya existían.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/macro_pipeline/orchestration/main.py tests/integration/test_orchestrator_exit_states.py
