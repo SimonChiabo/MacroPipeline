@@ -2,9 +2,12 @@
 
 **Estado:** Aceptado (2026-08-25). Las tres divergencias que documentaba se
 arreglaron el mismo dia; la seccion final las conserva como registro. Hoy son
-seis: la quinta y la sexta salieron de recorrer la tabla contra el codigo el
-2026-08-29 y siguen **abiertas**, asi que la historia de "todas arregladas el
-mismo dia" ya no vale para la seccion entera.
+siete: la cuarta, que quedaba como consecuencia aceptada, se cerro el
+2026-08-31 al publicar solo el retorno por la ruta de AV; la quinta y la sexta
+salieron de recorrer la tabla contra el codigo el 2026-08-29 y siguen
+**abiertas**; la septima salio de recorrer la tabla otra vez el 2026-09-01,
+tambien **abierta** y dejada asi a proposito (es dev-only). La historia de
+"todas arregladas el mismo dia" ya no vale para la seccion entera.
 **Fecha:** 2026-08-25
 **Decisores:** Simon Chiabo
 
@@ -123,9 +126,10 @@ haber dos cosas que distinguir.
 | FRED (bloque macro) | Sin key | **Degrada**, con alerta desde el punto de decisión | — |
 | FRED (bloque macro) | Apagado con `USE_FRED=false` | **No participa**, sin alerta | — |
 | FRED (bloque macro) | API caída, serie corta, dato rancio o cifra fuera de rango | **Degrada** — `macro=None`, con alerta que nombra la causa | — |
-| FMP (índices) | Sin key, o `USE_FMP=false` | **Aborta** antes del lock — sin key alerta; apagado, en silencio | Ninguna fila |
-| FMP (índices) | API caída | **Degrada** a Alpha Vantage… que hoy aborta (ver divergencia 4) | — |
-| Alpha Vantage (índices) | Sin key | **Degrada** — el fallback queda ausente, con alerta que dice que esa ruta tampoco publicaría | — |
+| FMP (índices) | Sin key | **Degrada** a Alpha Vantage — el cierre sale sin el nivel, con alerta desde el punto de decisión | — |
+| FMP (índices) | Apagado con `USE_FMP=false` | **Aborta** en silencio — pausa deliberada; un switch apagado no se sustituye por el fallback | Ninguna fila |
+| FMP (índices) | API caída | **Degrada** a Alpha Vantage — el cierre sale sin el nivel, con alerta in-run antes de pedir aprobación | — |
+| Alpha Vantage (índices) | Sin key | **Degrada** — el fallback queda ausente, con alerta que dice que sin él un fallo de FMP deja la run sin cierre | — |
 | Alpha Vantage (índices) | API caída | **Aborta** — sin fuente de datos real no se publica | `failed` |
 | Mock Data | `ALLOW_MOCK_DATA=false` | **Aborta** — cifras sintéticas no se publican | `failed` |
 | Cálculo del retorno | Menos de 6 filas, o sin dato de hace 5 días hábiles | **Aborta** | `failed` |
@@ -133,7 +137,7 @@ haber dos cosas que distinguir.
 | Anthropic (capa LLM) | Apagada con `USE_ANTHROPIC=false` | **No participa**, sin alerta | — |
 | Anthropic (generador) | API caída | **Degrada** — bloque genérico, con alerta que nombre la causa real | — |
 | Anthropic (validador) | Rechazo del titular | **Degrada** — bloque genérico + alerta | — |
-| `ValidationEngine` | Cifra **del cierre semanal** fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001 | `failed` |
+| `ValidationEngine` | Cifra **del cierre semanal** fuera de rango de plausibilidad | **Aborta** — es la última defensa de la invariante de ADR-001. Sin nivel (ruta de AV) no hay rango de nivel que aplicar; los de retorno siguen | `failed` |
 | Playwright (render) | Plantilla ausente o render fallido | **Aborta** — no hay imagen que publicar | `failed` |
 | Telegram | Sin credenciales | **Aborta** — sin canal ni HITL; log nombrado y salida `1`, **sin alerta posible** | Ninguna fila |
 | Telegram | `USE_TELEGRAM=false` | **Aborta** en silencio — pausa deliberada del pipeline entero | Ninguna fila |
@@ -385,10 +389,14 @@ contract tests (ADR-008) y los rangos de plausibilidad, no este ADR.
 Las cuatro primeras se verificaron contra el código el 2026-08-25, el día del
 ADR. Las tres primeras eran trabajo pendiente y se arreglaron ese mismo día;
 quedan escritas porque el modo de fallo que cada una describe es más fácil de
-volver a introducir que de encontrar. La cuarta sigue siendo una consecuencia
-aceptada. La quinta y la sexta salieron de volver a recorrer la tabla fila por
-fila el 2026-08-29, ya contra el código del switch por componente: las dos son
-la tabla diciendo de más, no el código haciendo de menos.
+volver a introducir que de encontrar. La cuarta quedó como consecuencia
+aceptada hasta que se cerró el 2026-08-31, al publicar solo el retorno por la
+ruta de AV. La quinta y la sexta salieron de volver a recorrer la tabla fila
+por fila el 2026-08-29, ya contra el código del switch por componente: las dos
+son la tabla diciendo de más, no el código haciendo de menos. La séptima salió
+de recorrer la tabla otra vez el 2026-09-01, contra el código que cerró la
+cuarta: es un matiz alcanzable solo en desarrollo y se dejó abierto a
+propósito.
 
 **1. La alerta mentía cuando moría la API de Anthropic.** — *Cerrada en
 `f53a755`.*
@@ -448,23 +456,45 @@ El arreglo tiene tres piezas, y las dos últimas no son obvias:
   vería `is_published() == False` y publicaría el mismo cierre por segunda vez
   en X y LinkedIn.
 
-**4. Consecuencia aceptada: la ruta de Alpha Vantage ya no puede publicar.**
+**4. Consecuencia aceptada: la ruta de Alpha Vantage ya no podía publicar.** —
+*Cerrada el 2026-08-31 (`2475978`…`97421a1`).*
 El ETL pide a FMP `^GSPC` (índice, ~7.657) y cae a AV con `SPY` (ETF, ~765). El
-nivel se guarda venga de donde venga y se publica rotulado "SP500: Cierre", así
-que la ruta de fallback publicaría el número del instrumento equivocado — la
-misma invariante de ADR-001, esta vez en el ETL. El control son los rangos de
-`validators/rules.yaml:16-19` (`sp500_close_min: 2000`) aplicados en
-`validate_weekly_close`: con SPY a 765 el validador levanta y la run aborta.
+nivel se guardaba venga de donde venga y se publicaba rotulado "SP500: Cierre",
+así que la ruta de fallback publicaría el número del instrumento equivocado —
+la misma invariante de ADR-001, esta vez en el ETL. El control eran los rangos
+de `validators/rules.yaml:16-19` (`sp500_close_min: 2000`) aplicados en
+`validate_weekly_close`: con SPY a 765 el validador levantaba y la run
+abortaba. Por eso la tabla decía que FMP "degrada a AV… que hoy aborta". Era
+deliberado: mejor no publicar que publicar el instrumento equivocado, y
+**publicar solo el retorno desde AV** —invariante de escala entre el índice y
+su ETF, y por lo tanto una degradación real en vez de un abort— quedó
+propuesto y sin hacer.
 
-Por eso la tabla dice que FMP "degrada a AV… que hoy aborta". Es deliberado:
-mejor no publicar que publicar el instrumento equivocado. **Publicar solo el
-retorno desde AV** —que es invariante de escala entre el índice y su ETF, y
-sería una degradación real en vez de un abort— quedó propuesto y sin hacer.
+Lo cerró exactamente eso:
 
-Mientras esto siga así, **FMP sin key aborta** en el punto de decisión: no tiene
-ruta viva. El día que se publique sólo el retorno desde AV, FMP sin key pasa a
-ser una degradación y hay que mover su rama del bloque de abortos al de
-degradaciones. Queda escrito de antemano para no volver a deducirlo.
+- `sp500_close`/`nasdaq_close` pasaron a `float | None` (`2475978`), con un
+  `model_validator` que exige que los dos vengan juntos o ninguno — no hay
+  forma de que se publique uno sin el otro.
+- La ruta de AV construye el modelo con los cierres en `None`
+  (`publica_nivel = data_source != "av"`, `f0b6ea5`): el nivel del ETF nunca
+  llega a existir bajo la etiqueta del índice.
+- `validate_weekly_close` saltea el rango de nivel cuando el nivel es `None`
+  (`1ce6b8e`): no hay cifra que defender, así que no hay rango que aplicarle.
+  Los rangos de **retorno** siguen aplicándose siempre — el ETF y el índice se
+  mueven igual, así que el retorno del ETF es una cifra válida bajo la
+  etiqueta del índice, y el renderer sube esa cifra al lugar del cierre con la
+  nota "variación semanal" (`973191b`).
+- La capa LLM tampoco participa sin nivel: el `data_str` no se construye
+  (`8eccebd`), así que la cifra mal rotulada no llega a existir para el
+  modelo — ADR-001 se sostiene por construcción, no por una cláusula del
+  prompt que alguien puede olvidar actualizar.
+- **FMP sin key se mudó del bloque de abortos al de degradaciones** (`97421a1`),
+  tal como esta misma divergencia lo dejó escrito de antemano: "el día que se
+  publique sólo el retorno desde AV, FMP sin key pasa a ser una degradación".
+
+Publicar el nivel del instrumento equivocado sigue tan prohibido como el día
+que se escribió esta divergencia — lo que cambió es que la ruta de AV ahora
+tiene algo que publicar sin romper esa regla.
 
 **5. La fila «cualquier switch aborta con alerta» promete un aviso que no
 siempre llega.** — *Encontrada el 2026-08-29, abierta.*
@@ -490,6 +520,28 @@ decisión, y `_publisher_failures` devuelve el motivo de LinkedIn, así que abor
 viva y el motivo es real—, pero leyendo la tabla se predice «degrada, publica en
 la otra». Lo que falta no es código sino una fila, y no se agrega hoy para no
 resolver a mano lo que conviene decidir con la tabla entera delante.
+
+**7. `fmp_runtime_error` puede nombrar la fuente equivocada, pero solo en
+desarrollo.** — *Encontrada el 2026-09-01, abierta y dejada así a propósito.*
+`self.fmp_runtime_error` se carga en el `except` de FMP
+(`orchestration/main.py`, dentro de `_fetch_weekly_close`), **antes** de
+intentar Alpha Vantage. Si FMP se cae en ejecución y AV también falla, la
+fuente termina siendo Mock (`data_source == "mock"`) pero `fmp_runtime_error`
+queda cargado igual, así que la alerta in-run de la degradación (`7ebe4de`,
+"FMP falló y el cierre sale por Alpha Vantage") diría eso mismo cuando en
+realidad el cierre salió por Mock Data, con el nivel poblado y no ausente.
+
+**No es alcanzable en producción**: Mock está bloqueado por
+`ALLOW_MOCK_DATA=false`, así que esa misma cascada —FMP roto y AV también—
+hace que `_fetch_weekly_close` levante `RuntimeError("Todas las fuentes de
+datos fallaron…")` antes de llegar a fabricar datos de Mock, y la run muere
+en el manejador general (`failed`) sin que esa alerta llegue a mandarse. La
+imprecisión solo se puede provocar con `ALLOW_MOCK_DATA=true`,
+que es exclusivamente una bandera de desarrollo. Se decidió deliberadamente
+**no** corregirlo en el código —encadenar el motivo a la fuente final
+hubiera significado ensanchar el alcance de un plan que ya cerraba la
+divergencia 4— y dejarlo escrito acá para que quien lo pise después no
+tenga que volver a redescubrirlo.
 
 ---
 
