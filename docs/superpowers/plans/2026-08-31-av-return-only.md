@@ -303,9 +303,12 @@ def test_render_sin_niveles_muestra_el_retorno_y_ningun_nivel(mock_sync_playwrig
     assert "+3.69%" in html
     assert "-4.98%" in html
     assert "variación semanal" in html
-    # Ninguna de las dos tarjetas trae un nivel: no hay separador de miles
-    # en el cuerpo de las métricas.
-    assert "metric-return" not in html
+    # El assert va contra el markup y NO contra `"metric-return" in html`:
+    # la regla `.metric-return` vive en el `<style>` de la plantilla y está
+    # siempre, con nivel o sin él. Ese assert quedaría rojo contra una
+    # implementación correcta, y el arreglo tentador —borrar la regla CSS—
+    # rompería la ruta de FMP, que sí la usa.
+    assert '<div class="metric-return' not in html
 
 
 @patch("macro_pipeline.render.playwright_engine.sync_playwright")
@@ -375,8 +378,11 @@ En `src/macro_pipeline/render/playwright_engine.py`, agregar los dos helpers jus
         """Las dos tarjetas de índices."""
         return (
             '<div class="metrics-grid">'
+            # `S&P 500` crudo, exactamente como lo tiene la plantilla hoy
+            # (`weekly_close.html:125`). El refactor es de cero deriva: no es
+            # el momento de cambiar el escapado del ampersand.
             + self._build_metric_card(
-                "S&amp;P 500", data.sp500_close, data.sp500_weekly_return
+                "S&P 500", data.sp500_close, data.sp500_weekly_return
             )
             + self._build_metric_card(
                 "NASDAQ", data.nasdaq_close, data.nasdaq_weekly_return
@@ -1006,6 +1012,7 @@ Prestar atención especial a:
 - Las filas de Anthropic, ahora que hay una cuarta forma de llegar al bloque genérico.
 - La fila de `Cálculo del retorno`, que es el abort que queda vivo en la ruta de AV.
 - La fila de Mock Data, que sigue con nivel poblado a propósito.
+- **El compuesto «FMP sin key **y además** AV caído», que cambia de forma.** Antes de este trabajo se resolvía antes del lock: la rama 4 abortaba y no quedaba fila. Ahora la run pasa el punto de decisión, toma el lock, y muere en la fase de datos con el `RuntimeError` de «todas las fuentes fallaron» — o sea fila en `failed` y la alerta de «murió a mitad de camino». Es coherente con las filas de AV caída y Mock Data, pero **ninguna celda de la tabla lo dice**, y el sitio donde corresponde anotarlo es el texto nuevo de la fila de AV-sin-key. Verificarlo explícitamente en vez de darlo por deducible.
 
 - [ ] **Step 4: Commit**
 
