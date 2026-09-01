@@ -133,12 +133,25 @@ amplía el import de `datetime`.
 
 - [ ] **Step 2: Correr los tests para verificar que fallan**
 
-Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_state.py -k "locked_at or lock" -v`
+Run: `./.venv/Scripts/python.exe -m pytest -v tests/unit/test_state.py::test_mark_in_progress_registra_cuando_se_tomo_el_lock tests/unit/test_state.py::test_rearmar_el_lock_refresca_locked_at tests/unit/test_state.py::test_migrate_db_agrega_locked_at_en_null tests/unit/test_state.py::test_migrate_db_es_idempotente_con_la_columna_ya_puesta`
 
-Expected: FAIL, los cuatro. Tres con `KeyError: 'locked_at'` —
-`get_publication_state` hace `SELECT *` y hoy esa columna no existe, así que la
-clave no está en el dict—, y `test_migrate_db_agrega_locked_at_en_null` con
-`AssertionError` en `assert "locked_at" in state`, por lo mismo.
+**Por qué los cuatro node id enteros y no un `-k`:** `-k "lock"` barre tres
+tests que ya existen y ya pasan —`test_mark_in_progress_rearms_the_lock_over_a_failed_row`
+y los otros dos de `test_state.py:130-159`—, y una fase roja mezclada con verdes
+ajenos no se puede leer.
+
+Expected: FAIL, los cuatro, **cada uno por su motivo**. Vale la pena mirar cuál
+da cuál, porque no son el mismo error:
+
+- `test_mark_in_progress_registra_cuando_se_tomo_el_lock` → `KeyError: 'locked_at'`.
+  `get_publication_state` hace `SELECT *` y hoy esa columna no existe, así que
+  la clave no está en el dict.
+- `test_rearmar_el_lock_refresca_locked_at` → `sqlite3.OperationalError: no such
+  column: locked_at`, **en el setup**: el `UPDATE` a mano que ensucia la fila
+  nombra la columna, así que el test muere antes de llegar a ninguna aserción.
+- `test_migrate_db_agrega_locked_at_en_null` → `AssertionError` en
+  `assert "locked_at" in state`.
+- `test_migrate_db_es_idempotente_con_la_columna_ya_puesta` → `KeyError: 'locked_at'`.
 
 - [ ] **Step 3: Agregar la columna al schema y a la migración**
 
@@ -294,9 +307,12 @@ def test_get_locked_at_es_none_con_la_columna_en_null(db):
 
 - [ ] **Step 2: Correr los tests para verificar que fallan**
 
-Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_state.py -k "get_locked_at" -v`
+Run: `./.venv/Scripts/python.exe -m pytest -v tests/unit/test_state.py::test_get_locked_at_devuelve_el_momento_del_lock tests/unit/test_state.py::test_get_locked_at_es_none_sin_fila tests/unit/test_state.py::test_get_locked_at_es_none_con_la_columna_en_null`
 
 Expected: FAIL, los tres, con `AttributeError: 'StateDB' object has no attribute 'get_locked_at'`.
+
+(Node id enteros por el mismo motivo que en la Task 1: `-k` con un substring
+corto barre tests ajenos que ya pasan.)
 
 - [ ] **Step 3: Implementar el lector**
 
@@ -437,7 +453,12 @@ def test_un_lock_reciente_no_alerta(data, state):
 
 - [ ] **Step 2: Correr los tests para verificar que fallan**
 
-Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -k "lock" -v`
+Run: `./.venv/Scripts/python.exe -m pytest -v tests/integration/test_orchestrator_exit_states.py::test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre tests/integration/test_orchestrator_exit_states.py::test_un_lock_sin_fecha_alerta tests/integration/test_orchestrator_exit_states.py::test_un_lock_reciente_no_alerta`
+
+**No usar `-k "lock"` acá:** además de los tres de arriba matchea
+`test_a_broken_macro_block_still_publishes_and_warns` y
+`test_a_run_without_the_llm_layer_publishes_the_generic_block` —«b-**lock**»—,
+que pasan hoy y ensucian la lectura de la fase roja.
 
 Expected: **dos de los tres fallan, y el tercero pasa desde el principio.** Es
 importante mirar cuál es cuál y no leer «2 failed» como si fuera lo esperado
@@ -547,12 +568,21 @@ temporalmente** el `<=` de `_avisar_lock_trabado` por `>=`:
                 return
 ```
 
-Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -k "lock" -v`
+Run: `./.venv/Scripts/python.exe -m pytest -v tests/integration/test_orchestrator_exit_states.py::test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre tests/integration/test_orchestrator_exit_states.py::test_un_lock_sin_fecha_alerta tests/integration/test_orchestrator_exit_states.py::test_un_lock_reciente_no_alerta`
 
-Expected: `test_un_lock_reciente_no_alerta` FALLA con
-`AssertionError: Expected 'send_alert' to not have been called. Called 1 times.`
-Eso es lo que prueba que el test guarda el umbral y no es decorativo.
-**Revertir el `>=` a `<=` y volver a correr para confirmar que vuelve a PASS.**
+Expected: **dos rojos y un verde**, y los tres son la comprobación:
+
+- `test_un_lock_reciente_no_alerta` FALLA con `AssertionError: Expected
+  'send_alert' to not have been called. Called 1 times.` — es el que interesa:
+  prueba que ese test guarda el umbral y no es decorativo.
+- `test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre` **también falla**, y
+  es correcto: con `>=` un lock de 5 h se va por el `return` temprano y deja de
+  alertar. No es que se haya roto otra cosa.
+- `test_un_lock_sin_fecha_alerta` sigue en verde: la rama del NULL no consulta
+  el umbral.
+
+**Revertir el `>=` a `<=` y volver a correr para confirmar que los tres vuelven
+a PASS.**
 
 - [ ] **Step 6: Correr la suite entera**
 
