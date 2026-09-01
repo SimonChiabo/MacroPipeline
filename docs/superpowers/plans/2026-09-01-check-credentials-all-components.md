@@ -1,6 +1,6 @@
 # Chequeo de credenciales para los seis componentes — plan de implementación
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** que `scripts/check_credentials.py` autentique de verdad los seis componentes con credenciales —X, LinkedIn, FRED, Alpha Vantage, Anthropic y R2— en vez de solo las dos redes, con una sonda de escritura para R2 porque su permiso de escritura no se puede confirmar leyendo.
 
@@ -43,14 +43,14 @@ Va primero y solo: mezclado con lógica nueva, un rename de 60 ocurrencias hace 
 - Rename: `tests/unit/test_check_publishers.py` → `tests/unit/test_check_credentials.py`
 - Modify: `README.md:100`, `.github/workflows/ci.yml:128`, `.github/workflows/contract-tests.yml:179`, `src/macro_pipeline/orchestration/main.py:552`, `src/macro_pipeline/components.py:5,62`, `scripts/linkedin_token_alert.py:5`
 
-- [ ] **Step 1: Mover los dos ficheros conservando la historia**
+- [x] **Step 1: Mover los dos ficheros conservando la historia**
 
 ```bash
 git mv scripts/check_publishers.py scripts/check_credentials.py
 git mv tests/unit/test_check_publishers.py tests/unit/test_check_credentials.py
 ```
 
-- [ ] **Step 2: Reemplazar el nombre en el fichero de tests**
+- [x] **Step 2: Reemplazar el nombre en el fichero de tests**
 
 Un `sed` global sobre este fichero es correcto y no necesita cuidado especial: la cadena `check_publishers` aparece como nombre de fixture, como nombre de módulo cargado por ruta y dentro de la ruta `scripts/check_publishers.py`, y las tres se convierten bien con el mismo reemplazo.
 
@@ -58,7 +58,7 @@ Un `sed` global sobre este fichero es correcto y no necesita cuidado especial: l
 sed -i 's/check_publishers/check_credentials/g' tests/unit/test_check_credentials.py
 ```
 
-- [ ] **Step 3: Reemplazar las referencias en el resto del repo**
+- [x] **Step 3: Reemplazar las referencias en el resto del repo**
 
 ```bash
 sed -i 's|scripts/check_publishers\.py|scripts/check_credentials.py|g' \
@@ -71,7 +71,7 @@ sed -i 's|scripts/check_publishers\.py|scripts/check_credentials.py|g' \
   scripts/check_credentials.py
 ```
 
-- [ ] **Step 4: Verificar que no queda ninguna referencia viva**
+- [x] **Step 4: Verificar que no queda ninguna referencia viva**
 
 ```bash
 grep -rn "check_publishers" --include=*.py --include=*.yml --include=*.md . | grep -v "revision_" | grep -v "docs/superpowers"
@@ -79,17 +79,17 @@ grep -rn "check_publishers" --include=*.py --include=*.yml --include=*.md . | gr
 
 Expected: sin salida. Los hits en `revision_*.md` y en los planes/specs viejos son historia fechada y **se quedan como están**.
 
-- [ ] **Step 5: Correr la suite entera**
+- [x] **Step 5: Correr la suite entera**
 
 Run: `pytest tests/unit tests/integration -q`
 Expected: PASS, el mismo número de tests que antes del rename (318 al momento de escribir esto). Un rename no cambia ninguna cuenta.
 
-- [ ] **Step 6: Lint y tipos**
+- [x] **Step 6: Lint y tipos**
 
 Run: `ruff check src/ tests/ scripts/ && ruff format --check src/ tests/ scripts/ && mypy src/ scripts/`
 Expected: todo limpio.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -112,7 +112,7 @@ El único código de producción que este trabajo agrega. Va en el cliente y no 
 - Modify: `src/macro_pipeline/storage/r2_client.py` (después de `download_object`)
 - Test: `tests/unit/test_r2_client.py`
 
-- [ ] **Step 1: Escribir los dos tests que fallan**
+- [x] **Step 1: Escribir los dos tests que fallan**
 
 Si `tests/unit/test_r2_client.py` ya existe, estos tests se agregan al final y se reutilizan los dobles que ya haya en el fichero; si no existe, se crea con este contenido completo.
 
@@ -176,12 +176,12 @@ def test_delete_object_atrapa_las_dos_ramas_de_botocore(cliente):
             cliente.delete_object("healthcheck/probe.txt")
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/unit/test_r2_client.py -q -k delete_object`
 Expected: FAIL con `AttributeError: 'R2Client' object has no attribute 'delete_object'` en los dos tests.
 
-- [ ] **Step 3: Implementar el método**
+- [x] **Step 3: Implementar el método**
 
 En `src/macro_pipeline/storage/r2_client.py`, inmediatamente después de `download_object` y antes del comentario `# ── Imágenes ──`:
 
@@ -205,12 +205,12 @@ En `src/macro_pipeline/storage/r2_client.py`, inmediatamente después de `downlo
             raise R2ClientError(f"Error borrando de R2: {e}") from e
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/unit/test_r2_client.py -q && mypy src/`
 Expected: PASS y mypy limpio.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/macro_pipeline/storage/r2_client.py tests/unit/test_r2_client.py
@@ -234,7 +234,7 @@ Esta task cambia la forma de `main()` y suma el primer componente nuevo. Los dos
 - Modify: `scripts/check_credentials.py`
 - Test: `tests/unit/test_check_credentials.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Al final de `tests/unit/test_check_credentials.py`. El helper `_apagar_los_cuatro` es imprescindible y no cosmético: **los `USE_*` ausentes significan encendido**, así que sin él cualquier test que llame a `main()` sale a internet.
 
@@ -366,12 +366,12 @@ def test_fred_sin_respuesta_pone_rojo(check_credentials, monkeypatch, capsys):
     assert "key" not in salida.lower().split("no se pudo contactar")[0]
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k "apagado or ilegible or fred"`
 Expected: FAIL. Los cinco con `AttributeError: module 'check_credentials' has no attribute 'check_fred'` (o `'LISTO'`, según cuál evalúe primero) — **ninguno** con un fallo de aserción, porque todavía no existe nada que aserta.
 
-- [ ] **Step 3: Los tres veredictos y las constantes**
+- [x] **Step 3: Los tres veredictos y las constantes**
 
 En `scripts/check_credentials.py`, debajo de `OK, FAIL, WARN = ...`:
 
@@ -402,7 +402,7 @@ from macro_pipeline.components import (
 )
 ```
 
-- [ ] **Step 4: El encabezado y el chequeo de FRED**
+- [x] **Step 4: El encabezado y el chequeo de FRED**
 
 Antes de `def main()`:
 
@@ -455,7 +455,7 @@ def check_fred() -> str:
     return NO_LISTO
 ```
 
-- [ ] **Step 5: Reescribir `main()` como tabla**
+- [x] **Step 5: Reescribir `main()` como tabla**
 
 Reemplazar el cuerpo de `main()` entero por esto. Tres detalles que **no** son estéticos:
 
@@ -529,7 +529,7 @@ El import de `Callable` va arriba del todo:
 from collections.abc import Callable
 ```
 
-- [ ] **Step 6: Adaptar los tres tests existentes que llaman a `main()`**
+- [x] **Step 6: Adaptar los tres tests existentes que llaman a `main()`**
 
 No es churn gratuito: `main()` ahora corre seis chequeos y estos tests dejarían la suite saliendo a la red.
 
@@ -542,19 +542,19 @@ Y en el primero, las dos aserciones del resumen cambian de género —el resumen
     assert "LinkedIn: apagado" in salida
 ```
 
-- [ ] **Step 7: Correr la suite y verificar que pasa**
+- [x] **Step 7: Correr la suite y verificar que pasa**
 
 Run: `pytest tests/unit/test_check_credentials.py -q`
 Expected: PASS, todos. Si alguno tarda más de un segundo, algo está saliendo a la red: revisar que el test apague los cuatro.
 
-- [ ] **Step 8: Verificación por mutación del orden de lectura de switches**
+- [x] **Step 8: Verificación por mutación del orden de lectura de switches**
 
 Mover el `component_enabled` dentro del segundo bucle (leyendo el switch justo antes de correr cada chequeo) y correr:
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k ilegible`
 Expected: FAIL en `test_un_switch_ilegible_de_un_componente_nuevo_no_da_traceback`, por `assert llamadas == []`. Deshacer la mutación.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add scripts/check_credentials.py tests/unit/test_check_credentials.py
@@ -579,7 +579,7 @@ Claude-Session: https://claude.ai/code/session_01QBTyHnzK9HfeRi3LwmHFck"
 - Modify: `scripts/check_credentials.py`
 - Test: `tests/unit/test_check_credentials.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 ```python
 def test_av_con_key_invalida_falla(check_credentials, monkeypatch, capsys):
@@ -654,12 +654,12 @@ def test_el_rate_limit_de_av_no_cambia_el_codigo_de_salida(
     assert check_credentials.main() == 0
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k av`
 Expected: FAIL. Los dos primeros con `AttributeError: module 'check_credentials' has no attribute 'check_av'`. **El tercero también falla con `AttributeError`**, y no con `assert 1 == 0`: el `monkeypatch.setattr` sobre un atributo inexistente levanta antes de llegar al `assert`.
 
-- [ ] **Step 3: Implementar `check_av`**
+- [x] **Step 3: Implementar `check_av`**
 
 ```python
 # El marcador que ya conoce el repo. Mismo texto y mismo motivo que en
@@ -719,19 +719,19 @@ Y sumar la fila a la tabla de `main()`, después de FRED:
         ("Alpha Vantage", USE_AV_VAR, check_av),
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q`
 Expected: PASS, todos.
 
-- [ ] **Step 5: Verificación por mutación de la excepción**
+- [x] **Step 5: Verificación por mutación de la excepción**
 
 Cambiar `return SIN_VERIFICAR` por `return NO_LISTO` en la rama del rate limit y correr:
 
 Run: `pytest tests/unit/test_check_credentials.py -q`
 Expected: FAIL en **exactamente dos** tests —`test_av_en_rate_limit_avisa_pero_no_pone_rojo` (compara el veredicto) y ninguno más—; `test_el_rate_limit_de_av_no_cambia_el_codigo_de_salida` mockea `check_av`, así que la mutación no lo toca. Si cae un tercero, hay un test acoplado de más. Deshacer la mutación.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/check_credentials.py tests/unit/test_check_credentials.py
@@ -753,7 +753,7 @@ Claude-Session: https://claude.ai/code/session_01QBTyHnzK9HfeRi3LwmHFck"
 - Modify: `scripts/check_credentials.py`
 - Test: `tests/unit/test_check_credentials.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 El modelo se lee de `llm.client` también en los tests, por el mismo motivo por el que el script no copia el string: un literal acá haría pasar el test el día que el pipeline cambie de modelo y el chequeo deje de mirar el correcto.
 
@@ -830,12 +830,12 @@ def test_anthropic_pagina_el_listado(check_credentials, monkeypatch, capsys):
     assert "[AVISO]" not in capsys.readouterr().out
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k anthropic`
 Expected: FAIL, los tres con `AttributeError: module 'check_credentials' has no attribute 'check_anthropic'`. `MODEL` se importa directo de `llm.client` en el fichero de tests, así que ese import **no** falla: el único que falta es la función.
 
-- [ ] **Step 3: Implementar `check_anthropic`**
+- [x] **Step 3: Implementar `check_anthropic`**
 
 El modelo se importa de `llm/client.py` y **no se copia el string**: copiarlo haría que el chequeo mintiera el día que el pipeline cambie de modelo, que es exactamente el día en que uno quiere que no mienta.
 
@@ -910,12 +910,12 @@ Y la fila en la tabla de `main()`, después de Alpha Vantage:
         ("Anthropic", USE_ANTHROPIC_VAR, check_anthropic),
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q && mypy scripts/`
 Expected: PASS y mypy limpio.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/check_credentials.py tests/unit/test_check_credentials.py
@@ -940,7 +940,7 @@ El chequeo que motiva todo el trabajo, y el único con efectos.
 - Modify: `scripts/check_credentials.py`
 - Test: `tests/unit/test_check_credentials.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 ```python
 class _R2Falso:
@@ -1081,12 +1081,12 @@ def test_r2_falla_si_lo_escrito_no_se_puede_releer(
     assert "no se pudo releer" in capsys.readouterr().out
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k r2`
 Expected: FAIL. Los seis con `AttributeError: module 'check_credentials' has no attribute 'R2Client'` — el `monkeypatch.setattr` sobre el nombre inexistente levanta antes que cualquier `assert`.
 
-- [ ] **Step 3: Implementar `check_r2`**
+- [x] **Step 3: Implementar `check_r2`**
 
 Imports arriba: `R2Client` entra sin arrastrar pandas —`storage/` no tiene `__init__.py` y `r2_client.py` solo importa boto3 y structlog—.
 
@@ -1169,19 +1169,19 @@ Y la última fila de la tabla en `main()`:
         ("R2", USE_R2_VAR, check_r2),
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/unit/test_check_credentials.py -q && mypy scripts/`
 Expected: PASS y mypy limpio.
 
-- [ ] **Step 5: Verificación por mutación del orden**
+- [x] **Step 5: Verificación por mutación del orden**
 
 Mover el bloque del `download_object` delante del `upload_object` y correr:
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k r2`
 Expected: FAIL en `test_la_sonda_de_r2_escribe_antes_de_leer` **y solo ahí** entre los tests de orden (los de camino feliz también caen porque la lista de llamadas cambia; lo que se comprueba es que el test del orden no pase con la mutación puesta). Deshacer.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/check_credentials.py tests/unit/test_check_credentials.py
@@ -1209,7 +1209,7 @@ Claude-Session: https://claude.ai/code/session_01QBTyHnzK9HfeRi3LwmHFck"
 - Modify: `.github/workflows/contract-tests.yml` (paso "Verificar la credencial de LinkedIn", bloque `env:`)
 - Test: `tests/unit/test_check_credentials.py`
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```python
 def test_el_nightly_apaga_los_cuatro_componentes_no_publicadores(check_credentials):
@@ -1240,12 +1240,12 @@ def test_el_nightly_apaga_los_cuatro_componentes_no_publicadores(check_credentia
         )
 ```
 
-- [ ] **Step 2: Correr el test para verificar que falla**
+- [x] **Step 2: Correr el test para verificar que falla**
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k nightly`
 Expected: FAIL con el mensaje `USE_FRED no esta apagada en el paso de LinkedIn: ...`.
 
-- [ ] **Step 3: Blindar el paso**
+- [x] **Step 3: Blindar el paso**
 
 En `.github/workflows/contract-tests.yml`, en el `env:` del paso `Verificar la credencial de LinkedIn`, debajo de `PUBLISH_X: "false"`:
 
@@ -1263,12 +1263,12 @@ En `.github/workflows/contract-tests.yml`, en el `env:` del paso `Verificar la c
 
 Y actualizar el comentario que está arriba del paso para que mencione el blindaje.
 
-- [ ] **Step 4: Correr el test para verificar que pasa**
+- [x] **Step 4: Correr el test para verificar que pasa**
 
 Run: `pytest tests/unit/test_check_credentials.py -q -k nightly`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/contract-tests.yml tests/unit/test_check_credentials.py
@@ -1294,7 +1294,7 @@ Dos textos afirman cosas que dejan de ser verdad con este cambio. Uno de ellos s
 - Modify: `src/macro_pipeline/orchestration/main.py:572-577`
 - Modify: `README.md:99-100`
 
-- [ ] **Step 1: El docstring del módulo**
+- [x] **Step 1: El docstring del módulo**
 
 Reemplazar el docstring de `scripts/check_credentials.py` por:
 
@@ -1319,7 +1319,7 @@ Sale con código 1 si algo encendido no está listo. No imprime credenciales.
 """
 ```
 
-- [ ] **Step 2: El texto que el pipeline manda por Telegram**
+- [x] **Step 2: El texto que el pipeline manda por Telegram**
 
 `src/macro_pipeline/orchestration/main.py` dice hoy que el script solo verifica X y LinkedIn "y para los demás sólo comprueba que la variable esté puesta: una key presente pero rotada no la detecta nadie todavía". Deja de ser cierto. Reemplazar ese bloque por:
 
@@ -1334,7 +1334,7 @@ Sale con código 1 si algo encendido no está listo. No imprime credenciales.
             )
 ```
 
-- [ ] **Step 3: El README**
+- [x] **Step 3: El README**
 
 Reemplazar las dos líneas de `README.md:99-100`:
 
@@ -1344,7 +1344,7 @@ Reemplazar las dos líneas de `README.md:99-100`:
 python scripts/check_credentials.py
 ```
 
-- [ ] **Step 4: Verificar que no queda ninguna afirmación vieja**
+- [x] **Step 4: Verificar que no queda ninguna afirmación vieja**
 
 ```bash
 grep -rn "no la detecta nadie todavía\|credenciales de publicacion sirven\|credenciales de publicación" --include=*.py --include=*.md . | grep -v revision_ | grep -v docs/superpowers
@@ -1352,12 +1352,12 @@ grep -rn "no la detecta nadie todavía\|credenciales de publicacion sirven\|cred
 
 Expected: sin salida.
 
-- [ ] **Step 5: Correr la suite entera**
+- [x] **Step 5: Correr la suite entera**
 
 Run: `pytest tests/unit tests/integration -q`
 Expected: PASS. Si algún test de `test_orchestration*` asertaba sobre el texto viejo de la alerta, actualizarlo: el texto cambió a propósito.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -1379,7 +1379,7 @@ El spec pide dos confirmaciones que **no se pueden deducir de la doc**, y el rep
 
 Esta task necesita el `.env` real con credenciales cargadas. **Si no está disponible, no se marca como hecha ni se inventan los resultados**: se anota qué quedó sin verificar.
 
-- [ ] **Step 1: Correr el chequeo completo a mano**
+- [x] **Step 1: Correr el chequeo completo a mano**
 
 Run: `python scripts/check_credentials.py`
 Expected: los seis bloques, y un código de salida coherente con lo que tenga cargado el `.env`.
@@ -1388,7 +1388,7 @@ Expected: los seis bloques, y un código de salida coherente con lo que tenga ca
 python scripts/check_credentials.py; echo "codigo de salida: $?"
 ```
 
-- [ ] **Step 2: Confirmar la forma del error de FRED**
+- [x] **Step 2: Confirmar la forma del error de FRED**
 
 Con una key inválida a propósito:
 
@@ -1404,7 +1404,7 @@ print(r.status_code); print(r.text[:300])
 
 Anotar en el comentario de `check_fred` el status code y el nombre del campo **realmente observados**. Si no son 400 y `error_message`, ajustar `_mensaje_de_error` y su test.
 
-- [ ] **Step 3: Confirmar la paginación de Anthropic**
+- [x] **Step 3: Confirmar la paginación de Anthropic**
 
 ```bash
 python -c "
@@ -1421,7 +1421,7 @@ print([m['id'] for m in d.get('data', [])])
 
 Confirmar que `has_more` es `False` con `limit=1000` y que `claude-haiku-4-5` está en la lista. Si el parámetro de continuación no se llama `after_id`, corregir `check_anthropic` y el test de paginación.
 
-- [ ] **Step 4: Confirmar que la sonda de R2 dejó el bucket limpio**
+- [x] **Step 4: Confirmar que la sonda de R2 dejó el bucket limpio**
 
 ```bash
 python -c "
@@ -1433,7 +1433,7 @@ print(c.s3.list_objects_v2(Bucket=c.bucket, Prefix='healthcheck/').get('KeyCount
 
 Expected: `0`. Si hay huérfanos, el borrado falló y el `[AVISO]` del Step 1 lo dijo: investigar el permiso del token antes de seguir.
 
-- [ ] **Step 5: Dejar constancia en el código**
+- [x] **Step 5: Dejar constancia en el código**
 
 Sumar al comentario de `check_r2` la línea de verificación en vivo con la fecha, con el mismo formato que `_CODIGOS_DE_AUSENCIA`:
 
@@ -1443,7 +1443,7 @@ Sumar al comentario de `check_r2` la línea de verificación en vivo con la fech
     # quedó vacío después.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -1461,7 +1461,7 @@ Claude-Session: https://claude.ai/code/session_01QBTyHnzK9HfeRi3LwmHFck"
 
 ## Task 10: Cierre
 
-- [ ] **Step 1: Los tres gates de CI, en orden**
+- [x] **Step 1: Los tres gates de CI, en orden**
 
 ```bash
 ruff check src/ tests/ scripts/
@@ -1472,7 +1472,7 @@ pytest tests/unit/ tests/integration/ -q
 
 Expected: los cuatro limpios. La cuenta de tests sube respecto de los 318 de partida en unos 20.
 
-- [ ] **Step 2: Comprobar que la suite unitaria no sale a la red**
+- [x] **Step 2: Comprobar que la suite unitaria no sale a la red**
 
 ```bash
 pytest tests/unit -q --timeout=10
@@ -1480,7 +1480,7 @@ pytest tests/unit -q --timeout=10
 
 Expected: PASS. Un timeout acá significa que algún test llegó a un chequeo real: le falta apagar el componente.
 
-- [ ] **Step 3: Marcar el plan como ejecutado y commitear**
+- [x] **Step 3: Marcar el plan como ejecutado y commitear**
 
 Actualizar los checkboxes de este fichero y:
 
@@ -1502,3 +1502,44 @@ Está en el spec y se repite acá para que quien ejecute no lo tome por olvido:
 - **Telegram queda sin chequeo**, y es el que apaga el HITL de ADR-004 si su token muere.
 - **`R2Client.delete_object` existe y producción no lo usa.** Acotado por el prefijo y por no llamarse desde ningún camino real, pero el método está ahí.
 - **Un objeto huérfano por cada borrado fallido**, con key aleatoria, así que se acumulan.
+
+---
+
+## Lo que la ejecución cambió respecto del plan
+
+Cinco correcciones, todas por evidencia y no por gusto:
+
+1. **Task 7 se adelantó**, de después de la 8 a inmediatamente después de la 3.
+   El plan la dejaba para el final y eso rompía el nightly durante cuatro
+   tasks: reproducido en un directorio limpio sin `.env`, el script salía con
+   código 1 por una `FRED_API_KEY` que ese job nunca tuvo, y el paso habría
+   mandado la alerta culpando a LinkedIn. El mismo modo de fallo que su propio
+   comentario dice haber evitado.
+
+2. **El listado de Anthropic devuelve el snapshot fechado, no el alias.**
+   `/v1/models` trae `claude-haiku-4-5-20251001`; el pipeline usa
+   `claude-haiku-4-5`. Con la igualdad a secas que pedía el plan, la primera
+   corrida real avisó de un retiro inexistente — el aviso falso que este
+   trabajo existe para no dar. Se agregó `_esta_listado`, que acepta el alias o
+   el alias con sufijo de ocho dígitos y nada más. Verificado además en vivo:
+   `after_id` es el parámetro correcto y `limit=1000` es el máximo (1001 da
+   400).
+
+3. **El ancho del resumen pasó de `:<9` a `:<15`.** `Alpha Vantage:` mide 14 y
+   dejaba la columna dentada. Las tres aserciones que fijaban el espaciado
+   viejo se recalcularon ejecutando el código, no contando espacios.
+
+4. **`Task 2` reutilizó el doble que ya existía.** `tests/unit/test_r2_client.py`
+   ya tenía `_FakeS3`; el plan traía uno paralelo. Se extendió el existente con
+   `delete_error`/`delete_calls`.
+
+5. **El test del switch ilegible usa `USE_FRED` y no `USE_R2`.** R2 no entraba a
+   la tabla hasta la Task 6, así que como estaba escrito habría fallado por la
+   razón equivocada.
+
+Verificaciones por mutación, todas reproducidas: quitar `BotoCoreError` de
+`delete_object` mata un test; el rate limit de AV en `NO_LISTO` mata exactamente
+uno; invertir put/get mata el test del orden y deja vivos los dos que deben
+sobrevivir. La sonda de R2 se corrió 200 veces contra un espía: 200 claves
+distintas, ninguna fuera de `healthcheck/`, ninguna cerca de `state/`. El bucket
+real quedó sin huérfanos.
