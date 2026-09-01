@@ -646,14 +646,15 @@ git commit -m "feat(orchestration): un lock trabado deja de saltarse el cierre e
 
 ---
 
-## Task 4: ADR-009 deja de decir «en silencio»
+## Task 4: la prosa que quedó falsa
 
 **Files:**
 - Modify: `docs/adr/009-degradation-policy.md:64-80`
+- Modify: `tests/integration/test_orchestrator_exit_states.py:1-13` (docstring de módulo)
 
-Sin tests: es documentación. Lo que la hace obligatoria es que la frase
-«se salta en silencio» pasa a ser **falsa** en cuanto la Task 3 está en `main`,
-y una política que describe mal el código es peor que no tenerla.
+Sin tests: es documentación. Lo que la hace obligatoria es que «se salta en
+silencio» pasa a ser **falsa** en cuanto la Task 3 está en `main`, en dos sitios
+distintos, y una política que describe mal el código es peor que no tenerla.
 
 - [ ] **Step 1: Corregir la fila de la tabla del segundo eje**
 
@@ -666,7 +667,7 @@ En `docs/adr/009-degradation-policy.md`, la fila que hoy dice:
 pasa a decir:
 
 ```markdown
-| Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta el cierre, y alerta si el lock lleva más de dos horas |
+| Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta el cierre, y alerta si el lock lleva más de dos horas o su antigüedad no se puede leer |
 ```
 
 - [ ] **Step 2: Ampliar el párrafo que sigue a la tabla**
@@ -678,17 +679,26 @@ Después del párrafo que empieza «Un abort **nunca** debe dejar la fila en
 Esa cuarta forma no se puede eliminar: una muerte no atrapable —SIGKILL, el
 runner efímero que se apaga— deja la fila trabada por definición, y ningún
 `except` la cubre. Lo que sí se eliminó es el silencio. Desde el 2026-09-01 el
-guard de lock avisa por Telegram cuando el lock lleva más de dos horas, o
-cuando la fila es anterior a la columna `locked_at` y no se sabe desde cuándo.
+guard de lock avisa por Telegram en tres casos: el lock lleva más de dos horas,
+la fila es anterior a la columna `locked_at` y no se sabe desde cuándo, o ese
+valor existe pero no se puede leer.
 
 El umbral sale del timeout de aprobación humana (`wait_for_approval`, 3600 s):
 una hora de `in_progress` es un estado sano mientras el operador decide, así
 que sólo se alerta bastante por encima de eso.
 
+El alcance es más chico de lo que sugiere «no se acepta», y conviene tenerlo
+claro para no sobre-reaccionar: el `event_id` lleva la fecha del día, así que la
+run de la semana siguiente calcula otro y publica normal. Lo que se pierde es
+**ese** cierre, y cada relanzamiento del mismo día se lo vuelve a saltar.
+
 **Alertar no vuelve aceptable a esa forma de abortar: la vuelve visible.** El
 lock no se expira solo, y es deliberado — el umbral dice que una run viva es
 improbable, no imposible, y auto-expirar un lock ajeno es el camino a publicar
-el mismo cierre dos veces.
+el mismo cierre dos veces. Por el mismo motivo el aviso atrapa `TypeError` y
+`ValueError` al leer `locked_at`: dejar subir esa excepción haría que el
+manejador general marcara la fila `failed`, que es soltar el lock justo donde
+esta política dice que no se toca.
 ```
 
 - [ ] **Step 3: Verificar que no queda ninguna otra copia de la frase vieja**
@@ -699,11 +709,48 @@ Expected: ninguna línea que describa la fila `in_progress` del segundo eje como
 silenciosa. Otras apariciones de «en silencio» en el documento —la segunda forma
 de abortar, que es el apagado por switch— son correctas y se quedan.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Corregir el docstring de módulo del fichero de tests**
+
+`tests/integration/test_orchestrator_exit_states.py:1-13` tiene dos cosas
+falsas. Dice «la tercera, quedar trabado» cuando la tabla del segundo eje fija
+**cuatro** formas y la trabada es la cuarta —el «tres» sale de colapsar las dos
+filas de «aborta antes del lock», que es una cuenta propia y ya no coincide con
+los tests nuevos del mismo fichero, que dicen «la cuarta forma»—. Y dice que el
+reintento «se salta en silencio», que desde la Task 3 dejó de ser cierto.
+
+El párrafo que hoy dice:
+
+```
+ADR-009 fija que un abort termina de una de dos formas —sin fila, o con un
+estado terminal (`failed` / `expired`)— y que la tercera, quedar trabado, no se
+acepta: el reintento del mismo `event_id` se salta en silencio en el guard de
+`main.py` y ese cierre no sale nunca.
+```
+
+pasa a decir:
+
+```
+ADR-009 fija cuatro formas de terminar sin publicar, y la cuarta —quedar
+trabado— es la que no se acepta: el reintento del mismo `event_id` se salta en
+el guard de `main.py` y ese cierre no sale nunca. El salto sigue ocurriendo,
+pero desde el aviso de lock viejo ya no es silencioso.
+```
+
+El resto del docstring —el párrafo sobre por qué acá el `StateDB` es real— no
+se toca.
+
+- [ ] **Step 5: Que la suite siga verde**
+
+Run: `./.venv/Scripts/python.exe -m pytest -q`
+
+Expected: PASS. Un docstring de módulo no puede romper nada, pero es gratis
+comprobarlo antes de commitear.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add docs/adr/009-degradation-policy.md
-git commit -m "docs(adr): la fila trabada se salta el cierre, pero ya no en silencio"
+git add docs/adr/009-degradation-policy.md tests/integration/test_orchestrator_exit_states.py
+git commit -m "docs: la fila trabada se salta el cierre, pero ya no en silencio"
 ```
 
 ---
