@@ -542,3 +542,31 @@ def test_fred_sin_respuesta_pone_rojo(check_credentials, monkeypatch, capsys):
     assert check_credentials.check_fred() == check_credentials.NO_LISTO
     salida = capsys.readouterr().out
     assert "No se pudo contactar" in salida
+
+
+def test_el_nightly_apaga_los_cuatro_componentes_no_publicadores(check_credentials):
+    """El blindaje del paso de LinkedIn, fijado por un test.
+
+    Ese paso corre el script con solo los secrets de LinkedIn. Sin apagar los
+    cuatro, cae en la rama generica y manda "la verificacion de la credencial
+    de LinkedIn fallo por otro motivo" todas las noches, culpando a LinkedIn de
+    que falta la key de FRED. El comentario de ese mismo paso ya nombra ese
+    modo de fallo: una alerta que señala al componente equivocado es peor que
+    ninguna.
+
+    Se lee el YAML como texto y no con un parser: lo que hay que fijar es que
+    las cuatro lineas esten en ESE paso, y el bloque se identifica por su
+    nombre.
+    """
+    workflow = (ROOT / ".github" / "workflows" / "contract-tests.yml").read_text(
+        encoding="utf-8"
+    )
+    inicio = workflow.index("name: Verificar la credencial de LinkedIn")
+    paso = workflow[inicio : workflow.index("\n      - name:", inicio + 1)]
+
+    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2"):
+        assert f'{var}: "false"' in paso, (
+            f"{var} no esta apagada en el paso de LinkedIn: ese paso corre el "
+            f"chequeo con solo los secrets de LinkedIn y va a alertar todas "
+            f"las noches culpando a la red equivocada."
+        )

@@ -157,16 +157,28 @@ jobs:
       # secrets estan en CI, hacerlo siempre no necesita detectar el hueco y
       # ademas caza un token *revocado* dentro del dia. `PUBLISH_X=false` hace
       # que el script se saltee X entero, asi que no hacen falta sus cuatro
-      # credenciales. La guarda corre igual con un contract test en rojo, pero
-      # no si el entorno nunca se construyo: sin `pip install` el script muere
-      # con ModuleNotFoundError, cae en la rama generica y manda una alerta
-      # culpando a LinkedIn de que falta una key de FRED. Una alerta que
-      # senala al componente equivocado es peor que ninguna.
+      # credenciales; `USE_FRED`, `USE_AV`, `USE_ANTHROPIC` y `USE_R2` en
+      # "false" hacen lo mismo por los otros cuatro componentes de la tabla,
+      # que este job tampoco tiene credenciales para chequear. La guarda corre
+      # igual con un contract test en rojo, pero no si el entorno nunca se
+      # construyo: sin `pip install` el script muere con ModuleNotFoundError,
+      # cae en la rama generica y manda una alerta culpando a LinkedIn de que
+      # falta una key de FRED. Una alerta que senala al componente equivocado
+      # es peor que ninguna.
       - name: Verificar la credencial de LinkedIn
         id: credencial_linkedin
         if: (success() || failure()) && steps.install.outcome == 'success'
         env:
           PUBLISH_X: "false"
+          # Mismo movimiento que el `PUBLISH_X` de arriba y por el mismo
+          # motivo: este paso verifica LinkedIn y su alerta habla de LinkedIn.
+          # Desde que el script chequea los seis componentes, dejarlos
+          # encendidos aca lo pondria rojo por credenciales que este job no
+          # tiene, y la alerta culparia a LinkedIn de que falta la key de FRED.
+          USE_FRED: "false"
+          USE_AV: "false"
+          USE_ANTHROPIC: "false"
+          USE_R2: "false"
           PUBLISH_LINKEDIN: ${{ vars.PUBLISH_LINKEDIN }}
           LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
           LINKEDIN_PERSON_URN: ${{ secrets.LINKEDIN_PERSON_URN }}
