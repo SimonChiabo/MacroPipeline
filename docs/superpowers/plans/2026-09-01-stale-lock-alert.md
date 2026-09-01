@@ -12,6 +12,12 @@
 
 **Intérprete:** siempre `./.venv/Scripts/python.exe -m ...`. Nunca `python` a secas.
 
+**`UTC` y no `timezone.utc`:** el `select` de ruff incluye `"UP"`, y `UP017`
+rechaza `timezone.utc` pidiendo el alias `datetime.UTC` (el mismo objeto desde
+Python 3.11). Los tres gates son bloqueantes, así que todo el código de este
+plan usa `from datetime import UTC` y `datetime.now(UTC)`. Salió en la Task 1,
+donde el plan decía `timezone.utc` y `ruff check` lo tumbó.
+
 ---
 
 ## Estructura de ficheros
@@ -43,7 +49,7 @@ En `tests/unit/test_state.py`, ampliar el import de `datetime` que ya está en l
 cabecera del fichero:
 
 ```python
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 ```
 
 Y agregar al final del fichero:
@@ -60,7 +66,7 @@ def test_mark_in_progress_registra_cuando_se_tomo_el_lock(db):
     state = db.get_publication_state("weekly_close_2026-08-21")
 
     assert state["locked_at"] is not None
-    edad = datetime.now(timezone.utc) - datetime.fromisoformat(state["locked_at"])
+    edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
     assert edad < timedelta(seconds=30)
 
 
@@ -85,7 +91,7 @@ def test_rearmar_el_lock_refresca_locked_at(db):
 
     state = db.get_publication_state(event)
     assert state["locked_at"] != "2026-08-01T00:00:00+00:00"
-    edad = datetime.now(timezone.utc) - datetime.fromisoformat(state["locked_at"])
+    edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
     assert edad < timedelta(seconds=30)
 
 
@@ -158,7 +164,7 @@ da cuál, porque no son el mismo error:
 En `src/macro_pipeline/storage/state.py`, ampliar el import de `datetime`:
 
 ```python
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 ```
 
 En `_init_db`, agregar la columna justo después de `created_at`:
@@ -211,7 +217,7 @@ docstring incluido:
         y la run viva se alerta a si misma. `created_at` no se toca — sigue
         diciendo cuando nacio la fila, que es lo que su nombre promete.
         """
-        ahora = datetime.now(timezone.utc).isoformat()
+        ahora = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO published_events "
@@ -279,7 +285,7 @@ def test_get_locked_at_devuelve_el_momento_del_lock(db):
 
     assert locked_at is not None
     assert locked_at.tzinfo is not None
-    assert datetime.now(timezone.utc) - locked_at < timedelta(seconds=30)
+    assert datetime.now(UTC) - locked_at < timedelta(seconds=30)
 
 
 def test_get_locked_at_es_none_sin_fila(db):
@@ -380,7 +386,7 @@ la cabecera:
 
 ```python
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 ```
 
 Agregar el helper justo después de `_build_orchestrator`:
@@ -411,7 +417,7 @@ def test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre(data, state):
     señal es una línea de log en un runner efímero que nadie mira.
     """
     orch = _build_orchestrator(data, state)
-    viejo = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    viejo = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
     _trabar_el_lock(state, viejo)
 
     assert orch.run_weekly_close() == 0
@@ -443,7 +449,7 @@ def test_un_lock_reciente_no_alerta(data, state):
     que a veces es ruido se aprende a ignorar.
     """
     orch = _build_orchestrator(data, state)
-    reciente = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    reciente = (datetime.now(UTC) - timedelta(minutes=20)).isoformat()
     _trabar_el_lock(state, reciente)
 
     assert orch.run_weekly_close() == 0
@@ -482,7 +488,7 @@ En `src/macro_pipeline/orchestration/main.py`, ampliar el import de `datetime`
 de la cabecera:
 
 ```python
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 ```
 
 Y agregar la constante justo después del bloque de `_CONSECUENCIA`
@@ -522,7 +528,7 @@ En `src/macro_pipeline/orchestration/main.py`, agregar el método justo antes de
         if locked_at is None:
             desde = "y no se sabe desde cuándo: la fila es anterior a la columna"
         else:
-            segundos = (datetime.now(timezone.utc) - locked_at).total_seconds()
+            segundos = (datetime.now(UTC) - locked_at).total_seconds()
             if segundos <= _LOCK_VIEJO_SEGUNDOS:
                 return
             desde = f"desde hace {segundos / 3600:.1f} horas"
