@@ -596,7 +596,12 @@ class MacroOrchestrator:
         return None
 
     def _avisar_lock_trabado(self, event_id: str, telegram: TelegramBot) -> None:
-        """Avisa si el lock es demasiado viejo para ser una run viva plausible.
+        """Avisa si la antiguedad del lock no es la de una run viva plausible.
+
+        La regla es una sola, y conviene leerla asi y no como cuatro casos
+        sueltos: avisa toda antiguedad *implausible* —vieja de mas, en el
+        futuro, ilegible o desconocida—. Lo unico que se calla es un lock joven,
+        que es exactamente una run sana esperando aprobacion.
 
         ADR-009 clasifica la fila trabada como la forma de abortar que no se
         acepta, y no se puede eliminar: una muerte no atrapable —SIGKILL, el
@@ -629,9 +634,16 @@ class MacroOrchestrator:
                 desde = "y no se sabe desde cuándo: la fila es anterior a la columna"
             else:
                 segundos = (datetime.now(UTC) - locked_at).total_seconds()
-                if segundos <= _LOCK_VIEJO_SEGUNDOS:
+                if segundos < 0:
+                    # Una edad negativa pasa sola por debajo del umbral, asi
+                    # que sin esta rama un lock con fecha futura se calla para
+                    # siempre. No reusa el «hace N horas»: saldria en negativo
+                    # y pareceria un bug de la alerta, no de la fila.
+                    desde = f"con una fecha de lock en el futuro ({locked_at})"
+                elif segundos <= _LOCK_VIEJO_SEGUNDOS:
                     return
-                desde = f"desde hace {segundos / 3600:.1f} horas"
+                else:
+                    desde = f"desde hace {segundos / 3600:.1f} horas"
         except (TypeError, ValueError) as exc:
             # El texto del error lleva el valor que no se pudo leer, que es
             # justo lo que necesita quien va a arreglar la fila a mano.

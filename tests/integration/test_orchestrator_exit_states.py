@@ -699,3 +699,30 @@ def test_un_lock_ilegible_avisa_sin_soltar_el_lock(data, state):
 
     orch.telegram.send_alert.assert_called_once()
     assert state.get_publication_state(EVENT_ID)["status"] == "in_progress"
+
+
+def test_un_lock_con_fecha_futura_avisa(data, state):
+    """Un `locked_at` en el futuro no es una run viva: es un disparate.
+
+    Y el disparate más probable lo provoca esta misma alerta, que manda a un
+    humano a editar la fila: un año mal tecleado —2027 por 2026— devuelve el
+    salto en silencio que toda esta funcionalidad existe para sacar, porque una
+    edad negativa entra sola por debajo del umbral. También llega por reloj: la
+    base viaja por R2, así que la máquina que escribió el lock no es la que lo
+    lee.
+
+    La aserción sobre el texto no es cosmética: es la única que separa esta
+    rama de tomar el valor absoluto de la edad, que también alerta —por eso
+    `abs()` sobrevive a las otras tres— pero manda a revisar la fila diciendo
+    «hace 72 horas» de un lock que se tomó dentro de tres días.
+    """
+    orch = _build_orchestrator(data, state)
+    futuro = (datetime.now(UTC) + timedelta(days=3)).isoformat()
+    _trabar_el_lock(state, futuro)
+
+    assert orch.run_weekly_close() == 0
+
+    orch.telegram.send_alert.assert_called_once()
+    texto = orch.telegram.send_alert.call_args[0][0]
+    assert "en el futuro" in texto and "desde hace" not in texto
+    assert state.get_publication_state(EVENT_ID)["status"] == "in_progress"
