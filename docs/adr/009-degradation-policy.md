@@ -70,11 +70,35 @@ uno que deja la fila trabada exige intervención manual. La política fija
 | Aborta antes del lock | Ninguna fila | La próxima run reintenta sola |
 | Aborta antes del lock, en silencio | Ninguna fila | La próxima run vuelve a no publicar, también en silencio, hasta que se vuelva a encender la bandera |
 | Aborta con estado terminal | `failed` o `expired` | La próxima run reintenta; el motivo queda registrado |
-| Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta en silencio |
+| Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta el cierre, y alerta si el lock lleva más de dos horas o su antigüedad no se puede leer |
 
 Un abort **nunca** debe dejar la fila en `in_progress`. Es el mismo razonamiento
 del fix de `publishers_ready` (`5ba7997`): si no se publicó, el estado no debe
 afirmar lo contrario ni impedir el reintento.
+
+Esa cuarta forma no se puede eliminar: una muerte no atrapable —SIGKILL, el
+runner efímero que se apaga— deja la fila trabada por definición, y ningún
+`except` la cubre. Lo que sí se eliminó es el silencio. Desde el 2026-09-01 el
+guard de lock avisa por Telegram en tres casos: el lock lleva más de dos horas,
+la fila es anterior a la columna `locked_at` y no se sabe desde cuándo, o ese
+valor existe pero no se puede leer.
+
+El umbral sale del timeout de aprobación humana (`wait_for_approval`, 3600 s):
+una hora de `in_progress` es un estado sano mientras el operador decide, así
+que sólo se alerta bastante por encima de eso.
+
+El alcance es más chico de lo que sugiere «no se acepta», y conviene tenerlo
+claro para no sobre-reaccionar: el `event_id` lleva la fecha del día, así que la
+run de la semana siguiente calcula otro y publica normal. Lo que se pierde es
+**ese** cierre, y cada relanzamiento del mismo día se lo vuelve a saltar.
+
+**Alertar no vuelve aceptable a esa forma de abortar: la vuelve visible.** El
+lock no se expira solo, y es deliberado — el umbral dice que una run viva es
+improbable, no imposible, y auto-expirar un lock ajeno es el camino a publicar
+el mismo cierre dos veces. Por el mismo motivo el aviso atrapa `TypeError` y
+`ValueError` al leer `locked_at`: dejar subir esa excepción haría que el
+manejador general marcara la fila `failed`, que es soltar el lock justo donde
+esta política dice que no se toca.
 
 ### El tercer eje: el apagado por switch no degrada
 

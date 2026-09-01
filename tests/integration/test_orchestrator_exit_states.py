@@ -1,9 +1,9 @@
 """Ninguna salida del orquestador puede dejar la fila trabada en `in_progress`.
 
-ADR-009 fija que un abort termina de una de dos formas —sin fila, o con un
-estado terminal (`failed` / `expired`)— y que la tercera, quedar trabado, no se
-acepta: el reintento del mismo `event_id` se salta en silencio en el guard de
-`main.py` y ese cierre no sale nunca.
+ADR-009 fija cuatro formas de terminar sin publicar, y la cuarta —quedar
+trabado— es la que no se acepta: el reintento del mismo `event_id` se salta en
+el guard de `main.py` y ese cierre no sale nunca. El salto sigue ocurriendo,
+pero desde el aviso de lock viejo ya no es silencioso.
 
 A diferencia de `test_orchestrator_persistence.py`, aca el `StateDB` es real y
 sobre un fichero temporal. Es lo unico que permite verificar la afirmacion que
