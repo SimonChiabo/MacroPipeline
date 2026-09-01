@@ -1,7 +1,7 @@
 import os
 from collections.abc import Callable
 from contextlib import nullcontext
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pandas as pd
 import structlog
@@ -73,6 +73,14 @@ _CONSECUENCIA = {
     "x": "el cierre sale solo en LinkedIn",
     "linkedin": "el cierre sale solo en X",
 }
+
+# Cuanto puede durar un lock sano. No es un numero elegido a ojo: la fase de
+# aprobacion espera al humano con `wait_for_approval(..., timeout_seconds=3600)`
+# (mas abajo en este mismo fichero), asi que una hora entera de `in_progress` es
+# un estado perfectamente normal. Dos horas son ese timeout mas el resto del
+# pipeline con margen. Si algun dia se toca ese 3600, este numero es lo otro que
+# hay que mirar: lo que importa es la relacion, no el valor.
+_LOCK_VIEJO_SEGUNDOS = 7200
 
 
 def _generic_headline(data: WeeklyCloseData) -> str:
@@ -587,6 +595,40 @@ class MacroOrchestrator:
 
         return None
 
+    def _avisar_lock_trabado(self, event_id: str, telegram: TelegramBot) -> None:
+        """Avisa si el lock no puede pertenecer a una run viva.
+
+        ADR-009 clasifica la fila trabada como la forma de abortar que no se
+        acepta, y no se puede eliminar: una muerte no atrapable —SIGKILL, el
+        runner que se apaga— la deja asi por definicion y ningun `except` la
+        cubre. Lo que si se puede es que deje de saltarse el cierre en
+        silencio, semana tras semana.
+
+        No toma el lock ni lo expira, a proposito: el umbral dice que una run
+        viva es *improbable*, no *imposible*, y auto-expirar un lock ajeno es
+        el camino a publicar el mismo cierre dos veces — el peor resultado
+        posible de este sistema.
+        """
+        locked_at = self.state.get_locked_at(event_id)
+        if locked_at is None:
+            desde = "y no se sabe desde cuándo: la fila es anterior a la columna"
+        else:
+            segundos = (datetime.now(UTC) - locked_at).total_seconds()
+            if segundos <= _LOCK_VIEJO_SEGUNDOS:
+                return
+            desde = f"desde hace {segundos / 3600:.1f} horas"
+
+        logger.warning("stale_lock_detected", event_id=event_id)
+        telegram.send_alert(
+            f"⚠️ El cierre `{event_id}` se está salteando: la fila quedó "
+            f"trabada en `in_progress` {desde}.\n\n"
+            "Ninguna corrida futura lo va a publicar mientras siga así: el "
+            "guard de lock corta antes de tocar nada.\n\n"
+            "No se repara solo a propósito. Expirar un lock que podría "
+            "pertenecer a una run viva es el camino a publicar el mismo cierre "
+            "dos veces, así que hace falta revisar el estado a mano."
+        )
+
     def run_weekly_close(self) -> int:
         """Pipeline completo de Cierre Semanal con idempotencia parcial.
 
@@ -654,7 +696,11 @@ class MacroOrchestrator:
                     )
 
                 # ── Locking ligero: evitar runs simultáneas ────────────────────
+                # El aviso va antes del `return`: la fila trabada es la forma de
+                # abortar que ADR-009 no acepta, y hasta acá se saltaba el cierre
+                # sin decirselo a nadie.
                 if self.state.is_in_progress(event_id):
+                    self._avisar_lock_trabado(event_id, telegram)
                     logger.warning(
                         "pipeline_already_running_skipping", event_id=event_id
                     )

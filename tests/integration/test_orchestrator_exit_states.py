@@ -12,7 +12,8 @@ canal que falto— porque esa depende de lo que quedo *escrito* entre las dos
 runs, no de con que argumentos se llamo a un mock.
 """
 
-from datetime import date
+import sqlite3
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -81,6 +82,21 @@ def _build_orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestra
 
     orch._fetch_weekly_close = MagicMock(return_value=(data, "fmp"))
     return orch
+
+
+def _trabar_el_lock(state: StateDB, locked_at: str | None) -> None:
+    """Deja la fila del evento en `in_progress` con el `locked_at` que se pida.
+
+    Escribe la columna a mano porque lo que se está probando es qué hace el
+    orquestador con una fila que ya estaba trabada cuando arrancó, y no hay
+    forma de envejecer un lock esperando dos horas.
+    """
+    state.mark_in_progress(EVENT_ID)
+    with sqlite3.connect(state.db_path) as conn:
+        conn.execute(
+            "UPDATE published_events SET locked_at = ? WHERE event_id = ?",
+            (locked_at, EVENT_ID),
+        )
 
 
 def test_a_failure_in_the_data_phase_leaves_the_row_failed(data, state):
@@ -610,3 +626,50 @@ def test_fmp_sin_key_no_alerta_dos_veces_en_la_run(state, data):
 
     alertas = [c[0][0] for c in orch.telegram.send_alert.call_args_list]
     assert not any("Alpha Vantage" in a for a in alertas)
+
+
+def test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre(data, state):
+    """La cuarta forma de abortar de ADR-009 deja de ser silenciosa.
+
+    Sin esto, la fila trabada se salta el cierre semana tras semana y la única
+    señal es una línea de log en un runner efímero que nadie mira.
+    """
+    orch = _build_orchestrator(data, state)
+    viejo = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
+    _trabar_el_lock(state, viejo)
+
+    assert orch.run_weekly_close() == 0
+
+    orch.telegram.send_alert.assert_called_once()
+    assert EVENT_ID in orch.telegram.send_alert.call_args[0][0]
+
+
+def test_un_lock_sin_fecha_alerta(data, state):
+    """`locked_at` en NULL es una fila anterior a la migración.
+
+    Y no va a dejar de estarlo nunca: `mark_in_progress` no toca las filas
+    `in_progress`. Callarse acá sería preservar el salto en silencio para
+    siempre, justo en la fila que motiva todo este trabajo.
+    """
+    orch = _build_orchestrator(data, state)
+    _trabar_el_lock(state, None)
+
+    assert orch.run_weekly_close() == 0
+
+    orch.telegram.send_alert.assert_called_once()
+
+
+def test_un_lock_reciente_no_alerta(data, state):
+    """Veinte minutos de `in_progress` es una run sana esperando aprobación.
+
+    `wait_for_approval` espera al humano hasta una hora entera, así que alertar
+    acá convertiría cada aprobación pausada en una alerta falsa — y una alerta
+    que a veces es ruido se aprende a ignorar.
+    """
+    orch = _build_orchestrator(data, state)
+    reciente = (datetime.now(UTC) - timedelta(minutes=20)).isoformat()
+    _trabar_el_lock(state, reciente)
+
+    assert orch.run_weekly_close() == 0
+
+    orch.telegram.send_alert.assert_not_called()
