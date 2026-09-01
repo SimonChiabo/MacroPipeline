@@ -444,8 +444,9 @@ Y los tres tests al final del fichero:
 def test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre(data, state):
     """La cuarta forma de abortar de ADR-009 deja de ser silenciosa.
 
-    Sin esto, la fila trabada se salta el cierre semana tras semana y la única
-    señal es una línea de log en un runner efímero que nadie mira.
+    Sin esto ese cierre no sale nunca, cada relanzamiento del mismo día se lo
+    vuelve a saltar, y la única señal es una línea de log en un runner efímero
+    que nadie mira.
     """
     orch = _build_orchestrator(data, state)
     viejo = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
@@ -548,7 +549,9 @@ En `src/macro_pipeline/orchestration/main.py`, agregar el método justo antes de
         acepta, y no se puede eliminar: una muerte no atrapable —SIGKILL, el
         runner que se apaga— la deja asi por definicion y ningun `except` la
         cubre. Lo que si se puede es que deje de saltarse el cierre en
-        silencio, semana tras semana.
+        silencio. El `event_id` lleva la fecha de hoy, asi que no se pierde una
+        semana tras otra: se pierde **ese** cierre, y cada relanzamiento del
+        mismo dia se lo vuelve a saltar sin decir nada.
 
         No toma el lock ni lo expira, a proposito: el umbral dice que una run
         viva es *improbable*, no *imposible*, y auto-expirar un lock ajeno es

@@ -18,22 +18,35 @@ como **la que no se acepta**:
 
 El código hace exactamente eso. El guard de lock (`orchestration/main.py:657`)
 pregunta `is_in_progress`, escribe `pipeline_already_running_skipping` en el log
-y devuelve `0`. La run siguiente hace lo mismo, y la siguiente. El cierre
-semanal deja de salir y **nadie se entera**: la única señal es una línea de log
-en un runner efímero que nadie está mirando.
+y devuelve `0`. **Ese cierre no sale nunca**, y cada relanzamiento del mismo día
+se lo vuelve a saltar sin decir nada: la única señal es una línea de log en un
+runner efímero que nadie está mirando.
 
 Esa forma de terminar no se puede eliminar —una muerte no atrapable (SIGKILL,
 el runner que se apaga) deja la fila trabada por definición, y ningún `except`
 la cubre—, así que lo que se puede arreglar no es que ocurra: es que ocurra en
 silencio.
 
+### El alcance exacto, que es más chico de lo que parece
+
+El daño **no** se acumula semana a semana. `event_id` es
+`f"weekly_close_{date.today()}"` (`main.py:660`), así que la run de la semana
+que viene calcula otro `event_id`, `is_in_progress` responde `False` y publica
+normal. Una fila trabada bloquea únicamente los relanzamientos del **mismo día
+calendario**. Ya está dicho en el propio fichero, en el comentario del manejador
+general (`main.py:1044-1046`): «el `event_id` lleva la fecha de hoy y la run es
+semanal (ADR-002), asi que la proxima no reintenta este cierre — lo reemplaza».
+
+Que sea más chico no lo vuelve tolerable. El resultado es **una publicación
+semanal que falta, y cero señales de que faltó**.
+
 ### Por qué el silencio es la mitad mala
 
-Un cierre saltado no es visible por su ausencia. El pipeline corre semanal; la
-diferencia entre «esta semana no había nada que publicar» y «esta semana el
-cierre se saltó por una fila trabada de hace veinte días» no se nota mirando
-Telegram. Al operador le llegan alertas cuando algo degrada o falla, así que la
-ausencia de alerta se lee como que todo anduvo.
+Un cierre saltado no es visible por su ausencia. La diferencia entre «esta
+semana no había nada que publicar» y «esta semana el cierre se saltó por una
+fila que quedó trabada» no se nota mirando Telegram. Al operador le llegan
+alertas cuando algo degrada o falla, así que la ausencia de alerta se lee como
+que todo anduvo.
 
 ---
 
