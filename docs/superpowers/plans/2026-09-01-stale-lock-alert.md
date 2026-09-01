@@ -285,7 +285,8 @@ def test_get_locked_at_devuelve_el_momento_del_lock(db):
 
     assert locked_at is not None
     assert locked_at.tzinfo is not None
-    assert datetime.now(UTC) - locked_at < timedelta(seconds=30)
+    edad = datetime.now(UTC) - locked_at
+    assert timedelta(0) <= edad < timedelta(seconds=30)
 
 
 def test_get_locked_at_es_none_sin_fila(db):
