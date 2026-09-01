@@ -1,5 +1,8 @@
 # Alertar sobre un lock `in_progress` viejo — plan de implementación
 
+**COMPLETADO el 2026-09-01.** Cuatro tasks, 317 tests. Pendiente de
+confirmar el run de CI sobre el HEAD exacto.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** que una fila trabada en `in_progress` deje de saltarse el cierre semanal en silencio, avisando por Telegram cuando el lock es demasiado viejo para pertenecer a una run viva.
@@ -43,7 +46,7 @@ que le corresponde y tiene tests. La antigüedad la sirve un lector aparte.
 - Modify: `src/macro_pipeline/storage/state.py:1-10` (imports), `:62-88` (schema), `:93-110` (migración), `:131-158` (`mark_in_progress`)
 - Test: `tests/unit/test_state.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 En `tests/unit/test_state.py`, ampliar el import de `datetime` que ya está en la
 cabecera del fichero:
@@ -137,7 +140,7 @@ def test_migrate_db_es_idempotente_con_la_columna_ya_puesta(tmp_path):
 `sqlite3`, `pytest`, `StateDB` y `_OLD_SCHEMA` ya están en el fichero; sólo se
 amplía el import de `datetime`.
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest -v tests/unit/test_state.py::test_mark_in_progress_registra_cuando_se_tomo_el_lock tests/unit/test_state.py::test_rearmar_el_lock_refresca_locked_at tests/unit/test_state.py::test_migrate_db_agrega_locked_at_en_null tests/unit/test_state.py::test_migrate_db_es_idempotente_con_la_columna_ya_puesta`
 
@@ -159,7 +162,7 @@ da cuál, porque no son el mismo error:
   `assert "locked_at" in state`.
 - `test_migrate_db_es_idempotente_con_la_columna_ya_puesta` → `KeyError: 'locked_at'`.
 
-- [ ] **Step 3: Agregar la columna al schema y a la migración**
+- [x] **Step 3: Agregar la columna al schema y a la migración**
 
 En `src/macro_pipeline/storage/state.py`, ampliar el import de `datetime`:
 
@@ -190,7 +193,7 @@ que ya emite `DeprecationWarning` en esta suite (`state.py:234`). Código nuevo 
 se suma a un camino deprecado. El resto de la tabla ya guarda fechas como texto
 (`cpi_as_of`, `unrate_as_of`, `dgs10_as_of`).
 
-- [ ] **Step 4: Escribir `locked_at` en las dos ramas de `mark_in_progress`**
+- [x] **Step 4: Escribir `locked_at` en las dos ramas de `mark_in_progress`**
 
 Reemplazar el cuerpo de `mark_in_progress` (`state.py:131-158`) entero,
 docstring incluido:
@@ -238,26 +241,26 @@ docstring incluido:
 tocaría `created_at`, que no es este trabajo, y mezclaría dos cosas en un mismo
 diff. La deprecación de esa llamada es un asunto aparte.
 
-- [ ] **Step 5: Correr los tests para verificar que pasan**
+- [x] **Step 5: Correr los tests para verificar que pasan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_state.py -v`
 
 Expected: PASS, todos. Los tests viejos del fichero no cambian: ninguno lee
 `created_at` ni enumera columnas.
 
-- [ ] **Step 6: Correr la suite entera — esto toca el schema compartido**
+- [x] **Step 6: Correr la suite entera — esto toca el schema compartido**
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 
 Expected: PASS. Cualquier test que enumere columnas a mano saldría acá.
 
-- [ ] **Step 7: Los tres gates**
+- [x] **Step 7: Los tres gates**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: los tres limpios.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/macro_pipeline/storage/state.py tests/unit/test_state.py
@@ -272,7 +275,7 @@ git commit -m "feat(state): locked_at registra cuando se tomo el lock"
 - Modify: `src/macro_pipeline/storage/state.py` (método nuevo, después de `is_in_progress`)
 - Test: `tests/unit/test_state.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Agregar al final de `tests/unit/test_state.py`:
 
@@ -342,7 +345,7 @@ def test_get_locked_at_devuelve_lo_guardado_y_no_la_hora_actual(db):
     assert db.get_locked_at(event) == datetime(2026, 8, 1, tzinfo=UTC)
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest -v tests/unit/test_state.py::test_get_locked_at_devuelve_el_momento_del_lock tests/unit/test_state.py::test_get_locked_at_es_none_sin_fila tests/unit/test_state.py::test_get_locked_at_es_none_con_la_columna_en_null tests/unit/test_state.py::test_get_locked_at_devuelve_lo_guardado_y_no_la_hora_actual`
 
@@ -351,7 +354,7 @@ Expected: FAIL, los cuatro, con `AttributeError: 'StateDB' object has no attribu
 (Node id enteros por el mismo motivo que en la Task 1: `-k` con un substring
 corto barre tests ajenos que ya pasan.)
 
-- [ ] **Step 3: Implementar el lector**
+- [x] **Step 3: Implementar el lector**
 
 En `src/macro_pipeline/storage/state.py`, justo después de `mark_in_progress` y
 antes del separador `# ── Publicado ──`:
@@ -382,20 +385,20 @@ antes del separador `# ── Publicado ──`:
         return datetime.fromisoformat(row[0])
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_state.py -v`
 
 Expected: PASS, todos.
 
-- [ ] **Step 5: Los tres gates**
+- [x] **Step 5: Los tres gates**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: los tres limpios. El `from __future__ import annotations` de la
 cabecera hace válida la anotación `datetime | None` sin más.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/macro_pipeline/storage/state.py tests/unit/test_state.py
@@ -410,7 +413,7 @@ git commit -m "feat(state): get_locked_at sirve la antiguedad sin interpretarla"
 - Modify: `src/macro_pipeline/orchestration/main.py:1-5` (import), `:60-75` (constante nueva), `:589` (método nuevo), `:656-661` (el guard)
 - Test: `tests/integration/test_orchestrator_exit_states.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 En `tests/integration/test_orchestrator_exit_states.py`, ampliar los imports de
 la cabecera:
@@ -489,7 +492,7 @@ def test_un_lock_reciente_no_alerta(data, state):
     orch.telegram.send_alert.assert_not_called()
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 Run: `./.venv/Scripts/python.exe -m pytest -v tests/integration/test_orchestrator_exit_states.py::test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre tests/integration/test_orchestrator_exit_states.py::test_un_lock_sin_fecha_alerta tests/integration/test_orchestrator_exit_states.py::test_un_lock_reciente_no_alerta`
 
@@ -514,7 +517,7 @@ para los tres:
 Para confirmar que ese tercero está anclando algo de verdad y no es decorativo,
 al terminar el Step 4 hay una comprobación explícita en el Step 5.
 
-- [ ] **Step 3: Agregar la constante del umbral**
+- [x] **Step 3: Agregar la constante del umbral**
 
 En `src/macro_pipeline/orchestration/main.py`, ampliar el import de `datetime`
 de la cabecera:
@@ -536,7 +539,7 @@ Y agregar la constante justo después del bloque de `_CONSECUENCIA`
 _LOCK_VIEJO_SEGUNDOS = 7200
 ```
 
-- [ ] **Step 4: Implementar el aviso y engancharlo al guard**
+- [x] **Step 4: Implementar el aviso y engancharlo al guard**
 
 En `src/macro_pipeline/orchestration/main.py`, agregar el método justo antes de
 `def run_weekly_close` (que hoy empieza en `main.py:590`):
@@ -594,7 +597,7 @@ Y cambiar el guard (`main.py:656-661`) para que lo llame antes del `return`:
                     return 0
 ```
 
-- [ ] **Step 5: Correr los tests, y comprobar que el tercero anclaba algo**
+- [x] **Step 5: Correr los tests, y comprobar que el tercero anclaba algo**
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/integration/test_orchestrator_exit_states.py -v`
 
@@ -624,20 +627,20 @@ Expected: **dos rojos y un verde**, y los tres son la comprobación:
 **Revertir el `>=` a `<=` y volver a correr para confirmar que los tres vuelven
 a PASS.**
 
-- [ ] **Step 6: Correr la suite entera**
+- [x] **Step 6: Correr la suite entera**
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 
 Expected: PASS. Interesa especialmente `tests/unit/test_orchestrator_startup.py`,
 que ejercita el mismo camino de arranque.
 
-- [ ] **Step 7: Los tres gates**
+- [x] **Step 7: Los tres gates**
 
 Run: `./.venv/Scripts/python.exe -m ruff format --check . && ./.venv/Scripts/python.exe -m ruff check . && ./.venv/Scripts/python.exe -m mypy --strict src`
 
 Expected: los tres limpios.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/macro_pipeline/orchestration/main.py tests/integration/test_orchestrator_exit_states.py
@@ -656,7 +659,7 @@ Sin tests: es documentación. Lo que la hace obligatoria es que «se salta en
 silencio» pasa a ser **falsa** en cuanto la Task 3 está en `main`, en dos sitios
 distintos, y una política que describe mal el código es peor que no tenerla.
 
-- [ ] **Step 1: Corregir la fila de la tabla del segundo eje**
+- [x] **Step 1: Corregir la fila de la tabla del segundo eje**
 
 En `docs/adr/009-degradation-policy.md`, la fila que hoy dice:
 
@@ -670,7 +673,7 @@ pasa a decir:
 | Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta el cierre, y alerta si el lock lleva más de dos horas o su antigüedad no se puede leer |
 ```
 
-- [ ] **Step 2: Ampliar el párrafo que sigue a la tabla**
+- [x] **Step 2: Ampliar el párrafo que sigue a la tabla**
 
 Después del párrafo que empieza «Un abort **nunca** debe dejar la fila en
 `in_progress`…», agregar:
@@ -701,7 +704,7 @@ manejador general marcara la fila `failed`, que es soltar el lock justo donde
 esta política dice que no se toca.
 ```
 
-- [ ] **Step 3: Verificar que no queda ninguna otra copia de la frase vieja**
+- [x] **Step 3: Verificar que no queda ninguna otra copia de la frase vieja**
 
 Run: `grep -rn "en silencio" docs/adr/009-degradation-policy.md`
 
@@ -709,7 +712,7 @@ Expected: ninguna línea que describa la fila `in_progress` del segundo eje como
 silenciosa. Otras apariciones de «en silencio» en el documento —la segunda forma
 de abortar, que es el apagado por switch— son correctas y se quedan.
 
-- [ ] **Step 4: Corregir el docstring de módulo del fichero de tests**
+- [x] **Step 4: Corregir el docstring de módulo del fichero de tests**
 
 `tests/integration/test_orchestrator_exit_states.py:1-13` tiene dos cosas
 falsas. Dice «la tercera, quedar trabado» cuando la tabla del segundo eje fija
@@ -739,14 +742,14 @@ pero desde el aviso de lock viejo ya no es silencioso.
 El resto del docstring —el párrafo sobre por qué acá el `StateDB` es real— no
 se toca.
 
-- [ ] **Step 5: Que la suite siga verde**
+- [x] **Step 5: Que la suite siga verde**
 
 Run: `./.venv/Scripts/python.exe -m pytest -q`
 
 Expected: PASS. Un docstring de módulo no puede romper nada, pero es gratis
 comprobarlo antes de commitear.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/adr/009-degradation-policy.md tests/integration/test_orchestrator_exit_states.py
@@ -757,7 +760,7 @@ git commit -m "docs: la fila trabada se salta el cierre, pero ya no en silencio"
 
 ## Cierre
 
-- [ ] **Step 1: Marcar el plan como completo y empujar**
+- [x] **Step 1: Marcar el plan como completo y empujar**
 
 Run: `./.venv/Scripts/python.exe -m pytest -q && git push`
 
@@ -765,7 +768,7 @@ Expected: PASS y push limpio. Después, confirmar el run de CI **sobre el HEAD
 exacto** con `gh run list -L 3` antes de dar el trabajo por cerrado: verde en
 local no es verde en Actions.
 
-- [ ] **Step 2: Actualizar la memoria del backlog**
+- [x] **Step 2: Actualizar la memoria del backlog**
 
 `macropipeline-pending-work.md` lista esta mejora como pendiente («alertar sobre
 una fila `in_progress` vieja»). Al cerrarla hay que anotar el commit y el run de
