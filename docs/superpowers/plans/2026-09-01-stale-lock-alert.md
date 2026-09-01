@@ -647,6 +647,14 @@ git add src/macro_pipeline/orchestration/main.py tests/integration/test_orchestr
 git commit -m "feat(orchestration): un lock trabado deja de saltarse el cierre en silencio"
 ```
 
+**Lo que la revisión agregó después, y no está en el código de arriba:** el
+`except (TypeError, ValueError)` alrededor de la lectura y la resta (`fc29acb`),
+porque dejar subir esa excepción hace que el manejador general marque la fila
+`failed` y suelte el lock; y la rama de la fecha futura (`ccb05ce`), porque una
+edad negativa satisface el `<=` y silencia el aviso para siempre. Los dos casos
+llegan por la misma puerta —el humano que la propia alerta convoca, editando esa
+fila a mano— y los dos tienen su test.
+
 ---
 
 ## Task 4: la prosa que quedó falsa

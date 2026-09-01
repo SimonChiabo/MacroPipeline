@@ -52,8 +52,26 @@ que todo anduvo.
 
 ## La regla, en una frase
 
-**Un lock `in_progress` que no puede pertenecer a una run viva se avisa antes de
-saltarse el cierre.**
+**Un lock `in_progress` cuya antigüedad no es la de una run viva plausible se
+avisa antes de saltarse el cierre.**
+
+«No plausible» son cuatro cosas, y conviene verlas como una sola regla y no como
+cuatro casos especiales: el lock es más viejo que el umbral, la fila es anterior
+a la columna y no se sabe desde cuándo, el valor está pero no se puede leer, o
+está fechado **en el futuro**. Las tres últimas tienen el mismo origen práctico
+—alguien editó esa fila a mano, que es justo lo que la alerta pide hacer— y la
+del futuro es la más traicionera: una edad negativa satisface cualquier
+comparación con el umbral, así que sin tratarla aparte un año tipeado mal
+silencia el aviso para siempre en esa fila.
+
+**El borde de la fecha futura es `segundos < 0`, sin tolerancia**, y es una
+decisión y no un descuido: una edad negativa nunca es legítima, y cualquier
+ventana de gracia sería un segundo umbral sin derivar de nada —el de dos horas
+al menos sale del timeout de aprobación—. El precio es que unos segundos de
+desfase de reloj entre runners producen un aviso. Se acepta: no es una fuente de
+ruido recurrente (hace falta además una fila que parezca trabada, y el aviso es
+uno por evento), y el error opuesto es el silencio permanente que este trabajo
+existe para eliminar.
 
 Avisar, no reparar. Ver «Lo que este diseño no hace».
 

@@ -70,7 +70,7 @@ uno que deja la fila trabada exige intervención manual. La política fija
 | Aborta antes del lock | Ninguna fila | La próxima run reintenta sola |
 | Aborta antes del lock, en silencio | Ninguna fila | La próxima run vuelve a no publicar, también en silencio, hasta que se vuelva a encender la bandera |
 | Aborta con estado terminal | `failed` o `expired` | La próxima run reintenta; el motivo queda registrado |
-| Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta el cierre, y alerta si el lock lleva más de dos horas o su antigüedad no se puede leer |
+| Aborta trabado | `in_progress` | **No se acepta**: el reintento del mismo `event_id` se salta el cierre, y alerta si la antigüedad del lock no es la de una run viva plausible |
 
 Un abort **nunca** debe dejar la fila en `in_progress`. Es el mismo razonamiento
 del fix de `publishers_ready` (`5ba7997`): si no se publicó, el estado no debe
@@ -79,9 +79,10 @@ afirmar lo contrario ni impedir el reintento.
 Esa cuarta forma no se puede eliminar: una muerte no atrapable —SIGKILL, el
 runner efímero que se apaga— deja la fila trabada por definición, y ningún
 `except` la cubre. Lo que sí se eliminó es el silencio. Desde el 2026-09-01 el
-guard de lock avisa por Telegram en tres casos: el lock lleva más de dos horas,
-la fila es anterior a la columna `locked_at` y no se sabe desde cuándo, o ese
-valor existe pero no se puede leer.
+guard de lock avisa por Telegram cuando la antigüedad del lock no es la de una
+run viva plausible: lleva más de dos horas, la fila es anterior a la columna
+`locked_at` y no se sabe desde cuándo, el valor está pero no se puede leer, o
+está fechado en el futuro.
 
 El umbral sale del timeout de aprobación humana (`wait_for_approval`, 3600 s):
 una hora de `in_progress` es un estado sano mientras el operador decide, así
