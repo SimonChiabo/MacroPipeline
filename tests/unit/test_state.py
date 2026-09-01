@@ -468,3 +468,38 @@ def test_migrate_db_es_idempotente_con_la_columna_ya_puesta(tmp_path):
     segunda = StateDB(db_path=str(db_path))
 
     assert segunda.get_publication_state("weekly_close_2026-08-21")["locked_at"]
+
+
+def test_get_locked_at_devuelve_el_momento_del_lock(db):
+    """El lector devuelve un `datetime` con zona, listo para restar."""
+    db.mark_in_progress("weekly_close_2026-08-21")
+
+    locked_at = db.get_locked_at("weekly_close_2026-08-21")
+
+    assert locked_at is not None
+    assert locked_at.tzinfo is not None
+    edad = datetime.now(UTC) - locked_at
+    assert timedelta(0) <= edad < timedelta(seconds=30)
+
+
+def test_get_locked_at_es_none_sin_fila(db):
+    """Un evento que nunca se lockeó no tiene momento de lock."""
+    assert db.get_locked_at("weekly_close_1999-01-01") is None
+
+
+def test_get_locked_at_es_none_con_la_columna_en_null(db):
+    """Una fila anterior a la migración: existe, pero no dice desde cuándo.
+
+    El llamador no necesita separar este caso del anterior — pregunta después
+    de que `is_in_progress` dijo que sí, así que en la práctica siempre es
+    éste— pero los dos tienen que dar `None` y no reventar.
+    """
+    event = "weekly_close_2026-08-21"
+    db.mark_in_progress(event)
+    with sqlite3.connect(db.db_path) as conn:
+        conn.execute(
+            "UPDATE published_events SET locked_at = NULL WHERE event_id = ?",
+            (event,),
+        )
+
+    assert db.get_locked_at(event) is None

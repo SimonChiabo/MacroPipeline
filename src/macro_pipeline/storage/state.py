@@ -167,6 +167,30 @@ class StateDB:
         logger.info("event_marked_in_progress", event_id=event_id)
         self._notify_write()
 
+    def get_locked_at(self, event_id: str) -> datetime | None:
+        """Cuando se tomo el lock de este evento, o `None` si no se sabe.
+
+        Devuelve el dato crudo y no lo interpreta a proposito: que antiguedad
+        cuenta como «vieja» sale del timeout de aprobacion humana, que es una
+        decision del pipeline. Poner el umbral aca obligaria a esta capa a
+        saber cuanto tarda una run sana.
+
+        `None` cubre dos casos que el llamador no necesita separar: la fila no
+        existe, o es anterior a la columna `locked_at`. El unico llamador
+        pregunta despues de que `is_in_progress` dijo que si, asi que en la
+        practica es siempre el segundo — y ese caso alerta, porque una fila
+        trabada con antiguedad desconocida no va a recibir un `locked_at`
+        nunca: `mark_in_progress` no toca las filas `in_progress`.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT locked_at FROM published_events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        return datetime.fromisoformat(row[0])
+
     # ── Publicado ─────────────────────────────────────────────────────────────
 
     def is_published(self, event_id: str) -> bool:
