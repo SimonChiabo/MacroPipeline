@@ -409,14 +409,12 @@ def test_rearmar_el_lock_refresca_locked_at(db):
 def test_no_refresca_locked_at_si_la_fila_ya_esta_in_progress(db):
     """Una fila ya `in_progress` no es un re-arm: no hay que tocarle el lock.
 
-    Es la mitad que hace confiable al umbral de la Task 3. El `WHERE` de
-    `mark_in_progress` solo cubre `failed` y `expired` a proposito; si algun
-    dia alguien lo ensancha para incluir `in_progress` —pensando en revivir
-    una fila trabada— cada reintento sobre esa misma fila trabada le
-    refrescaria `locked_at`, y el umbral de dos horas de la Task 3 nunca
-    tendria una fila lo bastante vieja como para dispararse. Es la fila
-    trabada, y si el re-arm la tocara el umbral de la Task 3 no podria
-    dispararse nunca.
+    El `WHERE` de `mark_in_progress` cubre solo `failed` y `expired` a
+    proposito. Si algun dia alguien lo ensancha para incluir `in_progress`
+    —pensando en revivir una fila trabada— cada reintento le refrescaria el
+    `locked_at` a esa misma fila, y el aviso de lock viejo no volveria a tener
+    nunca una fila lo bastante antigua como para dispararse. La deteccion
+    moriria en silencio, que es justo lo que existe para evitar.
     """
     event = "weekly_close_2026-08-21"
     db.mark_in_progress(event)
