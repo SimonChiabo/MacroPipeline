@@ -108,6 +108,24 @@ class R2Client:
         cuerpo: bytes = respuesta["Body"].read()
         return cuerpo
 
+    def delete_object(self, key: str) -> None:
+        """Borra `key`. Lo usa el chequeo de credenciales, no el pipeline.
+
+        Nada en el camino de producción borra: `state_sync.py` solo llama a
+        `upload_object` y `download_object`. Por eso el chequeo trata un fallo
+        de borrado como aviso y no como fallo — exigir permiso de `DeleteObject`
+        pondría en rojo un token capaz de hacer todo lo que el pipeline
+        necesita.
+
+        Vive acá y no en el script para que la sonda no invente su propio
+        manejo de errores: las dos ramas de botocore, igual que sus hermanas.
+        """
+        try:
+            self.s3.delete_object(Bucket=self.bucket, Key=key)
+        except (ClientError, BotoCoreError) as e:
+            logger.error("r2_delete_failed", key=key, error=str(e))
+            raise R2ClientError(f"Error borrando de R2: {e}") from e
+
     # ── Imágenes ──────────────────────────────────────────────────────────────
 
     def upload_image(self, image_bytes: bytes, filename: str) -> str:

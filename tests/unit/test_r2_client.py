@@ -37,12 +37,20 @@ def _client(monkeypatch, fake_s3):
 class _FakeS3:
     """Doble de `boto3.client('s3')` con solo lo que usa R2Client."""
 
-    def __init__(self, get_result=None, get_error=None, put_error=None):
+    def __init__(
+        self,
+        get_result=None,
+        get_error=None,
+        put_error=None,
+        delete_error=None,
+    ):
         self._get_result = get_result
         self._get_error = get_error
         self._put_error = put_error
+        self._delete_error = delete_error
         self.put_calls: list[dict] = []
         self.get_calls: list[dict] = []
+        self.delete_calls: list[dict] = []
 
     def put_object(self, **kwargs):
         self.put_calls.append(kwargs)
@@ -54,6 +62,11 @@ class _FakeS3:
         if self._get_error is not None:
             raise self._get_error
         return {"Body": _FakeBody(self._get_result)}
+
+    def delete_object(self, **kwargs):
+        self.delete_calls.append(kwargs)
+        if self._delete_error is not None:
+            raise self._delete_error
 
 
 class _FakeBody:
@@ -159,6 +172,41 @@ def test_download_object_levanta_ante_un_fallo_de_transporte(monkeypatch):
 
     with pytest.raises(R2ClientError):
         cliente.download_object("state/state.db")
+
+
+# ── delete_object ────────────────────────────────────────────────────────────
+
+
+def test_delete_object_borra_la_key_pedida(monkeypatch):
+    s3 = _FakeS3()
+    cliente = _client(monkeypatch, s3)
+
+    cliente.delete_object("state/state.db")
+
+    assert s3.delete_calls == [{"Bucket": "bucket-de-prueba", "Key": "state/state.db"}]
+
+
+def test_delete_object_traduce_las_dos_ramas_de_botocore(monkeypatch):
+    """Mismo razonamiento que `upload_object`: las ramas son hermanas, no
+    padre-hijo.
+
+    Un `except ClientError` a secas dejaria escapar `EndpointConnectionError`
+    -el corte de red, el fallo mas probable-, que es la divergencia (b) de
+    ADR-009 otra vez.
+    """
+    s3_client_error = _FakeS3(
+        delete_error=_client_error("AccessDenied", "DeleteObject")
+    )
+    cliente = _client(monkeypatch, s3_client_error)
+    with pytest.raises(R2ClientError):
+        cliente.delete_object("state/state.db")
+
+    s3_transporte = _FakeS3(
+        delete_error=EndpointConnectionError(endpoint_url="https://r2.test")
+    )
+    cliente = _client(monkeypatch, s3_transporte)
+    with pytest.raises(R2ClientError):
+        cliente.delete_object("state/state.db")
 
 
 # ── upload_image sigue igual ─────────────────────────────────────────────────
