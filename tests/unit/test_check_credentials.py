@@ -294,13 +294,14 @@ def test_a_disabled_network_cannot_turn_the_script_red(
     """
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
+    _apagar_los_cuatro(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     assert check_credentials.main() == 0
 
     salida = capsys.readouterr().out
-    assert "X:        apagada" in salida
-    assert "LinkedIn: apagada" in salida
+    assert "X:        apagado" in salida
+    assert "LinkedIn: apagado" in salida
 
 
 def test_a_disabled_network_is_not_even_checked(check_credentials, monkeypatch):
@@ -312,6 +313,7 @@ def test_a_disabled_network_is_not_even_checked(check_credentials, monkeypatch):
     """
     llamadas = []
     monkeypatch.setenv("PUBLISH_X", "false")
+    _apagar_los_cuatro(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
         check_credentials, "check_x", lambda: llamadas.append("x") or True
@@ -333,6 +335,7 @@ def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
     de fallo imprimen una linea legible.
     """
     monkeypatch.setenv("PUBLISH_X", "yes")
+    _apagar_los_cuatro(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     assert check_credentials.main() == 1
@@ -413,3 +416,129 @@ def test_un_401_deja_el_marcador_que_el_nightly_grepea(
 
     assert check_credentials.check_linkedin() is False
     assert "LINKEDIN_TOKEN_DEAD" in capsys.readouterr().out
+
+
+def _apagar_los_cuatro(monkeypatch):
+    """Los cuatro componentes nuevos, apagados.
+
+    Sin esto, un test que llame a `main()` contacta FRED, Alpha Vantage,
+    Anthropic y R2 de verdad: `component_enabled` trata la variable ausente
+    como encendido a proposito, y la suite unitaria no sale a la red.
+    """
+    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2"):
+        monkeypatch.setenv(var, "false")
+
+
+def test_un_componente_apagado_no_se_chequea_ni_pone_rojo(
+    check_credentials, monkeypatch, capsys
+):
+    """La misma regla que ya rige para las redes, extendida a los cuatro.
+
+    Apagar es una decision, no un fallo (tercer eje de ADR-009): el componente
+    no se contacta y no cuenta para el codigo de salida.
+    """
+    llamadas = []
+    monkeypatch.setenv("PUBLISH_X", "false")
+    monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
+    _apagar_los_cuatro(monkeypatch)
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(
+        check_credentials, "check_fred", lambda: llamadas.append("fred") or "listo"
+    )
+
+    assert check_credentials.main() == 0
+
+    assert llamadas == []
+    assert "FRED:     apagado" in capsys.readouterr().out
+
+
+def test_un_switch_ilegible_de_un_componente_nuevo_no_da_traceback(
+    check_credentials, monkeypatch, capsys
+):
+    """Mismo trato que `PUBLISH_X=yes`, y antes de contactar a nadie.
+
+    Los seis switches se leen enteros antes de correr ningun chequeo: con uno
+    ilegible, ninguna API se contacta. Si se leyeran de a uno dentro del bucle,
+    un `USE_FRED` mal escrito dejaria a X ya contactada.
+    """
+    llamadas = []
+    monkeypatch.setenv("USE_FRED", "puede ser")
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(
+        check_credentials, "check_x", lambda: llamadas.append("x") or True
+    )
+
+    assert check_credentials.main() == 1
+
+    salida = capsys.readouterr().out
+    assert "USE_FRED" in salida
+    assert "puede ser" in salida
+    assert llamadas == []
+
+
+def test_fred_autentica_con_un_200(check_credentials, monkeypatch, capsys):
+    monkeypatch.setenv("FRED_API_KEY", "una-key-cualquiera")
+
+    class Respuesta200:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"seriess": [{"id": "UNRATE"}]}
+
+    monkeypatch.setattr(
+        check_credentials.requests, "get", lambda *a, **k: Respuesta200()
+    )
+
+    assert check_credentials.check_fred() == check_credentials.LISTO
+    assert "[ OK ]" in capsys.readouterr().out
+
+
+def test_fred_con_key_invalida_muestra_el_mensaje_de_la_api(
+    check_credentials, monkeypatch, capsys
+):
+    """FRED no contesta 401: contesta 400 con `error_message` en el cuerpo.
+
+    Un chequeo que solo mirara `!= 200` diria "HTTP 400" y nada mas, que es
+    justo lo que no ayuda a nadie a las once de la noche.
+    """
+    monkeypatch.setenv("FRED_API_KEY", "una-key-cualquiera")
+
+    class Respuesta400:
+        status_code = 400
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "error_code": 400,
+                "error_message": "Bad Request. The value for variable api_key "
+                "is not registered.",
+            }
+
+    monkeypatch.setattr(
+        check_credentials.requests, "get", lambda *a, **k: Respuesta400()
+    )
+
+    assert check_credentials.check_fred() == check_credentials.NO_LISTO
+    assert "is not registered" in capsys.readouterr().out
+
+
+def test_fred_sin_respuesta_pone_rojo(check_credentials, monkeypatch, capsys):
+    """No haber podido verificar pone rojo, y el texto nombra el transporte.
+
+    Un verde que no verifico nada es peor que un rojo (es el argumento del
+    fixture de `test_av_contract.py`), y una alerta que dice "la key no sirve"
+    por un corte de red manda a rotar una credencial sana.
+    """
+    monkeypatch.setenv("FRED_API_KEY", "una-key-cualquiera")
+
+    def _revienta(*a, **k):
+        raise check_credentials.requests.RequestException("sin ruta al host")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _revienta)
+
+    assert check_credentials.check_fred() == check_credentials.NO_LISTO
+    salida = capsys.readouterr().out
+    assert "No se pudo contactar" in salida

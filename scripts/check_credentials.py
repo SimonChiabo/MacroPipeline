@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from requests_oauthlib import OAuth1Session
 from macro_pipeline.components import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
+    USE_FRED_VAR,
     component_enabled,
 )
 
@@ -38,6 +40,14 @@ LINKEDIN_VARS = ("LINKEDIN_ACCESS_TOKEN", "LINKEDIN_PERSON_URN")
 # Solo ASCII en la salida: la consola de Windows usa cp1252 y los
 # caracteres de dibujo de caja revientan con UnicodeEncodeError.
 OK, FAIL, WARN = "[ OK ]", "[FALLA]", "[AVISO]"
+
+# Tres veredictos y no dos: el rate limit de Alpha Vantage no es "listo" ni
+# "NO listo". Decir "listo" de algo que no se pudo verificar es exactamente el
+# verde que no verifico nada, y decir "NO listo" de una cuota agotada pone el
+# script en rojo por usarlo.
+LISTO, NO_LISTO, SIN_VERIFICAR = "listo", "NO listo", "sin verificar"
+
+FRED_VARS = ("FRED_API_KEY",)
 
 
 def _is_placeholder(value: str) -> bool:
@@ -150,9 +160,42 @@ def _check_present(names: tuple[str, ...]) -> list[str]:
     return missing
 
 
+def _encabezado(titulo: str) -> None:
+    """La linea de seccion, del mismo ancho para los seis."""
+    print(f"\n-- {titulo} " + "-" * max(3, 48 - len(titulo)))
+
+
+def _veredicto(chequeo: Callable[[], bool]) -> Callable[[], str]:
+    """Adapta los dos chequeos que ya devolvian `bool` a los tres veredictos.
+
+    X y LinkedIn no tienen un caso "sin verificar": un corte de red ya sale
+    como `False` y con su marcador. Envolverlos aca evita tocarlos y evita
+    romper los tests que asertan `check_linkedin() is False`.
+    """
+    return lambda: LISTO if chequeo() else NO_LISTO
+
+
+def _mensaje_de_error(response: requests.Response) -> str:
+    """El texto que la API da para explicarse, o el cuerpo crudo.
+
+    FRED pone el motivo real en `error_message` y devuelve 400, no 401: sin
+    esto el diagnostico seria "HTTP 400" a secas.
+    """
+    try:
+        cuerpo = response.json()
+    except ValueError:
+        return response.text[:200]
+    if isinstance(cuerpo, dict) and "error_message" in cuerpo:
+        return str(cuerpo["error_message"])
+    return response.text[:200]
+
+
 def check_x() -> bool:
-    """GET /2/users/me: confirma que las cuatro credenciales autentican."""
-    print("\n-- X ----------------------------------------------")
+    """GET /2/users/me: confirma que las cuatro credenciales autentican.
+
+    El encabezado de seccion lo imprime `main()` para los seis componentes:
+    imprimirlo tambien aca lo duplicaba.
+    """
     if _check_present(X_VARS):
         return False
 
@@ -221,8 +264,10 @@ def _avisar_vencimiento() -> None:
 
 
 def check_linkedin() -> bool:
-    """GET /v2/userinfo: confirma el token y muestra el PERSON_URN correcto."""
-    print("\n-- LinkedIn ---------------------------------------")
+    """GET /v2/userinfo: confirma el token y muestra el PERSON_URN correcto.
+
+    El encabezado de seccion lo imprime `main()`, igual que para X.
+    """
     missing = _check_present(LINKEDIN_VARS)
 
     token = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
@@ -269,51 +314,77 @@ def check_linkedin() -> bool:
     return not missing
 
 
+def check_fred() -> str:
+    """GET /fred/series: la llamada mas barata que igual autentica."""
+    if _check_present(FRED_VARS):
+        return NO_LISTO
+
+    try:
+        response = requests.get(
+            "https://api.stlouisfed.org/fred/series",
+            params={
+                "series_id": "UNRATE",
+                "file_type": "json",
+                "api_key": os.environ["FRED_API_KEY"],
+            },
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"{FAIL} No se pudo contactar la API de FRED: {e}")
+        print("       La key quedo sin verificar; no es necesariamente ella.")
+        return NO_LISTO
+
+    if response.status_code == 200:
+        print(f"{OK} La key de FRED autentica.")
+        return LISTO
+
+    print(f"{FAIL} HTTP {response.status_code}: {_mensaje_de_error(response)}")
+    return NO_LISTO
+
+
 def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
 
-    try:
-        x_on = component_enabled(PUBLISH_X_VAR)
-        linkedin_on = component_enabled(PUBLISH_LINKEDIN_VAR)
-    except ValueError as e:
-        # El unico sitio donde el valor malo no sale por traceback: este script
-        # existe para decirle a un humano que tiene mal configurado, y el
-        # orquestador ya se muere solo si la bandera no se entiende.
-        print(f"{FAIL} {e}")
-        return 1
+    # Las funciones se nombran acá y no en una constante de módulo: así
+    # `monkeypatch.setattr` sobre el módulo sigue funcionando en los tests.
+    chequeos: list[tuple[str, str, Callable[[], str]]] = [
+        ("X", PUBLISH_X_VAR, _veredicto(check_x)),
+        ("LinkedIn", PUBLISH_LINKEDIN_VAR, _veredicto(check_linkedin)),
+        ("FRED", USE_FRED_VAR, check_fred),
+    ]
 
-    # Una red apagada no se chequea y no cuenta para el código de salida: no
-    # tiene credenciales que sirvan ni que dejen de servir, porque no publica.
-    if x_on:
-        x_ok = check_x()
-    else:
-        print("\n-- X ----------------------------------------------")
-        print(f"{OK} Apagada por {PUBLISH_X_VAR}=false: no se verifica.")
-        x_ok = True
+    # Todos los switches, antes de contactar a nadie. Uno ilegible no puede
+    # dejar media verificación hecha.
+    estados: list[tuple[str, str, Callable[[], str], bool]] = []
+    for titulo, var, chequeo in chequeos:
+        try:
+            estados.append((titulo, var, chequeo, component_enabled(var)))
+        except ValueError as e:
+            # El único sitio donde el valor malo no sale por traceback: este
+            # script existe para decirle a un humano qué tiene mal configurado.
+            print(f"{FAIL} {e}")
+            return 1
 
-    if linkedin_on:
-        linkedin_ok = check_linkedin()
-    else:
-        print("\n-- LinkedIn ---------------------------------------")
-        print(f"{OK} Apagada por {PUBLISH_LINKEDIN_VAR}=false: no se verifica.")
-        linkedin_ok = True
+    resultados: list[tuple[str, str]] = []
+    for titulo, var, chequeo, encendido in estados:
+        _encabezado(titulo)
+        if not encendido:
+            print(f"{OK} Apagado por {var}=false: no se verifica.")
+            resultados.append((titulo, "apagado"))
+            continue
+        resultados.append((titulo, chequeo()))
 
     print("\n-- Resultado --------------------------------------")
-    print(f"X:        {'apagada' if not x_on else 'listo' if x_ok else 'NO listo'}")
-    print(
-        f"LinkedIn: "
-        f"{'apagada' if not linkedin_on else 'listo' if linkedin_ok else 'NO listo'}"
-    )
-    if not x_on and not linkedin_on:
-        print("\nLas dos redes están apagadas: el pipeline no va a publicar")
-        print("en ninguna parte y aborta antes de tocar el estado.")
+    for titulo, estado in resultados:
+        print(f"{titulo + ':':<9} {estado}")
+
+    if all(estado == "apagado" for _, estado in resultados):
+        print("\nTodo apagado: no hay ninguna credencial que verificar.")
         return 0
-    if x_ok and linkedin_ok:
-        print("\nLa publicación real puede ejercitarse de punta a punta en las")
-        print("redes encendidas.")
-        return 0
-    return 1
+    if any(estado == NO_LISTO for _, estado in resultados):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
