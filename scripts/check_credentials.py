@@ -15,6 +15,7 @@ Sale con código 1 si algo no está listo. No imprime credenciales.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Callable
 from datetime import date
@@ -27,6 +28,7 @@ from requests_oauthlib import OAuth1Session
 from macro_pipeline.components import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
+    USE_ANTHROPIC_VAR,
     USE_AV_VAR,
     USE_FRED_VAR,
     component_enabled,
@@ -50,6 +52,7 @@ LISTO, NO_LISTO, SIN_VERIFICAR = "listo", "NO listo", "sin verificar"
 
 FRED_VARS = ("FRED_API_KEY",)
 AV_VARS = ("ALPHA_VANTAGE_API_KEY",)
+ANTHROPIC_VARS = ("ANTHROPIC_API_KEY",)
 
 # El marcador que ya conoce el repo. Mismo texto y mismo motivo que en
 # `tests/contract/test_av_contract.py`: separa "no pudimos verificar" de "la
@@ -394,6 +397,84 @@ def check_av() -> str:
     return LISTO
 
 
+# Tope de páginas. El listado es chico, pero un `has_more` siempre en `true`
+# —un bug de la API, un proxy raro— dejaría el chequeo colgado para siempre.
+_MAX_PAGINAS = 10
+
+
+def _esta_listado(modelo: str, ids: list[str]) -> bool:
+    """El modelo del pipeline, buscado como alias o como snapshot fechado.
+
+    Comprobado en vivo el 2026-09-01: `/v1/models` devuelve
+    `claude-haiku-4-5-20251001` y NO el alias `claude-haiku-4-5`, que es el que
+    usa el pipeline y funciona perfectamente. Con la igualdad a secas, la
+    primera corrida real avisó de un retiro inexistente. Es el mismo modo de
+    fallo que mirar solo la primera página: un AVISO falso entrena a ignorar el
+    verdadero, y ese es justo el aviso que este chequeo existe para dar.
+
+    El sufijo tiene que ser una fecha de ocho dígitos y nada más. Un
+    `startswith` a secas daría por presente cualquier id que empiece igual, y
+    aflojar el match hasta volverlo mudo sería peor que el falso aviso.
+    """
+    fechado = re.compile(rf"^{re.escape(modelo)}-\d{{8}}$")
+    return any(i == modelo or fechado.match(i) for i in ids)
+
+
+def check_anthropic() -> str:
+    """GET /v1/models: autentica sin gastar tokens, por eso este y no un mensaje."""
+    # Adentro a propósito: importar esto arrastra el SDK de Anthropic entero
+    # (1642 módulos, ~1.9 s medidos) y es el import más caro del script. Acá
+    # solo lo paga quien tiene Anthropic encendido; el paso del nightly, que lo
+    # apaga, no lo paga nunca. Se importa la constante y no se copia el string:
+    # una copia mentiría el día que el pipeline cambie de modelo.
+    from macro_pipeline.llm.client import MODEL
+
+    if _check_present(ANTHROPIC_VARS):
+        return NO_LISTO
+
+    headers = {
+        "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+        "anthropic-version": "2023-06-01",
+    }
+    params: dict[str, str | int] = {"limit": 1000}
+    ids: list[str] = []
+
+    for _ in range(_MAX_PAGINAS):
+        try:
+            response = requests.get(
+                "https://api.anthropic.com/v1/models",
+                headers=headers,
+                params=params,
+                timeout=15,
+            )
+        except requests.RequestException as e:
+            print(f"{FAIL} No se pudo contactar la API de Anthropic: {e}")
+            return NO_LISTO
+
+        if response.status_code == 401:
+            print(f"{FAIL} 401: la ANTHROPIC_API_KEY no autentica.")
+            return NO_LISTO
+        if response.status_code != 200:
+            print(f"{FAIL} HTTP {response.status_code}: {response.text[:200]}")
+            return NO_LISTO
+
+        cuerpo = response.json()
+        ids.extend(str(m.get("id")) for m in cuerpo.get("data", []))
+        if not cuerpo.get("has_more"):
+            break
+        params = {"limit": 1000, "after_id": ids[-1]}
+
+    print(f"{OK} La key de Anthropic autentica ({len(ids)} modelos visibles).")
+
+    if not _esta_listado(MODEL, ids):
+        print(f"{WARN} {MODEL} no aparece en el listado: puede estar retirado o")
+        print("       no habilitado para esta key. No impide publicar hoy —el")
+        print("       pipeline caería al titular de emergencia— pero es la")
+        print("       señal temprana, y este repo ya se comió un retiro.")
+
+    return LISTO
+
+
 def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
@@ -405,6 +486,7 @@ def main() -> int:
         ("LinkedIn", PUBLISH_LINKEDIN_VAR, _veredicto(check_linkedin)),
         ("FRED", USE_FRED_VAR, check_fred),
         ("Alpha Vantage", USE_AV_VAR, check_av),
+        ("Anthropic", USE_ANTHROPIC_VAR, check_anthropic),
     ]
 
     # Todos los switches, antes de contactar a nadie. Uno ilegible no puede
@@ -430,7 +512,10 @@ def main() -> int:
 
     print("\n-- Resultado --------------------------------------")
     for titulo, estado in resultados:
-        print(f"{titulo + ':':<9} {estado}")
+        # 15 y no 9: el ancho viejo entraba para `X:`, `LinkedIn:` y `FRED:`,
+        # pero `Alpha Vantage:` mide 14 y `Anthropic:` 10, asi que la columna
+        # salia dentada. Este es el titulo mas largo de los seis mas un espacio.
+        print(f"{titulo + ':':<15} {estado}")
 
     if all(estado == "apagado" for _, estado in resultados):
         print("\nTodo apagado: no hay ninguna credencial que verificar.")

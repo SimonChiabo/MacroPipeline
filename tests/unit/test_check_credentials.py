@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from macro_pipeline.llm.client import MODEL
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -300,8 +302,8 @@ def test_a_disabled_network_cannot_turn_the_script_red(
     assert check_credentials.main() == 0
 
     salida = capsys.readouterr().out
-    assert "X:        apagado" in salida
-    assert "LinkedIn: apagado" in salida
+    assert "X:              apagado" in salida
+    assert "LinkedIn:       apagado" in salida
 
 
 def test_a_disabled_network_is_not_even_checked(check_credentials, monkeypatch):
@@ -449,7 +451,7 @@ def test_un_componente_apagado_no_se_chequea_ni_pone_rojo(
     assert check_credentials.main() == 0
 
     assert llamadas == []
-    assert "FRED:     apagado" in capsys.readouterr().out
+    assert "FRED:           apagado" in capsys.readouterr().out
 
 
 def test_un_switch_ilegible_de_un_componente_nuevo_no_da_traceback(
@@ -660,3 +662,133 @@ def test_el_rate_limit_de_av_no_cambia_el_codigo_de_salida(
     )
 
     assert check_credentials.main() == 0
+
+
+def _respuesta_de_modelos(ids, has_more=False):
+    class Respuesta:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"data": [{"id": i} for i in ids], "has_more": has_more}
+
+    return Respuesta()
+
+
+def test_anthropic_con_key_invalida_falla(check_credentials, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "una-key-cualquiera")
+
+    class Respuesta401:
+        status_code = 401
+        text = ""
+
+    monkeypatch.setattr(
+        check_credentials.requests, "get", lambda *a, **k: Respuesta401()
+    )
+
+    assert check_credentials.check_anthropic() == check_credentials.NO_LISTO
+    assert "401" in capsys.readouterr().out
+
+
+def test_anthropic_avisa_si_el_modelo_del_pipeline_no_esta(
+    check_credentials, monkeypatch, capsys
+):
+    """El retiro del modelo, cazado temprano y sin poner rojo.
+
+    Este repo ya se comio uno (`claude-3-haiku-20240307`, retirado el
+    2026-04-19). Que no este no impide publicar hoy: el pipeline caeria al
+    titular de emergencia, que es degradacion y no caida.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _respuesta_de_modelos(["un-modelo-que-no-es"]),
+    )
+
+    assert check_credentials.check_anthropic() == check_credentials.LISTO
+    salida = capsys.readouterr().out
+    assert "[AVISO]" in salida
+    assert MODEL in salida
+
+
+def test_anthropic_pagina_el_listado(check_credentials, monkeypatch, capsys):
+    """El listado es paginado y el modelo puede caer en la segunda pagina.
+
+    Un chequeo que mirara solo la primera respuesta avisaria de un retiro
+    inexistente. Un AVISO falso entrena a ignorar el verdadero, que es el modo
+    de fallo que este trabajo existe para evitar.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "una-key-cualquiera")
+    paginas = [
+        _respuesta_de_modelos(["otro-modelo"], has_more=True),
+        _respuesta_de_modelos([MODEL]),
+    ]
+    monkeypatch.setattr(
+        check_credentials.requests, "get", lambda *a, **k: paginas.pop(0)
+    )
+
+    assert check_credentials.check_anthropic() == check_credentials.LISTO
+    assert "[AVISO]" not in capsys.readouterr().out
+
+
+def test_un_corte_de_red_en_anthropic_pone_rojo(check_credentials, monkeypatch, capsys):
+    """La regla general: no haber podido verificar pone rojo.
+
+    El rate limit de AV es la unica excepcion, y es porque el chequeo se
+    fabrica esa condicion solo. Un corte de red no es eso.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "una-key-cualquiera")
+
+    def _revienta(*a, **k):
+        raise check_credentials.requests.RequestException("sin ruta al host")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _revienta)
+
+    assert check_credentials.check_anthropic() == check_credentials.NO_LISTO
+    assert "No se pudo contactar" in capsys.readouterr().out
+
+
+def test_anthropic_no_avisa_por_el_snapshot_fechado_del_mismo_modelo(
+    check_credentials, monkeypatch, capsys
+):
+    """Lo que devuelve la API de verdad, y por que la igualdad no alcanza.
+
+    Verificado en vivo el 2026-09-01: `/v1/models` lista
+    `claude-haiku-4-5-20251001`, el snapshot fechado, y NO el alias
+    `claude-haiku-4-5`, que es el que usa el pipeline y funciona. Mirando la
+    igualdad a secas, el chequeo aviso de un retiro inexistente la primera vez
+    que se corrio contra la API real. Es el mismo modo de fallo que el listado
+    paginado: un AVISO falso entrena a ignorar el verdadero.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _respuesta_de_modelos([f"{MODEL}-20251001"]),
+    )
+
+    assert check_credentials.check_anthropic() == check_credentials.LISTO
+    assert "[AVISO]" not in capsys.readouterr().out
+
+
+def test_anthropic_solo_acepta_una_fecha_como_sufijo(
+    check_credentials, monkeypatch, capsys
+):
+    """La otra mitad: aflojar el match no puede volverlo mudo.
+
+    Se acepta exactamente un sufijo de ocho digitos —la forma de un snapshot
+    fechado— y nada mas. Un `startswith` a secas daria por presente cualquier
+    id que empiece igual, y entonces el AVISO que este chequeo existe para dar
+    no saldria nunca.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _respuesta_de_modelos([f"{MODEL}-turbo"]),
+    )
+
+    assert check_credentials.check_anthropic() == check_credentials.LISTO
+    assert "[AVISO]" in capsys.readouterr().out
