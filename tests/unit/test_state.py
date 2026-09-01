@@ -503,3 +503,33 @@ def test_get_locked_at_es_none_con_la_columna_en_null(db):
         )
 
     assert db.get_locked_at(event) is None
+
+
+def test_get_locked_at_devuelve_lo_guardado_y_no_la_hora_actual(db):
+    """El lector tiene que leer, no inventar.
+
+    Sin este test, un `return datetime.now(UTC)` pasa los otros tres: la
+    ventana de tolerancia se cumple con una edad de cero, y los dos casos de
+    `None` vuelven antes de llegar a esa línea. El aviso de lock viejo mediría
+    siempre cero y no se dispararía nunca, con la suite entera en verde — que
+    es exactamente el silencio que este trabajo existe para eliminar.
+
+    La segunda fila no es decorado: con una sola, borrar el `WHERE event_id`
+    devolvería igual la fila correcta. Con dos, la consulta sin filtro trae la
+    otra y el test cae.
+    """
+    event = "weekly_close_2026-08-21"
+    otro = "weekly_close_2026-08-14"
+    db.mark_in_progress(otro)
+    db.mark_in_progress(event)
+    with sqlite3.connect(db.db_path) as conn:
+        conn.execute(
+            "UPDATE published_events SET locked_at = ? WHERE event_id = ?",
+            ("2026-07-01T00:00:00+00:00", otro),
+        )
+        conn.execute(
+            "UPDATE published_events SET locked_at = ? WHERE event_id = ?",
+            ("2026-08-01T00:00:00+00:00", event),
+        )
+
+    assert db.get_locked_at(event) == datetime(2026, 8, 1, tzinfo=UTC)
