@@ -27,6 +27,7 @@ from requests_oauthlib import OAuth1Session
 from macro_pipeline.components import (
     PUBLISH_LINKEDIN_VAR,
     PUBLISH_X_VAR,
+    USE_AV_VAR,
     USE_FRED_VAR,
     component_enabled,
 )
@@ -48,6 +49,13 @@ OK, FAIL, WARN = "[ OK ]", "[FALLA]", "[AVISO]"
 LISTO, NO_LISTO, SIN_VERIFICAR = "listo", "NO listo", "sin verificar"
 
 FRED_VARS = ("FRED_API_KEY",)
+AV_VARS = ("ALPHA_VANTAGE_API_KEY",)
+
+# El marcador que ya conoce el repo. Mismo texto y mismo motivo que en
+# `tests/contract/test_av_contract.py`: separa "no pudimos verificar" de "la
+# credencial no sirve". No colisiona con el del nightly, que se grepea sobre
+# `pytest-output.txt`.
+AV_RATE_LIMIT_MARKER = "AV_RATE_LIMIT"
 
 
 def _is_placeholder(value: str) -> bool:
@@ -342,6 +350,50 @@ def check_fred() -> str:
     return NO_LISTO
 
 
+def check_av() -> str:
+    """GLOBAL_QUOTE: una llamada, la mas barata, y el cuerpo manda."""
+    if _check_present(AV_VARS):
+        return NO_LISTO
+
+    try:
+        response = requests.get(
+            "https://www.alphavantage.co/query",
+            params={
+                "function": "GLOBAL_QUOTE",
+                "symbol": "SPY",
+                "apikey": os.environ["ALPHA_VANTAGE_API_KEY"],
+            },
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"{FAIL} No se pudo contactar la API de Alpha Vantage: {e}")
+        return NO_LISTO
+
+    if response.status_code != 200:
+        print(f"{FAIL} HTTP {response.status_code}: {response.text[:200]}")
+        return NO_LISTO
+
+    try:
+        datos = response.json()
+    except ValueError:
+        print(f"{FAIL} Alpha Vantage no devolvió JSON: {response.text[:200]}")
+        return NO_LISTO
+
+    if "Error Message" in datos:
+        print(f"{FAIL} {datos['Error Message']}")
+        return NO_LISTO
+
+    if "rate limit" in str(datos.get("Information", "")).lower():
+        print(f"{WARN} {AV_RATE_LIMIT_MARKER}: se agotó la cuota diaria, así que")
+        print("       la key quedó SIN VERIFICAR. No es un fallo de la")
+        print("       credencial: este mismo chequeo consume una llamada de esa")
+        print("       cuota cada vez que corre.")
+        return SIN_VERIFICAR
+
+    print(f"{OK} La key de Alpha Vantage autentica.")
+    return LISTO
+
+
 def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
@@ -352,6 +404,7 @@ def main() -> int:
         ("X", PUBLISH_X_VAR, _veredicto(check_x)),
         ("LinkedIn", PUBLISH_LINKEDIN_VAR, _veredicto(check_linkedin)),
         ("FRED", USE_FRED_VAR, check_fred),
+        ("Alpha Vantage", USE_AV_VAR, check_av),
     ]
 
     # Todos los switches, antes de contactar a nadie. Uno ilegible no puede

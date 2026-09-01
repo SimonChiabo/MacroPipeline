@@ -570,3 +570,93 @@ def test_el_nightly_apaga_los_cuatro_componentes_no_publicadores(check_credentia
             f"chequeo con solo los secrets de LinkedIn y va a alertar todas "
             f"las noches culpando a la red equivocada."
         )
+
+
+def test_av_con_key_invalida_falla(check_credentials, monkeypatch, capsys):
+    """Alpha Vantage contesta 200 hasta para los errores (`av_client.py:79`).
+
+    El status code no decide nada: lo que decide es el cuerpo.
+    """
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "una-key-cualquiera")
+
+    class Respuesta:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"Error Message": "the parameter apikey is invalid"}
+
+    monkeypatch.setattr(check_credentials.requests, "get", lambda *a, **k: Respuesta())
+
+    assert check_credentials.check_av() == check_credentials.NO_LISTO
+    assert "apikey is invalid" in capsys.readouterr().out
+
+
+def test_av_en_rate_limit_avisa_pero_no_pone_rojo(
+    check_credentials, monkeypatch, capsys
+):
+    """La unica excepcion a "no haber podido verificar pone rojo".
+
+    No es un fallo ajeno: el chequeo se lo fabrica solo, porque consume una
+    llamada de la cuota diaria cada vez que corre. Ponerlo rojo haria que
+    correrlo dos veces seguidas lo pusiera rojo por su propia culpa, y un
+    chequeo que se pone rojo por usarlo es un chequeo que se desactiva.
+    """
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "una-key-cualquiera")
+
+    class Respuesta:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "Information": "Thank you for using Alpha Vantage! Our standard "
+                "API rate limit is 25 requests per day."
+            }
+
+    monkeypatch.setattr(check_credentials.requests, "get", lambda *a, **k: Respuesta())
+
+    assert check_credentials.check_av() == check_credentials.SIN_VERIFICAR
+    assert "AV_RATE_LIMIT" in capsys.readouterr().out
+
+
+def test_un_corte_de_red_en_av_si_pone_rojo(check_credentials, monkeypatch, capsys):
+    """La regla, enfrentada a su excepcion en el mismo fichero.
+
+    El rate limit es lo unico que se perdona. Un corte de red deja la key sin
+    verificar igual, pero no es una condicion que el chequeo se fabrique solo,
+    y un verde que no verifico nada es peor que un rojo.
+    """
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "una-key-cualquiera")
+
+    def _revienta(*a, **k):
+        raise check_credentials.requests.RequestException("sin ruta al host")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _revienta)
+
+    assert check_credentials.check_av() == check_credentials.NO_LISTO
+    assert "No se pudo contactar" in capsys.readouterr().out
+
+
+def test_el_rate_limit_de_av_no_cambia_el_codigo_de_salida(
+    check_credentials, monkeypatch
+):
+    """El veredicto tiene que llegar entero hasta el codigo de salida.
+
+    Es la mitad que el test de arriba no cubre: `check_av` puede devolver
+    `SIN_VERIFICAR` y `main()` contarlo igual que un `NO_LISTO`.
+    """
+    monkeypatch.setenv("PUBLISH_X", "false")
+    monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
+    monkeypatch.setenv("USE_FRED", "false")
+    monkeypatch.setenv("USE_ANTHROPIC", "false")
+    monkeypatch.setenv("USE_R2", "false")
+    monkeypatch.setenv("USE_AV", "true")
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(
+        check_credentials, "check_av", lambda: check_credentials.SIN_VERIFICAR
+    )
+
+    assert check_credentials.main() == 0
