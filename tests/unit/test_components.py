@@ -9,7 +9,7 @@ compara contra "false"— y las dos son malas: una pausa que no pausa, o una
 pausa que nadie pidio.
 
 `component_enabled` levanta ante un valor invalido, que es lo que
-`check_publishers.py` quiere. `read_switch` en cambio devuelve el motivo en
+`check_credentials.py` quiere. `read_switch` en cambio devuelve el motivo en
 vez de levantar, para que el constructor del orquestador pueda seguir. Y
 `build_component` distingue las tres combinaciones que le siguen: listo,
 apagado a proposito, y encendido pero roto.
@@ -134,7 +134,7 @@ def test_only_valueerror_is_swallowed():
 def test_read_switch_reports_an_invalid_value_instead_of_raising(monkeypatch):
     """El orquestador no puede dejar que esto levante: seria el bug (d) otra vez.
 
-    `component_enabled` sigue levantando porque `check_publishers.py` lo quiere
+    `component_enabled` sigue levantando porque `check_credentials.py` lo quiere
     asi. `read_switch` es la version que devuelve el motivo para que el
     constructor pueda seguir y el punto de decision lo reporte.
     """

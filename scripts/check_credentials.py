@@ -7,7 +7,7 @@ pregunta que importa —¿estas credenciales sirven para publicar?— contra
 endpoints de solo lectura. Una red apagada con `PUBLISH_X=false` o
 `PUBLISH_LINKEDIN=false` no se verifica y no afecta el código de salida.
 
-    python scripts/check_publishers.py
+    python scripts/check_credentials.py
 
 Sale con código 1 si algo no está listo. No imprime credenciales.
 """

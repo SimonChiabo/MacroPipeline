@@ -2,7 +2,7 @@
 
 El token dura ~60 días y se reemite a mano desde el token generator del portal:
 rotar es coste externo y lo máximo que el repo puede hacer es avisar a tiempo.
-El aviso ya existía en `scripts/check_publishers.py`, pero es un `print` de un
+El aviso ya existía en `scripts/check_credentials.py`, pero es un `print` de un
 script que solo corre a mano, así que se disparaba únicamente si alguien lo
 ejecutaba dentro de la ventana. Esto es la mitad decidible, separada del envío
 para poder testearla sin red.

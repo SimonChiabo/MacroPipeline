@@ -97,7 +97,7 @@ cp .env.example .env
 $EDITOR .env
 
 # Verificar que las credenciales de publicacion sirven (no publica nada)
-python scripts/check_publishers.py
+python scripts/check_credentials.py
 
 # Hooks
 pre-commit install

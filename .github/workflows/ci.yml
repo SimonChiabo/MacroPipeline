@@ -125,5 +125,5 @@ jobs:
             echo
             echo "**Mientras estuvo apagado no corrio ninguna verificacion de"
             echo "contratos ni del token de LinkedIn.** Conviene correr"
-            echo "\`python scripts/check_publishers.py\` a mano."
+            echo "\`python scripts/check_credentials.py\` a mano."
           } >> "${GITHUB_STEP_SUMMARY}"

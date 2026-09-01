@@ -7,7 +7,7 @@ Sin ella, `wait_for_approval` acepta el boton de cualquiera en el chat y el
 HITL de ADR-004 —lo unico entre el pipeline y publicar— queda apagado. Lo
 unico que lo decia era un `logger.warning` al arrancar.
 
-`scripts/check_publishers.py` no es un paquete, asi que se carga por ruta.
+`scripts/check_credentials.py` no es un paquete, asi que se carga por ruta.
 """
 
 import importlib.util
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="module")
-def check_publishers():
+def check_credentials():
     """El script, cargado por ruta y sin dejar el `.env` real en el entorno.
 
     Importarlo ejecuta `load_dotenv(ROOT / '.env')` a nivel de modulo. Sin
@@ -31,7 +31,7 @@ def check_publishers():
     previo = os.environ.copy()
     try:
         spec = importlib.util.spec_from_file_location(
-            "check_publishers", ROOT / "scripts" / "check_publishers.py"
+            "check_credentials", ROOT / "scripts" / "check_credentials.py"
         )
         assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)
@@ -51,7 +51,7 @@ def _escribir(tmp_path: Path, ejemplo: str, real: str) -> tuple[Path, Path]:
 
 
 def test_flags_a_key_declared_in_example_but_missing_from_env(
-    check_publishers, tmp_path
+    check_credentials, tmp_path
 ):
     """El caso real: la variable existe en el ejemplo y no en el `.env`."""
     ejemplo, real = _escribir(
@@ -62,13 +62,13 @@ def test_flags_a_key_declared_in_example_but_missing_from_env(
         "TELEGRAM_BOT_TOKEN=8703868612:AAH_real\n",
     )
 
-    hallazgos = check_publishers.compare_env_files(ejemplo, real)
+    hallazgos = check_credentials.compare_env_files(ejemplo, real)
 
     assert ("TELEGRAM_ALLOWED_USER_ID", "ausente") in hallazgos
     assert not any(n == "TELEGRAM_BOT_TOKEN" for n, _ in hallazgos)
 
 
-def test_flags_a_key_left_with_the_example_placeholder(check_publishers, tmp_path):
+def test_flags_a_key_left_with_the_example_placeholder(check_credentials, tmp_path):
     """Copiar el ejemplo y no rellenarlo es tan malo como no tener la clave."""
     ejemplo, real = _escribir(
         tmp_path,
@@ -76,12 +76,12 @@ def test_flags_a_key_left_with_the_example_placeholder(check_publishers, tmp_pat
         "FRED_API_KEY=your_fred_api_key\n",
     )
 
-    hallazgos = check_publishers.compare_env_files(ejemplo, real)
+    hallazgos = check_credentials.compare_env_files(ejemplo, real)
 
     assert ("FRED_API_KEY", "placeholder") in hallazgos
 
 
-def test_flags_a_key_the_example_does_not_document(check_publishers, tmp_path):
+def test_flags_a_key_the_example_does_not_document(check_credentials, tmp_path):
     """La deriva inversa: el `.env` tiene algo que el ejemplo no documenta.
 
     Es como se genera el problema para el siguiente que clone el repo: copia
@@ -93,12 +93,12 @@ def test_flags_a_key_the_example_does_not_document(check_publishers, tmp_path):
         "FRED_API_KEY=real\nSTATE_DB_PATH=/tmp/x.db\n",
     )
 
-    hallazgos = check_publishers.compare_env_files(ejemplo, real)
+    hallazgos = check_credentials.compare_env_files(ejemplo, real)
 
     assert ("STATE_DB_PATH", "sin documentar") in hallazgos
 
 
-def test_no_findings_when_both_files_agree(check_publishers, tmp_path):
+def test_no_findings_when_both_files_agree(check_credentials, tmp_path):
     """Comentarios, lineas en blanco y valores con `=` dentro no son hallazgos."""
     ejemplo, real = _escribir(
         tmp_path,
@@ -110,11 +110,11 @@ def test_no_findings_when_both_files_agree(check_publishers, tmp_path):
         "OTEL_HEADERS=Authorization=Bearer real\n",
     )
 
-    assert check_publishers.compare_env_files(ejemplo, real) == []
+    assert check_credentials.compare_env_files(ejemplo, real) == []
 
 
 def test_a_commented_declaration_in_the_example_counts_as_documented(
-    check_publishers, tmp_path
+    check_credentials, tmp_path
 ):
     """`.env.example` documenta las opcionales comentandolas con un ejemplo.
 
@@ -128,10 +128,10 @@ def test_a_commented_declaration_in_the_example_counts_as_documented(
         "LINKEDIN_TOKEN_ISSUED=2026-08-21\n",
     )
 
-    assert check_publishers.compare_env_files(ejemplo, real) == []
+    assert check_credentials.compare_env_files(ejemplo, real) == []
 
 
-def test_a_commented_declaration_is_not_required_in_env(check_publishers, tmp_path):
+def test_a_commented_declaration_is_not_required_in_env(check_credentials, tmp_path):
     """Y comentada tampoco se exige: es opcional, ese es el punto."""
     ejemplo, real = _escribir(
         tmp_path,
@@ -139,10 +139,10 @@ def test_a_commented_declaration_is_not_required_in_env(check_publishers, tmp_pa
         "FRED_API_KEY=real\n",
     )
 
-    assert check_publishers.compare_env_files(ejemplo, real) == []
+    assert check_credentials.compare_env_files(ejemplo, real) == []
 
 
-def test_runs_against_the_real_repo_files(check_publishers):
+def test_runs_against_the_real_repo_files(check_credentials):
     """Humo sobre los ficheros de verdad: se parsean y devuelven hallazgos.
 
     A proposito NO se exige cero deriva. Convertir esto en un gate de deriva
@@ -164,7 +164,7 @@ def test_runs_against_the_real_repo_files(check_publishers):
     if not real.exists():
         pytest.skip("sin .env local: nada que comparar")
 
-    hallazgos = check_publishers.compare_env_files(ROOT / ".env.example", real)
+    hallazgos = check_credentials.compare_env_files(ROOT / ".env.example", real)
 
     assert isinstance(hallazgos, list)
     motivos_validos = ("ausente", "placeholder", "sin documentar")
@@ -179,7 +179,7 @@ def test_runs_against_the_real_repo_files(check_publishers):
     assert "ALLOW_MOCK_DATA" not in nombres
 
 
-def test_the_example_keeps_the_two_decided_declarations(check_publishers):
+def test_the_example_keeps_the_two_decided_declarations(check_credentials):
     """El `.env.example` sigue declarando cada variable como se decidio.
 
     Existe por donde NO corre el test de arriba: se salta entero cuando no
@@ -200,27 +200,27 @@ def test_the_example_keeps_the_two_decided_declarations(check_publishers):
     """
     ejemplo = ROOT / ".env.example"
 
-    declaradas = check_publishers._parse_env_file(ejemplo)
-    comentadas = check_publishers._commented_names(ejemplo)
+    declaradas = check_credentials._parse_env_file(ejemplo)
+    comentadas = check_credentials._commented_names(ejemplo)
 
     assert "STATE_DB_PATH" in comentadas
     assert "STATE_DB_PATH" not in declaradas
     assert declaradas.get("ALLOW_MOCK_DATA") == "false"
 
 
-def test_the_example_declares_both_publish_flags(check_publishers):
+def test_the_example_declares_both_publish_flags(check_credentials):
     """Explícitas y no heredadas del default, igual que `ALLOW_MOCK_DATA`.
 
     Deciden si se publica. Una bandera que decide eso no debería depender de un
     default del código: hay que poder leer el `.env` y saber qué va a pasar.
     """
-    ejemplo = check_publishers._parse_env_file(ROOT / ".env.example")
+    ejemplo = check_credentials._parse_env_file(ROOT / ".env.example")
 
     assert ejemplo.get("PUBLISH_X") == "true"
     assert ejemplo.get("PUBLISH_LINKEDIN") == "true"
 
 
-def test_the_example_declares_the_six_component_switches_commented(check_publishers):
+def test_the_example_declares_the_six_component_switches_commented(check_credentials):
     """Comentados y no puestos, a diferencia de las dos banderas de publicación.
 
     Ausente significa encendido, así que no hay nada que copiar al `.env`:
@@ -229,8 +229,8 @@ def test_the_example_declares_the_six_component_switches_commented(check_publish
     igual que `STATE_DB_PATH`.
     """
     ejemplo = ROOT / ".env.example"
-    comentadas = check_publishers._commented_names(ejemplo)
-    declaradas = check_publishers._parse_env_file(ejemplo)
+    comentadas = check_credentials._commented_names(ejemplo)
+    declaradas = check_credentials._parse_env_file(ejemplo)
 
     for var in (
         "USE_FMP",
@@ -245,7 +245,7 @@ def test_the_example_declares_the_six_component_switches_commented(check_publish
 
 
 def test_report_prints_every_finding_with_its_reason(
-    check_publishers, tmp_path, capsys
+    check_credentials, tmp_path, capsys
 ):
     ejemplo, real = _escribir(
         tmp_path,
@@ -253,7 +253,7 @@ def test_report_prints_every_finding_with_its_reason(
         "PUESTA=your_valor\nEXTRA=algo\n",
     )
 
-    check_publishers.report_env_drift(ejemplo, real)
+    check_credentials.report_env_drift(ejemplo, real)
     salida = capsys.readouterr().out
 
     assert "FALTANTE" in salida and "ausente" in salida
@@ -261,16 +261,16 @@ def test_report_prints_every_finding_with_its_reason(
     assert "EXTRA" in salida and "sin documentar" in salida
 
 
-def test_report_says_so_when_there_is_no_drift(check_publishers, tmp_path, capsys):
+def test_report_says_so_when_there_is_no_drift(check_credentials, tmp_path, capsys):
     ejemplo, real = _escribir(tmp_path, "A=your_a\n", "A=cargada\n")
 
-    check_publishers.report_env_drift(ejemplo, real)
+    check_credentials.report_env_drift(ejemplo, real)
     salida = capsys.readouterr().out
 
     assert "sin deriva" in salida.lower()
 
 
-def test_report_does_not_decide_the_exit_code(check_publishers, tmp_path):
+def test_report_does_not_decide_the_exit_code(check_credentials, tmp_path):
     """La deriva se informa, no bloquea.
 
     El codigo de salida del script significa 'las credenciales de publicacion
@@ -279,11 +279,11 @@ def test_report_does_not_decide_the_exit_code(check_publishers, tmp_path):
     """
     ejemplo, real = _escribir(tmp_path, "A=your_a\n", "B=x\n")
 
-    assert check_publishers.report_env_drift(ejemplo, real) is None
+    assert check_credentials.report_env_drift(ejemplo, real) is None
 
 
 def test_a_disabled_network_cannot_turn_the_script_red(
-    check_publishers, monkeypatch, capsys
+    check_credentials, monkeypatch, capsys
 ):
     """El codigo de salida significa "las credenciales de publicacion sirven".
 
@@ -294,16 +294,16 @@ def test_a_disabled_network_cannot_turn_the_script_red(
     """
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
-    monkeypatch.setattr(check_publishers, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
-    assert check_publishers.main() == 0
+    assert check_credentials.main() == 0
 
     salida = capsys.readouterr().out
     assert "X:        apagada" in salida
     assert "LinkedIn: apagada" in salida
 
 
-def test_a_disabled_network_is_not_even_checked(check_publishers, monkeypatch):
+def test_a_disabled_network_is_not_even_checked(check_credentials, monkeypatch):
     """No se contacta la API de una red que no se va a usar.
 
     Se mockea `check_x` y no `requests.get`: `check_x` autentica con
@@ -312,19 +312,19 @@ def test_a_disabled_network_is_not_even_checked(check_publishers, monkeypatch):
     """
     llamadas = []
     monkeypatch.setenv("PUBLISH_X", "false")
-    monkeypatch.setattr(check_publishers, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
-        check_publishers, "check_x", lambda: llamadas.append("x") or True
+        check_credentials, "check_x", lambda: llamadas.append("x") or True
     )
-    monkeypatch.setattr(check_publishers, "check_linkedin", lambda: True)
+    monkeypatch.setattr(check_credentials, "check_linkedin", lambda: True)
 
-    check_publishers.main()
+    check_credentials.main()
 
     assert llamadas == []
 
 
 def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
-    check_publishers, monkeypatch, capsys
+    check_credentials, monkeypatch, capsys
 ):
     """El unico sitio donde el valor malo no debe salir por traceback.
 
@@ -333,9 +333,9 @@ def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
     de fallo imprimen una linea legible.
     """
     monkeypatch.setenv("PUBLISH_X", "yes")
-    monkeypatch.setattr(check_publishers, "report_env_drift", lambda *a, **k: None)
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
-    assert check_publishers.main() == 1
+    assert check_credentials.main() == 1
 
     salida = capsys.readouterr().out
     assert "PUBLISH_X" in salida
@@ -343,7 +343,7 @@ def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
 
 
 def test_el_aviso_de_vencimiento_no_depende_de_que_linkedin_conteste(
-    check_publishers, monkeypatch, capsys
+    check_credentials, monkeypatch, capsys
 ):
     """Un 403 por scopes se comía el aviso de edad.
 
@@ -361,17 +361,17 @@ def test_el_aviso_de_vencimiento_no_depende_de_que_linkedin_conteste(
         text = ""
 
     monkeypatch.setattr(
-        check_publishers.requests, "get", lambda *a, **k: Respuesta403()
+        check_credentials.requests, "get", lambda *a, **k: Respuesta403()
     )
 
-    check_publishers.check_linkedin()
+    check_credentials.check_linkedin()
 
     salida = capsys.readouterr().out
     assert "Token emitido hace" in salida
 
 
 def test_un_corte_de_red_deja_el_marcador_que_el_nightly_grepea(
-    check_publishers, monkeypatch, capsys
+    check_credentials, monkeypatch, capsys
 ):
     """`LINKEDIN_UNREACHABLE` es un contrato con el workflow, no un print.
 
@@ -387,16 +387,16 @@ def test_un_corte_de_red_deja_el_marcador_que_el_nightly_grepea(
     monkeypatch.delenv("LINKEDIN_TOKEN_ISSUED", raising=False)
 
     def _revienta(*a, **k):
-        raise check_publishers.requests.RequestException("sin ruta al host")
+        raise check_credentials.requests.RequestException("sin ruta al host")
 
-    monkeypatch.setattr(check_publishers.requests, "get", _revienta)
+    monkeypatch.setattr(check_credentials.requests, "get", _revienta)
 
-    assert check_publishers.check_linkedin() is False
+    assert check_credentials.check_linkedin() is False
     assert "LINKEDIN_UNREACHABLE" in capsys.readouterr().out
 
 
 def test_un_401_deja_el_marcador_que_el_nightly_grepea(
-    check_publishers, monkeypatch, capsys
+    check_credentials, monkeypatch, capsys
 ):
     """`LINKEDIN_TOKEN_DEAD` es la otra mitad del mismo contrato."""
     monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", "un-token-cualquiera")
@@ -408,8 +408,8 @@ def test_un_401_deja_el_marcador_que_el_nightly_grepea(
         text = ""
 
     monkeypatch.setattr(
-        check_publishers.requests, "get", lambda *a, **k: Respuesta401()
+        check_credentials.requests, "get", lambda *a, **k: Respuesta401()
     )
 
-    assert check_publishers.check_linkedin() is False
+    assert check_credentials.check_linkedin() is False
     assert "LINKEDIN_TOKEN_DEAD" in capsys.readouterr().out

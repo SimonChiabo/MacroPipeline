@@ -2,7 +2,7 @@
 
 Vive en la raiz del paquete y no bajo `publishers/` por dos motivos: lo usan
 dos consumidores que no se importan entre si —el orquestador y
-`scripts/check_publishers.py`, que no puede arrastrar pandas y los siete
+`scripts/check_credentials.py`, que no puede arrastrar pandas y los siete
 clientes—, y desde ADR-009 cubre los ocho componentes con credenciales y no
 solo las dos redes.
 """
@@ -59,7 +59,7 @@ def read_switch(var: str) -> tuple[bool, str | None]:
     `switch_errors` antes que ninguna rama de apagado.
 
     `component_enabled` sigue existiendo y levantando porque
-    `scripts/check_publishers.py` lo quiere asi: ahi un valor invalido debe
+    `scripts/check_credentials.py` lo quiere asi: ahi un valor invalido debe
     romper el chequeo.
     """
     try:

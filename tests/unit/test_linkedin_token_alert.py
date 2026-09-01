@@ -1,6 +1,6 @@
 """La decisión de avisar del vencimiento del token de LinkedIn.
 
-El aviso viejo era un `print` de `scripts/check_publishers.py`, que solo corre
+El aviso viejo era un `print` de `scripts/check_credentials.py`, que solo corre
 a mano: se disparaba únicamente si alguien lo ejecutaba entre el día 50 y el
 60. Esta es la mitad decidible de darle un canal, separada del envío para que
 se pueda testear sin red.

@@ -176,7 +176,7 @@ jobs:
         run: |
           set -o pipefail
 
-          if python scripts/check_publishers.py | tee linkedin-check.txt; then
+          if python scripts/check_credentials.py | tee linkedin-check.txt; then
             echo "Credencial de LinkedIn verificada."
             exit 0
           fi

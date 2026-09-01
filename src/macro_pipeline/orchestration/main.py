@@ -549,7 +549,7 @@ class MacroOrchestrator:
                 f"{fallos}\n\n"
                 "No se publicó nada y el evento queda sin marcar, así que la "
                 "próxima run lo reintenta. Verificar con "
-                "`python scripts/check_publishers.py`."
+                "`python scripts/check_credentials.py`."
             )
             return 1
 
@@ -569,7 +569,7 @@ class MacroOrchestrator:
                 "⚠️ El cierre semanal arranca con componentes encendidos y sin "
                 f"credenciales:\n\n{lineas}\n\n"
                 "Se publica igual si lo aprobás.\n\n"
-                "Para X y LinkedIn, `python scripts/check_publishers.py` "
+                "Para X y LinkedIn, `python scripts/check_credentials.py` "
                 "verifica las credenciales de verdad contra la API. Para los "
                 "demás sólo comprueba que la variable esté puesta: una key "
                 "presente pero rotada no la detecta nadie todavía."
