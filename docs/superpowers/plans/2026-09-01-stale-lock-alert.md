@@ -67,7 +67,7 @@ def test_mark_in_progress_registra_cuando_se_tomo_el_lock(db):
 
     assert state["locked_at"] is not None
     edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
-    assert edad < timedelta(seconds=30)
+    assert timedelta(0) <= edad < timedelta(seconds=30)
 
 
 def test_rearmar_el_lock_refresca_locked_at(db):
@@ -92,7 +92,7 @@ def test_rearmar_el_lock_refresca_locked_at(db):
     state = db.get_publication_state(event)
     assert state["locked_at"] != "2026-08-01T00:00:00+00:00"
     edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
-    assert edad < timedelta(seconds=30)
+    assert timedelta(0) <= edad < timedelta(seconds=30)
 
 
 def test_migrate_db_agrega_locked_at_en_null(tmp_path):
