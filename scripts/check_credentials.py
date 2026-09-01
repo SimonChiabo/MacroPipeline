@@ -17,8 +17,9 @@ from __future__ import annotations
 import os
 import re
 import sys
+import uuid
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import requests
@@ -31,8 +32,10 @@ from macro_pipeline.components import (
     USE_ANTHROPIC_VAR,
     USE_AV_VAR,
     USE_FRED_VAR,
+    USE_R2_VAR,
     component_enabled,
 )
+from macro_pipeline.storage.r2_client import R2Client, R2ClientError
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -53,6 +56,7 @@ LISTO, NO_LISTO, SIN_VERIFICAR = "listo", "NO listo", "sin verificar"
 FRED_VARS = ("FRED_API_KEY",)
 AV_VARS = ("ALPHA_VANTAGE_API_KEY",)
 ANTHROPIC_VARS = ("ANTHROPIC_API_KEY",)
+R2_VARS = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
 
 # El marcador que ya conoce el repo. Mismo texto y mismo motivo que en
 # `tests/contract/test_av_contract.py`: separa "no pudimos verificar" de "la
@@ -475,6 +479,76 @@ def check_anthropic() -> str:
     return LISTO
 
 
+# Prefijo propio, lejos de `state/`. La sonda no puede acercarse al fichero
+# cuya perdida republica un cierre.
+HEALTHCHECK_PREFIX = "healthcheck/"
+
+
+def check_r2() -> str:
+    """Sonda de escritura: es lo unico que no se puede obtener leyendo.
+
+    Los tokens de R2 se emiten *Object Read only* u *Object Read & Write*, y la
+    API de S3 no tiene equivalente a la cabecera `x-access-level` que salva a X:
+    no hay dry-run ni forma de confirmar `PutObject` sin poner un objeto.
+    """
+    if _check_present(R2_VARS):
+        return NO_LISTO
+
+    try:
+        cliente = R2Client()
+    except ValueError as e:
+        print(f"{FAIL} {e}")
+        return NO_LISTO
+
+    key = f"{HEALTHCHECK_PREFIX}check-credentials-{uuid.uuid4()}.txt"
+    cuerpo = f"macropipeline healthcheck {datetime.now(UTC).isoformat()}".encode()
+
+    # El put va PRIMERO a proposito. `download_object` traduce `NoSuchBucket` a
+    # ausencia (None) —correcto para el sincronizado de estado, engañoso aca—,
+    # asi que arrancando por la lectura un bucket inexistente se leeria como
+    # "primera corrida" y esto pasaria en verde.
+    #
+    # **Verificado en vivo el 2026-09-01 contra el bucket real**: put, get y
+    # delete bajo `healthcheck/` funcionan con el token actual, y el prefijo
+    # quedó vacío después.
+    try:
+        cliente.upload_object(key, cuerpo, "text/plain")
+    except R2ClientError as e:
+        print(f"{FAIL} No se pudo escribir en R2: {e}")
+        if "AccessDenied" in str(e):
+            # "SOLO LECTURA" va entero en una linea a proposito: el test lo
+            # busca como substring, y partido en dos —que es como quedaba al
+            # justificar el parrafo— no lo encuentra nadie que grepee la salida.
+            print("       Es el mismo caso que el token de X: este es de")
+            print("       SOLO LECTURA. Hay que reemitirlo con permiso 'Object")
+            print("       Read & Write'; cambiarlo en el panel no alcanza para")
+            print("       un token ya emitido.")
+        return NO_LISTO
+    print(f"{OK} PutObject: el token puede escribir.")
+
+    try:
+        leido = cliente.download_object(key)
+    except R2ClientError as e:
+        print(f"{FAIL} Se escribió pero no se pudo releer: {e}")
+        return NO_LISTO
+    if leido != cuerpo:
+        print(f"{FAIL} Se escribió pero no se pudo releer igual: lo que volvió")
+        print("       no coincide con lo que se subió.")
+        return NO_LISTO
+    print(f"{OK} GetObject: lo escrito se lee igual.")
+
+    try:
+        cliente.delete_object(key)
+    except R2ClientError as e:
+        print(f"{WARN} No se pudo borrar el objeto de prueba: {e}")
+        print(f"{WARN} Queda huérfano en {key}. No impide publicar: el pipeline")
+        print("       nunca borra, así que el permiso de Delete no le hace falta.")
+        return LISTO
+    print(f"{OK} DeleteObject: el objeto de prueba se limpió.")
+
+    return LISTO
+
+
 def main() -> int:
     print("Verificación de credenciales de publicación (no publica nada).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
@@ -487,6 +561,7 @@ def main() -> int:
         ("FRED", USE_FRED_VAR, check_fred),
         ("Alpha Vantage", USE_AV_VAR, check_av),
         ("Anthropic", USE_ANTHROPIC_VAR, check_anthropic),
+        ("R2", USE_R2_VAR, check_r2),
     ]
 
     # Todos los switches, antes de contactar a nadie. Uno ilegible no puede

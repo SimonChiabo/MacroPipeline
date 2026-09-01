@@ -792,3 +792,139 @@ def test_anthropic_solo_acepta_una_fecha_como_sufijo(
 
     assert check_credentials.check_anthropic() == check_credentials.LISTO
     assert "[AVISO]" in capsys.readouterr().out
+
+
+class _R2Falso:
+    """Doble de `R2Client`: registra el orden de las llamadas.
+
+    El orden es lo que se testea, asi que el doble lo graba: un doble que solo
+    contara llamadas no podria distinguir put->get de get->put.
+    """
+
+    def __init__(self, error_en=None, error=None):
+        self.error_en = error_en
+        self.error = error or Exception("fallo")
+        self.llamadas: list[str] = []
+        self.keys: list[str] = []
+        self.objetos: dict[str, bytes] = {}
+
+    def _quizas_reventar(self, operacion: str, key: str) -> None:
+        self.llamadas.append(operacion)
+        # Las keys se guardan aca y no en el script: que la sonda escriba donde
+        # dice es asunto del test, y una global de modulo puesta para poder
+        # mirarla desde afuera es codigo de produccion que no sirve a nadie.
+        self.keys.append(key)
+        if self.error_en == operacion:
+            raise self.error
+
+    def upload_object(self, key: str, body: bytes, content_type: str) -> None:
+        self._quizas_reventar("put", key)
+        self.objetos[key] = body
+
+    def download_object(self, key: str) -> bytes | None:
+        self._quizas_reventar("get", key)
+        return self.objetos.get(key)
+
+    def delete_object(self, key: str) -> None:
+        self._quizas_reventar("delete", key)
+        self.objetos.pop(key, None)
+
+
+def _con_r2(check_credentials, monkeypatch, doble):
+    monkeypatch.setenv("R2_ACCOUNT_ID", "una-cuenta")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "una-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "un-secreto")
+    monkeypatch.setattr(check_credentials, "R2Client", lambda: doble)
+    return doble
+
+
+def test_r2_escribe_lee_y_limpia(check_credentials, monkeypatch, capsys):
+    doble = _con_r2(check_credentials, monkeypatch, _R2Falso())
+
+    assert check_credentials.check_r2() == check_credentials.LISTO
+    assert doble.llamadas == ["put", "get", "delete"]
+    assert doble.objetos == {}
+
+
+def test_la_sonda_de_r2_escribe_antes_de_leer(check_credentials, monkeypatch):
+    """El orden no es estetico: `download_object` traduce NoSuchBucket a None.
+
+    Esa traduccion es correcta para el sincronizado de estado —un bucket sin
+    crear es indistinguible de un objeto que aun no existe— y engañosa aca.
+    Arrancando por la lectura, un bucket inexistente se leeria como "primera
+    corrida" y el chequeo pasaria en verde con el bucket sin crear.
+    """
+    doble = _con_r2(check_credentials, monkeypatch, _R2Falso())
+
+    check_credentials.check_r2()
+
+    assert doble.llamadas[0] == "put"
+
+
+def test_la_sonda_de_r2_nunca_toca_el_fichero_de_estado(check_credentials, monkeypatch):
+    """`state/state.db` es el fichero cuya perdida republica un cierre."""
+    doble = _con_r2(check_credentials, monkeypatch, _R2Falso())
+
+    check_credentials.check_r2()
+
+    assert doble.keys, "la sonda no toco R2 en absoluto"
+    assert all(k.startswith("healthcheck/") for k in doble.keys)
+
+
+def test_r2_con_token_de_solo_lectura_nombra_el_caso_de_x(
+    check_credentials, monkeypatch, capsys
+):
+    """Es el diagnostico que justifica toda la sonda.
+
+    Un token de solo lectura autentica perfecto y falla al escribir, igual que
+    el `x-access-level: read` de X. La API de S3 no tiene cabecera equivalente:
+    no hay forma de saberlo sin poner un objeto.
+    """
+    from macro_pipeline.storage.r2_client import R2ClientError
+
+    doble = _con_r2(
+        check_credentials,
+        monkeypatch,
+        _R2Falso(error_en="put", error=R2ClientError("... AccessDenied ...")),
+    )
+
+    assert check_credentials.check_r2() == check_credentials.NO_LISTO
+    salida = capsys.readouterr().out
+    assert "SOLO LECTURA" in salida
+    assert doble.llamadas == ["put"]
+
+
+def test_un_borrado_fallido_avisa_pero_no_pone_rojo(
+    check_credentials, monkeypatch, capsys
+):
+    """El pipeline nunca borra: `state_sync.py` solo sube y baja.
+
+    Exigir permiso de DeleteObject pondria en rojo un token capaz de hacer
+    todo lo que el pipeline necesita.
+    """
+    from macro_pipeline.storage.r2_client import R2ClientError
+
+    _con_r2(
+        check_credentials,
+        monkeypatch,
+        _R2Falso(error_en="delete", error=R2ClientError("sin permiso")),
+    )
+
+    assert check_credentials.check_r2() == check_credentials.LISTO
+    assert "[AVISO]" in capsys.readouterr().out
+
+
+def test_r2_falla_si_lo_escrito_no_se_puede_releer(
+    check_credentials, monkeypatch, capsys
+):
+    """Un put que dice haber funcionado y un get que no lo ve es un fallo."""
+
+    class _R2Amnesico(_R2Falso):
+        def download_object(self, key):
+            self._quizas_reventar("get", key)
+            return None
+
+    _con_r2(check_credentials, monkeypatch, _R2Amnesico())
+
+    assert check_credentials.check_r2() == check_credentials.NO_LISTO
+    assert "no se pudo releer" in capsys.readouterr().out
