@@ -96,7 +96,8 @@ pip install -e ".[dev]"
 cp .env.example .env
 $EDITOR .env
 
-# Verificar que las credenciales de publicacion sirven (no publica nada)
+# Verificar que las credenciales sirven de verdad (no publica; para R2
+# escribe y borra un objeto de prueba en tu bucket)
 python scripts/check_credentials.py
 
 # Hooks

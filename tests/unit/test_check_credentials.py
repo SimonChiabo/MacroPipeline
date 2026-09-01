@@ -275,9 +275,10 @@ def test_report_says_so_when_there_is_no_drift(check_credentials, tmp_path, caps
 def test_report_does_not_decide_the_exit_code(check_credentials, tmp_path):
     """La deriva se informa, no bloquea.
 
-    El codigo de salida del script significa 'las credenciales de publicacion
-    sirven'. Una opcional sin poner en el `.env` no es eso, y un chequeo que
-    pone el script en rojo por una decision pendiente termina desactivado.
+    El codigo de salida del script significa 'algun componente encendido tiene
+    credenciales que no sirven'. Una opcional sin poner en el `.env` no es eso,
+    y un chequeo que pone el script en rojo por una decision pendiente termina
+    desactivado.
     """
     ejemplo, real = _escribir(tmp_path, "A=your_a\n", "B=x\n")
 
@@ -287,7 +288,7 @@ def test_report_does_not_decide_the_exit_code(check_credentials, tmp_path):
 def test_a_disabled_network_cannot_turn_the_script_red(
     check_credentials, monkeypatch, capsys
 ):
-    """El codigo de salida significa "las credenciales de publicacion sirven".
+    """El codigo de salida significa "algun componente encendido no sirve".
 
     Una red apagada no tiene credenciales que sirvan ni que dejen de servir: no
     participa. Un gate que se pone rojo por una decision tomada a proposito

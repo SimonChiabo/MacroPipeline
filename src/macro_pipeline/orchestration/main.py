@@ -569,10 +569,9 @@ class MacroOrchestrator:
                 "⚠️ El cierre semanal arranca con componentes encendidos y sin "
                 f"credenciales:\n\n{lineas}\n\n"
                 "Se publica igual si lo aprobás.\n\n"
-                "Para X y LinkedIn, `python scripts/check_credentials.py` "
-                "verifica las credenciales de verdad contra la API. Para los "
-                "demás sólo comprueba que la variable esté puesta: una key "
-                "presente pero rotada no la detecta nadie todavía."
+                "`python scripts/check_credentials.py` verifica los seis "
+                "componentes contra su API de verdad, así que dice cuál key "
+                "está rotada y no solo cuál falta."
             )
         # El remoto ausente no aborta —una primera corrida legitima tiene que
         # poder publicar— pero tampoco calla: la otra mitad del caso es que el

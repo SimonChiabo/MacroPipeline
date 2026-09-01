@@ -1,15 +1,20 @@
-"""Verifica las credenciales de X y LinkedIn sin publicar nada.
+"""Verifica que las credenciales de los seis componentes sirvan de verdad.
 
-El pipeline solo comprueba que las variables *existan*: con los placeholders de
-`.env.example` cargados una red queda marcada como lista y el fallo aparece
-recién después de que un humano aprobó el post en Telegram. Este script hace la
-pregunta que importa —¿estas credenciales sirven para publicar?— contra
-endpoints de solo lectura. Una red apagada con `PUBLISH_X=false` o
-`PUBLISH_LINKEDIN=false` no se verifica y no afecta el código de salida.
+El pipeline solo comprueba que las variables *existan*: una key presente pero
+rotada o revocada es indistinguible de una buena hasta que la corrida pega
+contra la API. Este script hace la pregunta que importa —¿esta credencial
+sirve?— contra endpoints baratos. Un componente apagado con su `USE_*` o
+`PUBLISH_*` en `false` no se verifica y no afecta el código de salida.
 
     python scripts/check_credentials.py
 
-Sale con código 1 si algo no está listo. No imprime credenciales.
+**No publica nada, pero ya no es del todo pasivo.** Para R2 escribe y borra un
+objeto de prueba bajo `healthcheck/` en tu propio bucket: los tokens de R2 se
+emiten de solo lectura o de lectura y escritura, y la API de S3 no tiene nada
+como la cabecera `x-access-level` de X. Confirmar que el token puede guardar el
+estado exige guardarlo una vez. Nada de esto toca `state/state.db`.
+
+Sale con código 1 si algo encendido no está listo. No imprime credenciales.
 """
 
 from __future__ import annotations
@@ -135,10 +140,10 @@ def compare_env_files(example_path: Path, env_path: Path) -> list[tuple[str, str
 def report_env_drift(example_path: Path, env_path: Path) -> None:
     """Imprime la deriva entre los dos ficheros. No decide el código de salida.
 
-    El código de salida del script significa "las credenciales de publicación
-    sirven". Una variable opcional sin poner en el `.env` no es eso, y un
-    chequeo que pone el script en rojo por una decisión pendiente termina
-    desactivado. Se informa y decide quien lee.
+    El código de salida del script significa "algún componente encendido tiene
+    credenciales que no sirven". Una variable opcional sin poner en el `.env`
+    no es eso, y un chequeo que pone el script en rojo por una decisión
+    pendiente termina desactivado. Se informa y decide quien lee.
     """
     print("\n-- .env vs .env.example ---------------------------")
     if not env_path.exists():
@@ -550,7 +555,8 @@ def check_r2() -> str:
 
 
 def main() -> int:
-    print("Verificación de credenciales de publicación (no publica nada).")
+    print("Verificación de credenciales. No publica nada; para R2 escribe y")
+    print("borra un objeto de prueba en tu propio bucket (ver el docstring).")
     report_env_drift(ROOT / ".env.example", ROOT / ".env")
 
     # Las funciones se nombran acá y no en una constante de módulo: así
