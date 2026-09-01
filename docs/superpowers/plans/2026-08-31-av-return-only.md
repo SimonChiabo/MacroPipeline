@@ -74,7 +74,7 @@ def test_weekly_close_rechaza_el_par_a_medias():
     Una poblada y la otra en `None` no sale de ninguna fuente real: si
     aparece es un bug, y tiene que reventar acá y no tres capas más abajo.
     """
-    with pytest.raises(PydanticValidationError, match="mismo instrumento"):
+    with pytest.raises(PydanticValidationError, match="misma fuente"):
         WeeklyCloseData(
             date=date(2026, 8, 21),
             sp500_close=7657.71,
@@ -92,7 +92,7 @@ def test_weekly_close_rechaza_el_par_a_medias():
 
 Run: `./.venv/Scripts/python.exe -m pytest tests/unit/test_validators.py -k "par_de_cierres or omitir or par_a_medias" -v`
 
-Expected: FAIL. Los dos primeros con `ValidationError` por `sp500_close` (hoy no admite `None` ni se puede omitir); el tercero pasa por el motivo equivocado — hoy no existe el mensaje "mismo instrumento", así que falla el `match`.
+Expected: FAIL. Los dos primeros con `ValidationError` por `sp500_close` (hoy no admite `None` ni se puede omitir); el tercero pasa por el motivo equivocado — hoy no existe el mensaje "misma fuente", así que falla el `match`.
 
 - [x] **Step 3: Implementar**
 
@@ -141,7 +141,7 @@ Reemplazar los dos campos de cierre y agregar el validador de modelo dentro de `
         """
         if (self.sp500_close is None) != (self.nasdaq_close is None):
             raise ValueError(
-                "Los dos cierres vienen del mismo instrumento y de la misma "
+                "Los dos cierres vienen de la misma fuente y de la misma "
                 "llamada: o están los dos, o no está ninguno."
             )
         return self

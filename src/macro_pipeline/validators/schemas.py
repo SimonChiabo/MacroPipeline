@@ -69,7 +69,7 @@ class WeeklyCloseData(BaseModel):
         """
         if (self.sp500_close is None) != (self.nasdaq_close is None):
             raise ValueError(
-                "Los dos cierres vienen del mismo instrumento y de la misma "
+                "Los dos cierres vienen de la misma fuente y de la misma "
                 "llamada: o están los dos, o no está ninguno."
             )
         return self

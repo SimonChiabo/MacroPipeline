@@ -258,7 +258,7 @@ def test_weekly_close_rechaza_el_par_a_medias():
     Una poblada y la otra en `None` no sale de ninguna fuente real: si
     aparece es un bug, y tiene que reventar acá y no tres capas más abajo.
     """
-    with pytest.raises(PydanticValidationError, match="mismo instrumento"):
+    with pytest.raises(PydanticValidationError, match="misma fuente"):
         WeeklyCloseData(
             date=date(2026, 8, 21),
             sp500_close=7657.71,
