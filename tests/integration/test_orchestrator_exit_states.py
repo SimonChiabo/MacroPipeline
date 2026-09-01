@@ -631,8 +631,10 @@ def test_fmp_sin_key_no_alerta_dos_veces_en_la_run(state, data):
 def test_un_lock_viejo_alerta_antes_de_saltarse_el_cierre(data, state):
     """La cuarta forma de abortar de ADR-009 deja de ser silenciosa.
 
-    Sin esto, la fila trabada se salta el cierre semana tras semana y la única
-    señal es una línea de log en un runner efímero que nadie mira.
+    El `event_id` lleva la fecha, así que la fila trabada no bloquea la semana
+    que viene: bloquea *este* cierre, y cada relanzamiento del mismo día se lo
+    salta. Sin esto, la única señal de que faltó una publicación semanal es una
+    línea de log en un runner efímero que nadie mira.
     """
     orch = _build_orchestrator(data, state)
     viejo = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
@@ -673,3 +675,27 @@ def test_un_lock_reciente_no_alerta(data, state):
     assert orch.run_weekly_close() == 0
 
     orch.telegram.send_alert.assert_not_called()
+
+
+def test_un_lock_ilegible_avisa_sin_soltar_el_lock(data, state):
+    """Un `locked_at` que no se puede leer no puede terminar soltando el lock.
+
+    Es el caso que esta misma alerta provoca: existe para mandar a un humano a
+    editar la fila a mano, y la base viaja por R2 entre runs efímeras, así que
+    un valor escrito a mano es la entrada de diseño y no una rareza. Sin el
+    `except`, la resta contra un valor naive explota, el manejador general
+    marca `failed` — y el relanzamiento siguiente toma el lock y publica en
+    paralelo con la aprobación que seguía viva.
+
+    Por eso lo que ancla el test no es que alerte, sino que la fila siga
+    `in_progress` después.
+    """
+    orch = _build_orchestrator(data, state)
+    # El mismo instante, escrito sin offset: es lo que rompe la resta.
+    ilegible = (datetime.now(UTC) - timedelta(hours=5)).replace(tzinfo=None).isoformat()
+    _trabar_el_lock(state, ilegible)
+
+    assert orch.run_weekly_close() == 0
+
+    orch.telegram.send_alert.assert_called_once()
+    assert state.get_publication_state(EVENT_ID)["status"] == "in_progress"

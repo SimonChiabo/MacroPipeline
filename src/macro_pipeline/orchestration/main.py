@@ -596,27 +596,46 @@ class MacroOrchestrator:
         return None
 
     def _avisar_lock_trabado(self, event_id: str, telegram: TelegramBot) -> None:
-        """Avisa si el lock no puede pertenecer a una run viva.
+        """Avisa si el lock es demasiado viejo para ser una run viva plausible.
 
         ADR-009 clasifica la fila trabada como la forma de abortar que no se
         acepta, y no se puede eliminar: una muerte no atrapable —SIGKILL, el
         runner que se apaga— la deja asi por definicion y ningun `except` la
         cubre. Lo que si se puede es que deje de saltarse el cierre en
-        silencio, semana tras semana.
+        silencio. Ojo con el alcance: el `event_id` lleva la fecha de hoy y la
+        run es semanal (ADR-002), asi que la fila trabada no bloquea la semana
+        que viene —esa es otro `event_id`—. Bloquea *este* cierre, que entonces
+        no sale nunca, y cada relanzamiento del mismo dia se lo salta sin
+        decirselo a nadie: una publicacion semanal que falta, sin ninguna señal.
 
         No toma el lock ni lo expira, a proposito: el umbral dice que una run
         viva es *improbable*, no *imposible*, y auto-expirar un lock ajeno es
         el camino a publicar el mismo cierre dos veces — el peor resultado
         posible de este sistema.
+
+        El `except` no es relleno defensivo, es lo que sostiene ese «no lo
+        expira». Un `locked_at` ilegible —naive, a medias, escrito a mano—
+        rompe la resta, y esta funcion corre *dentro* del `try` grande, cuyo
+        manejador llama a `mark_failed`: sin atrapar, la excepcion suelta el
+        lock exactamente como esta funcion se niega a hacerlo, y el
+        relanzamiento siguiente se lo lleva mientras la run viva sigue
+        esperando aprobacion. Y un valor escrito a mano no es un caso exotico:
+        esta alerta existe justamente para mandar a un humano a editar esa
+        fila, y la base viaja por R2 entre runs efimeras.
         """
-        locked_at = self.state.get_locked_at(event_id)
-        if locked_at is None:
-            desde = "y no se sabe desde cuándo: la fila es anterior a la columna"
-        else:
-            segundos = (datetime.now(UTC) - locked_at).total_seconds()
-            if segundos <= _LOCK_VIEJO_SEGUNDOS:
-                return
-            desde = f"desde hace {segundos / 3600:.1f} horas"
+        try:
+            locked_at = self.state.get_locked_at(event_id)
+            if locked_at is None:
+                desde = "y no se sabe desde cuándo: la fila es anterior a la columna"
+            else:
+                segundos = (datetime.now(UTC) - locked_at).total_seconds()
+                if segundos <= _LOCK_VIEJO_SEGUNDOS:
+                    return
+                desde = f"desde hace {segundos / 3600:.1f} horas"
+        except (TypeError, ValueError) as exc:
+            # El texto del error lleva el valor que no se pudo leer, que es
+            # justo lo que necesita quien va a arreglar la fila a mano.
+            desde = f"y la antigüedad del lock es ilegible ({exc})"
 
         logger.warning("stale_lock_detected", event_id=event_id)
         telegram.send_alert(
