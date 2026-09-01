@@ -217,5 +217,10 @@ es del sincronizado, un crash con un corte de R2 encima deja el remoto en
 efímero bajando ese `in_progress` y cayendo justo en el guard de la línea 657.
 
 Esta alerta **no cierra ese residuo**: el cierre se sigue saltando, y cerrarlo
-de verdad pide un segundo canal de escritura. Lo que le saca es el «en
-silencio», que era la mitad mala de las dos.
+de verdad pide un segundo canal de escritura.
+
+Y le saca el «en silencio» sólo a medias, que conviene no exagerar. Si el
+relanzamiento llega más de dos horas después, avisa. Si llega enseguida —el
+caso más probable, porque relanzar a mano se hace al ratito— el lock tiene
+minutos y el umbral se calla, que es exactamente lo que tiene que hacer: a esa
+antigüedad no hay forma de distinguirlo de una run viva.

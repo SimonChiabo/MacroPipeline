@@ -272,10 +272,13 @@ es del sincronizado, el push de `mark_failed` es el que registra la fila
 levantara, reventaría el manejador de fallos y taparía la causa original). Un
 crash cualquiera coincidiendo con un corte de R2 deja el remoto diciendo
 `in_progress` y el local `failed`; en un runner efímero, la corrida siguiente
-baja ese `in_progress` y **se salta el cierre en silencio**, que es la forma que
-la tabla de arriba no acepta. La cadencia semanal lo hace raro y cerrarlo
-pediría un segundo canal de escritura, pero queda escrito porque es el tipo de
-promesa que esta tabla ya ha hecho de más dos veces.
+baja ese `in_progress` y **se salta el cierre**, que es la forma que la tabla de
+arriba no acepta. Desde el aviso de lock viejo ese salto deja de ser mudo **sólo
+si el relanzamiento llega más de dos horas después**: uno más rápido ve un lock
+de minutos y se calla, a propósito, porque el umbral no puede distinguirlo de
+una run viva. La cadencia semanal lo hace raro y cerrarlo pediría un segundo
+canal de escritura, pero queda escrito porque es el tipo de promesa que esta
+tabla ya ha hecho de más dos veces.
 
 **Fail-silent que este trabajo no puede cerrar:** el sincronizado participa
 siempre que R2 esté configurado, así que un workflow programado al que se le
