@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +67,7 @@ class StateDB:
                     event_id            TEXT PRIMARY KEY,
                     status              TEXT NOT NULL DEFAULT 'in_progress',
                     created_at          TIMESTAMP NOT NULL,
+                    locked_at           TEXT,
                     published_at        TIMESTAMP,
                     data_source         TEXT,
                     sp500_close         REAL,
@@ -108,6 +109,7 @@ class StateDB:
             ("dgs10_as_of", "TEXT"),
             ("x_post_id", "TEXT"),
             ("linkedin_post_id", "TEXT"),
+            ("locked_at", "TEXT"),
         ]
         with sqlite3.connect(self.db_path) as conn:
             for col, col_type in new_cols:
@@ -142,17 +144,25 @@ class StateDB:
         `is_in_progress` siga sirviendo de guarda contra runs simultaneas.
         Las columnas de `post_id` quedan como estan a proposito: son lo que lee
         la reconciliacion para saber que canal saltarse.
+
+        `locked_at` se escribe en las **dos** ramas. Refrescarlo en el re-arm es
+        lo que hace util al umbral del orquestador: sin eso, un reintento de hoy
+        sobre una fila de hace tres semanas parece un lock de hace tres semanas
+        y la run viva se alerta a si misma. `created_at` no se toca — sigue
+        diciendo cuando nacio la fila, que es lo que su nombre promete.
         """
+        ahora = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO published_events "
-                "(event_id, status, created_at) VALUES (?, 'in_progress', ?)",
-                (event_id, datetime.utcnow()),
+                "(event_id, status, created_at, locked_at) "
+                "VALUES (?, 'in_progress', ?, ?)",
+                (event_id, datetime.utcnow(), ahora),
             )
             conn.execute(
-                "UPDATE published_events SET status = 'in_progress' "
+                "UPDATE published_events SET status = 'in_progress', locked_at = ? "
                 "WHERE event_id = ? AND status IN ('failed', 'expired')",
-                (event_id,),
+                (ahora, event_id),
             )
         logger.info("event_marked_in_progress", event_id=event_id)
         self._notify_write()

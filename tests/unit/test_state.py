@@ -1,7 +1,7 @@
 """Tests de StateDB, con foco en la persistencia del contexto macro."""
 
 import sqlite3
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -364,3 +364,82 @@ def test_las_demas_escrituras_si_propagan_el_fallo_del_hook(tmp_path, escritura)
 
     with pytest.raises(RuntimeError):
         escritura(db)
+
+
+def test_mark_in_progress_registra_cuando_se_tomo_el_lock(db):
+    """Sin `locked_at` no hay forma de distinguir un lock vivo de uno trabado.
+
+    `created_at` no sirve para esto: no se refresca nunca (ver el test de
+    abajo), así que dice cuándo nació la fila y no cuándo se tomó el lock.
+    """
+    db.mark_in_progress("weekly_close_2026-08-21")
+
+    state = db.get_publication_state("weekly_close_2026-08-21")
+
+    assert state["locked_at"] is not None
+    edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
+    assert edad < timedelta(seconds=30)
+
+
+def test_rearmar_el_lock_refresca_locked_at(db):
+    """El re-arm sobre una fila `failed` es un lock nuevo, y la fecha lo dice.
+
+    Es la mitad que hace útil al umbral. El `UPDATE` del re-arm no tocaba
+    ningún timestamp, así que un reintento de hoy sobre una fila de hace tres
+    semanas seguiría diciendo que el lock es de hace tres semanas — y el
+    orquestador alertaría sobre la run que está corriendo en ese momento.
+    """
+    event = "weekly_close_2026-08-21"
+    db.mark_in_progress(event)
+    with sqlite3.connect(db.db_path) as conn:
+        conn.execute(
+            "UPDATE published_events SET status = 'failed', locked_at = ? "
+            "WHERE event_id = ?",
+            ("2026-08-01T00:00:00+00:00", event),
+        )
+
+    db.mark_in_progress(event)
+
+    state = db.get_publication_state(event)
+    assert state["locked_at"] != "2026-08-01T00:00:00+00:00"
+    edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
+    assert edad < timedelta(seconds=30)
+
+
+def test_migrate_db_agrega_locked_at_en_null(tmp_path):
+    """Una base vieja gana la columna, y sus filas quedan en NULL.
+
+    Sin backfill a propósito: copiar `created_at` escribiría una aproximación
+    —cuándo nació la fila, no cuándo se tomó el último lock— en la única
+    columna cuyo valor entero está en ser exacta.
+    """
+    db_path = tmp_path / "legacy.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(_OLD_SCHEMA)
+        conn.execute(
+            "INSERT INTO published_events (event_id, status, created_at) "
+            "VALUES ('weekly_close_2026-05-14', 'in_progress', '2026-05-14')"
+        )
+
+    db = StateDB(db_path=str(db_path))
+    state = db.get_publication_state("weekly_close_2026-05-14")
+
+    assert "locked_at" in state
+    assert state["locked_at"] is None
+
+
+def test_migrate_db_es_idempotente_con_la_columna_ya_puesta(tmp_path):
+    """Abrir dos veces la misma base no revienta ni pierde el lock.
+
+    `_migrate_db` corre en cada `StateDB(...)` y el `ALTER TABLE` de una
+    columna que ya existe levanta `OperationalError`. Lo que lo hace inofensivo
+    es el `except`, y esto lo fija: en un runner efímero la base baja de R2 ya
+    migrada en cada corrida.
+    """
+    db_path = tmp_path / "state.db"
+    primera = StateDB(db_path=str(db_path))
+    primera.mark_in_progress("weekly_close_2026-08-21")
+
+    segunda = StateDB(db_path=str(db_path))
+
+    assert segunda.get_publication_state("weekly_close_2026-08-21")["locked_at"]
