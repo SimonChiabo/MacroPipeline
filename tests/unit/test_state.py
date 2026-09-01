@@ -378,7 +378,7 @@ def test_mark_in_progress_registra_cuando_se_tomo_el_lock(db):
 
     assert state["locked_at"] is not None
     edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
-    assert edad < timedelta(seconds=30)
+    assert timedelta(0) <= edad < timedelta(seconds=30)
 
 
 def test_rearmar_el_lock_refresca_locked_at(db):
@@ -403,7 +403,34 @@ def test_rearmar_el_lock_refresca_locked_at(db):
     state = db.get_publication_state(event)
     assert state["locked_at"] != "2026-08-01T00:00:00+00:00"
     edad = datetime.now(UTC) - datetime.fromisoformat(state["locked_at"])
-    assert edad < timedelta(seconds=30)
+    assert timedelta(0) <= edad < timedelta(seconds=30)
+
+
+def test_no_refresca_locked_at_si_la_fila_ya_esta_in_progress(db):
+    """Una fila ya `in_progress` no es un re-arm: no hay que tocarle el lock.
+
+    Es la mitad que hace confiable al umbral de la Task 3. El `WHERE` de
+    `mark_in_progress` solo cubre `failed` y `expired` a proposito; si algun
+    dia alguien lo ensancha para incluir `in_progress` —pensando en revivir
+    una fila trabada— cada reintento sobre esa misma fila trabada le
+    refrescaria `locked_at`, y el umbral de dos horas de la Task 3 nunca
+    tendria una fila lo bastante vieja como para dispararse. Es la fila
+    trabada, y si el re-arm la tocara el umbral de la Task 3 no podria
+    dispararse nunca.
+    """
+    event = "weekly_close_2026-08-21"
+    db.mark_in_progress(event)
+    with sqlite3.connect(db.db_path) as conn:
+        conn.execute(
+            "UPDATE published_events SET locked_at = ? WHERE event_id = ?",
+            ("2026-08-01T00:00:00+00:00", event),
+        )
+
+    db.mark_in_progress(event)
+
+    state = db.get_publication_state(event)
+    assert state["status"] == "in_progress"
+    assert state["locked_at"] == "2026-08-01T00:00:00+00:00"
 
 
 def test_migrate_db_agrega_locked_at_en_null(tmp_path):
