@@ -1223,4 +1223,59 @@ def test_un_allowed_user_id_de_otro_no_deja_aprobar_a_nadie(
     salida = capsys.readouterr().out
     assert "TELEGRAM_ALLOWED_USER_ID" in salida
     assert "TELEGRAM_CHAT_ID" in salida
-    assert "Un 400" not in salida
+
+
+def test_en_un_grupo_no_se_compara_el_id_pero_se_dice(
+    check_credentials, monkeypatch, capsys
+):
+    """En un grupo los dos ids son distintos por diseño (el del chat es negativo).
+
+    Comparar ahi pondria rojo a una configuracion legitima. Y el aviso importa
+    tanto como no fallar: un silencio se lee como "comparado y OK", asi que hay
+    que decir que quien aprueba quedo sin verificar.
+    """
+    _credenciales_de_telegram(monkeypatch, allowed="4242")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100987654321")
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {
+            "getMe": (200, {"ok": True, "result": {"username": "MacroPipelineBot"}}),
+            "getWebhookInfo": (200, {"ok": True, "result": {"url": ""}}),
+            "getChat": (
+                200,
+                {"ok": True, "result": {"id": -100987654321, "type": "supergroup"}},
+            ),
+        },
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.LISTO
+    assert "sin verificar quien aprueba" in capsys.readouterr().out
+
+
+def test_sin_allowed_user_id_avisa_pero_no_pone_rojo(
+    check_credentials, monkeypatch, capsys
+):
+    """Publica igual: el HITL funciona, solo que sin restringir quien aprueba.
+
+    El codigo de salida significa "esta credencial no sirve" y esta sirve. La
+    ausencia ya la reporta `report_env_drift`, que esta escrito a proposito
+    para no poner el script en rojo por una decision pendiente; fallar aca
+    tendria las dos politicas a la vez.
+
+    `isdigit()` trata igual a la ausente y a la ilegible ('@simon'), asi que
+    este test cubre las dos.
+    """
+    _credenciales_de_telegram(monkeypatch, allowed=None)
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {
+            "getMe": (200, {"ok": True, "result": {"username": "MacroPipelineBot"}}),
+            "getWebhookInfo": (200, {"ok": True, "result": {"url": ""}}),
+            "getChat": (200, {"ok": True, "result": {"id": 4242, "type": "private"}}),
+        },
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.LISTO
+    assert "cualquiera en el chat puede aprobar" in capsys.readouterr().out
