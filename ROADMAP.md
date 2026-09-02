@@ -142,9 +142,28 @@ conviene: con corridas reales encima hay métricas que mirar.
 3. **Trigger** (bloqueador 3), ya con la certeza de que el pipeline funciona.
 4. **README/CLI** (bloqueador 4) y **Grafana** (5), en cualquier orden.
 
-Los pasos 1 y 2 se pueden hacer cualquier viernes; los datos del cierre son de
-la semana que corre, así que un ensayo un martes trae datos de un cierre que no
-terminó.
+**El ensayo del paso 1 no necesita esperar al viernes**, y conviene hacerlo
+antes. Verificado en el código el 2026-09-02:
+
+- El retorno **no** es de lunes a viernes: es una ventana móvil de cinco días
+  hábiles. `_fetch_weekly_close` toma el último cierre disponible y lo compara
+  contra el primero que sea anterior o igual a ese día menos `BDay(5)`
+  (`main.py:377-393`), con el corte por fecha real para no sesgarse con los
+  feriados. Un miércoles da miércoles contra miércoles: un retorno semanal
+  legítimo, no media semana.
+- El bloque macro es una ventana hacia atrás desde hoy (`macro.py:95-96`) y la
+  plantilla imprime la fecha del propio dato (`playwright_engine.py:137`).
+  Ninguna de las cinco fases pregunta qué día de la semana es.
+- **El `event_id` lleva la fecha** (`weekly_close_2026-09-02` contra
+  `weekly_close_2026-09-04`), así que un ensayo entre semana no ocupa la fila
+  del viernes ni puede interferir con la corrida real.
+
+De regalo, el ensayo siembra el estado remoto en R2, así que el viernes ya no
+llega el aviso de «primera corrida o pérdida de estado» y una sorpresa menos
+cae en el día que importa.
+
+El paso 2 —la publicación de verdad— sí conviene que sea un viernes, que es la
+cadencia que el proyecto eligió.
 
 ---
 
