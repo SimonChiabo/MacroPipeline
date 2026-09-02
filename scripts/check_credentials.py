@@ -665,6 +665,18 @@ def check_telegram() -> str:
     tipo = chat.get("type")
     print(f"{OK} El chat existe y el bot lo alcanza (type={tipo}).")
 
+    if tipo == "private" and bot.allowed_user_id is not None:
+        if bot.allowed_user_id != chat.get("id"):
+            print(f"{FAIL} TELEGRAM_ALLOWED_USER_ID no es el dueño de este chat.")
+            print("       En un chat privado el id del chat ES el del operador,")
+            print("       asi que `wait_for_approval` va a descartar el boton en")
+            print("       silencio: la run se cuelga hasta el timeout y no")
+            print("       publica. Una de las dos variables esta mal:")
+            print(f"       TELEGRAM_CHAT_ID={bot.chat_id}")
+            print(f"       TELEGRAM_ALLOWED_USER_ID={bot.allowed_user_id}")
+            return NO_LISTO
+        print(f"{OK} TELEGRAM_ALLOWED_USER_ID coincide con el dueño del chat.")
+
     return LISTO
 
 

@@ -1177,4 +1177,50 @@ def test_un_corte_de_red_en_getchat_no_imprime_la_pista_del_400(
     assert check_credentials.check_telegram() == check_credentials.NO_LISTO
     salida = capsys.readouterr().out
     assert "No se pudo contactar" in salida
+
+
+def test_el_camino_feliz_de_telegram_en_un_chat_privado(
+    check_credentials, monkeypatch, capsys
+):
+    """Token, sin webhook, chat alcanzable y el operador correcto."""
+    _credenciales_de_telegram(monkeypatch, allowed="4242")
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {
+            "getMe": (200, {"ok": True, "result": {"username": "MacroPipelineBot"}}),
+            "getWebhookInfo": (200, {"ok": True, "result": {"url": ""}}),
+            "getChat": (200, {"ok": True, "result": {"id": 4242, "type": "private"}}),
+        },
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.LISTO
+    assert "coincide" in capsys.readouterr().out
+
+
+def test_un_allowed_user_id_de_otro_no_deja_aprobar_a_nadie(
+    check_credentials, monkeypatch, capsys
+):
+    """El HITL muerto mas silencioso de los tres.
+
+    En un chat privado el id del chat ES el del operador. Si no coinciden,
+    `wait_for_approval` descarta el callback sin decir nada, la run se cuelga
+    hasta el timeout y no publica. El texto tiene que nombrar las DOS variables:
+    con el aviso generico, quien lo lee no sabe cual de las dos corregir.
+    """
+    _credenciales_de_telegram(monkeypatch, allowed="9999")
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {
+            "getMe": (200, {"ok": True, "result": {"username": "MacroPipelineBot"}}),
+            "getWebhookInfo": (200, {"ok": True, "result": {"url": ""}}),
+            "getChat": (200, {"ok": True, "result": {"id": 4242, "type": "private"}}),
+        },
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    salida = capsys.readouterr().out
+    assert "TELEGRAM_ALLOWED_USER_ID" in salida
+    assert "TELEGRAM_CHAT_ID" in salida
     assert "Un 400" not in salida
