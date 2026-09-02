@@ -548,18 +548,26 @@ def test_fred_sin_respuesta_pone_rojo(check_credentials, monkeypatch, capsys):
     assert "No se pudo contactar" in salida
 
 
-def test_el_nightly_apaga_los_cuatro_componentes_no_publicadores(check_credentials):
+def test_el_nightly_apaga_los_cinco_componentes_no_publicadores(check_credentials):
     """El blindaje del paso de LinkedIn, fijado por un test.
 
-    Ese paso corre el script con solo los secrets de LinkedIn. Sin apagar los
-    cuatro, cae en la rama generica y manda "la verificacion de la credencial
-    de LinkedIn fallo por otro motivo" todas las noches, culpando a LinkedIn de
-    que falta la key de FRED. El comentario de ese mismo paso ya nombra ese
-    modo de fallo: una alerta que señala al componente equivocado es peor que
-    ninguna.
+    Ese paso corre el script con solo los secrets de LinkedIn. Sin apagar
+    FRED, Alpha Vantage, Anthropic y R2, cae en la rama generica y manda "la
+    verificacion de la credencial de LinkedIn fallo por otro motivo" todas las
+    noches, culpando a LinkedIn de que falta la key de FRED. El comentario de
+    ese mismo paso ya nombra ese modo de fallo: una alerta que señala al
+    componente equivocado es peor que ninguna.
+
+    Telegram esta en la misma tupla pero por un motivo distinto: a esos cuatro
+    les falta el secret en este job, y por eso fallarian sin la linea. Este
+    paso SI tiene `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` —los usa para
+    mandar su propia alerta—, asi que sin `USE_TELEGRAM: "false"` el chequeo
+    no fallaria: correria de verdad contra el chat privado del operador y
+    pasaria en verde hasta el dia que ese token muera, y ese dia la alerta de
+    LinkedIn quedaria rota sin que nadie lo hubiera visto venir.
 
     Se lee el YAML como texto y no con un parser: lo que hay que fijar es que
-    las cuatro lineas esten en ESE paso, y el bloque se identifica por su
+    las cinco lineas esten en ESE paso, y el bloque se identifica por su
     nombre.
     """
     workflow = (ROOT / ".github" / "workflows" / "contract-tests.yml").read_text(
@@ -568,7 +576,7 @@ def test_el_nightly_apaga_los_cuatro_componentes_no_publicadores(check_credentia
     inicio = workflow.index("name: Verificar la credencial de LinkedIn")
     paso = workflow[inicio : workflow.index("\n      - name:", inicio + 1)]
 
-    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2"):
+    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2", "USE_TELEGRAM"):
         assert f'{var}: "false"' in paso, (
             f"{var} no esta apagada en el paso de LinkedIn: ese paso corre el "
             f"chequeo con solo los secrets de LinkedIn y va a alertar todas "
@@ -1178,6 +1186,7 @@ def test_un_corte_de_red_en_getchat_no_imprime_la_pista_del_400(
     assert check_credentials.check_telegram() == check_credentials.NO_LISTO
     salida = capsys.readouterr().out
     assert "No se pudo contactar" in salida
+    assert "Un 400" not in salida
 
 
 def test_el_camino_feliz_de_telegram_en_un_chat_privado(
@@ -1222,8 +1231,13 @@ def test_un_allowed_user_id_de_otro_no_deja_aprobar_a_nadie(
 
     assert check_credentials.check_telegram() == check_credentials.NO_LISTO
     salida = capsys.readouterr().out
-    assert "TELEGRAM_ALLOWED_USER_ID" in salida
-    assert "TELEGRAM_CHAT_ID" in salida
+    # Los valores y no solo los nombres: "TELEGRAM_ALLOWED_USER_ID" ya
+    # aparece en el encabezado del [FALLA], y "TELEGRAM_CHAT_ID" lo imprime
+    # `_check_present` mucho antes ("cargada (4 caracteres)"). Sin la
+    # interpolacion los dos asserts pasarian igual con el cuerpo del mensaje
+    # borrado entero.
+    assert "TELEGRAM_CHAT_ID=4242" in salida
+    assert "TELEGRAM_ALLOWED_USER_ID=9999" in salida
 
 
 def test_en_un_grupo_no_se_compara_el_id_pero_se_dice(
