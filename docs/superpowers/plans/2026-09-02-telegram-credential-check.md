@@ -873,16 +873,24 @@ Esperado: PASS todo, 352 tests (342 + los 10 nuevos: uno en la task 1, dos en
 la 2, uno en la 3, uno en la 4, dos en la 5, dos en la 6 y uno acá). Ningún
 test sale a la red.
 
-- [ ] **Step 8: Lint y tipos**
+- [ ] **Step 8: Lint y tipos — los tres gates que corre CI, y sólo ésos**
 
 ```
-pre-commit run --all-files
-mypy scripts/check_credentials.py
+ruff check src/ tests/ scripts/
+ruff format --check src/ tests/ scripts/
+mypy src/ scripts/
 ```
 
 Esperado: sin errores. `mypy` corre con `strict = true`, así que la anotación
 de `_telegram_get` tiene que ser `dict[str, object] | None`: un `dict` pelado
 es error de `disallow_any_generics`.
+
+**No usar `pre-commit run --all-files` como gate acá.** Su hook de `mypy` no
+lleva filtro de ficheros, así que también tipa `tests/`, y el fichero de tests
+tenía **80 errores de `no-untyped-def`/`no-untyped-call` ya en `8831487`** —
+todo el fichero está escrito sin anotar, a propósito—. `ci.yml:36` corre
+`mypy src/ scripts/` y nada más. Verificado el 2026-09-02; era un error de este
+plan, no del código.
 
 - [ ] **Step 9: Commit**
 
