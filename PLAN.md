@@ -214,7 +214,7 @@
 - [x] Crear repo público `github.com/SimonChiabo/MacroPipeline`
 - [x] Crear bot de Telegram (`@BotFather`)
 - [x] Provisionar cuenta Cloudflare R2 free tier
-- [x] Crear cuenta Grafana Cloud free tier
+- [ ] Crear cuenta Grafana Cloud free tier — **no existe**; el `.env` trae el endpoint de ejemplo y el exportador de OTel sale con 401. Ver [ROADMAP.md](./ROADMAP.md) §5
 
 ### Semana 1 — ETL determinista + validación
 - [x] Esqueleto del repo con estructura recomendada

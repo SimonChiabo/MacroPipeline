@@ -125,11 +125,66 @@ Recomendación: corregir el README ahora —es una mentira en la primera página
 del repo— y decidir el CLI después del bloqueador 1, cuando se sepa cuántas
 veces hizo falta ensayar.
 
-### 5. Dashboard de Grafana — *no bloquea publicar*
+### 5. Grafana no existe: la cuenta, no sólo el dashboard — *no bloquea publicar*
 
-La cuenta existe y el endpoint OTLP está configurado; falta el dashboard
-(PLAN.md §7, semana 4). Se puede hacer después del primer post, y de hecho
-conviene: con corridas reales encima hay métricas que mirar.
+Corregido el 2026-09-02, después de afirmar lo contrario en este mismo
+documento. **No hay cuenta de Grafana Cloud.** El `.env` tiene el
+`OTEL_EXPORTER_OTLP_ENDPOINT` **copiado literal de `.env.example`**
+(`https://otlp-gateway-prod-us-east-0.grafana.net/otlp`), que es lo que hizo
+creer que estaba configurado.
+
+La consecuencia se vio en el ensayo: el exportador de OTel tira
+`Failed to export span batch code: 401, reason: Unauthorized` tres veces por
+corrida. **No llega ni una traza.** No frena nada —los spans son best-effort—
+y por eso nunca se supo: lo imprime el SDK por stderr, no el logger, y ningún
+chequeo lo mira. `check_credentials.py` tampoco: el chequeo de deriva sólo
+marca placeholder los valores que empiezan con `your_`, y éste es una URL
+válida copiada del ejemplo.
+
+Falta entonces: crear la cuenta free tier, poner endpoint y token de verdad, y
+recién ahí el dashboard (PLAN.md §7, semana 4).
+
+---
+
+## Lo que encontró el ensayo del 2026-09-02
+
+Las cinco fases corrieron juntas por primera vez y llegaron al botón de
+aprobar. El borrador se rechazó, no se publicó nada. Tres hallazgos, uno por
+categoría:
+
+### El IPC que publicamos no es el que publica todo el mundo
+
+`macro.py:15` usa **`CPIAUCSL`**, la serie **desestacionalizada**. La cifra que
+citan los medios y el BLS como «IPC interanual» sale de **`CPIAUCNS`**, la
+serie **sin desestacionalizar**. Con el dato de julio de 2026, la diferencia es
+real y visible:
+
+| Serie | YoY |
+|---|---|
+| `CPIAUCSL` (la que publicamos) | **3.30 %** |
+| `CPIAUCNS` (la del titular) | **3.36 %** → se redondea a **3.4 %** |
+
+Cualquiera que compare el post contra una noticia va a ver 3.3 donde el mundo
+dice 3.4, y va a concluir que el pipeline calcula mal. Es la misma familia que
+la divergencia 4 de ADR-009 —la etiqueta correcta sobre el instrumento
+equivocado—, y por lo tanto **hay que arreglarlo antes de publicar**. La
+convención es: desestacionalizada para la variación mensual, sin desestacionalizar
+para la interanual, que es la que este bloque muestra.
+
+### El Treasury a 10 años llega con hasta dos días de retraso
+
+No es un fallo: `DGS10` es diaria pero FRED la publica con lag. El 2026-09-02
+la última observación disponible era la del **2026-08-31** (4.75 %), mientras
+el mercado cotizaba 4.81 %. La plantilla ya lo dice —cada métrica lleva su
+propio `as_of` y el 10 años se rotula «al 31/08/2026» (`playwright_engine.py:56-58`)—
+así que el post es honesto. Sólo hay que saberlo: un cierre del viernes va a
+mostrar el rendimiento del miércoles o el jueves, nunca el del día.
+
+El desempleo (4.1 %) coincidió exacto con la fuente.
+
+### La observabilidad estaba muda
+
+Ver el bloqueador 5, arriba.
 
 ---
 
