@@ -15,8 +15,8 @@ estado real y las APIs ese día. Lo que no se pudo verificar se dice.
 | | |
 |---|---|
 | **Publicaciones** | **Cero.** Nunca salió un post. |
-| **Corridas del pipeline** | **Una.** `weekly_close_2026-08-27`, terminó en `failed`. La fila no guarda motivo: `mark_failed` todavía no lo registraba. |
-| **Estado remoto** | Ausente. `state/state.db` no existe en R2 — esa corrida es anterior al sincronizado, que se escribió el 2026-08-31. |
+| **Corridas del pipeline** | **Dos.** `weekly_close_2026-08-27`, `failed` sin motivo guardado (`mark_failed` todavía no lo registraba), y `weekly_close_2026-09-02`, el ensayo: llegó al botón y se rechazó a propósito. |
+| **Estado remoto** | **Existe desde el ensayo.** `state/state.db` en R2, 12288 bytes, escrito dos veces en esa corrida (al tomar el lock y al cerrarla). |
 | **Credenciales** | Las siete verificadas hoy contra sus APIs (`scripts/check_credentials.py`, código 0). |
 | **Trigger programado** | **No existe.** En `.github/workflows/` sólo hay `ci.yml` y `contract-tests.yml`, y ninguno ejecuta el pipeline. No hay Routine creada. |
 | **Punto de entrada** | `python src/macro_pipeline/orchestration/main.py` — el bloque `if __name__ == "__main__"` (`main.py:1103`). |
@@ -63,14 +63,29 @@ es un fallo (`main.py:488-490`).
 
 ## Los bloqueadores, en orden de riesgo
 
-### 1. Las cinco fases nunca corrieron juntas — *el bloqueador real*
+### 1. ~~Las cinco fases nunca corrieron juntas~~ — **cerrado el 2026-09-02**
 
-Todo lo demás es logística. Esto es lo único que no se sabe: si el pipeline
-completo, contra datos reales de un viernes, llega hasta el botón de aprobar.
+Corrieron, y llegaron al botón. `weekly_close_2026-09-02`: FMP con 1253
+registros por índice, validación OK, Playwright 64 874 bytes, titular de Haiku
+4.5 aprobado por el validador, borrador entregado en Telegram, **rechazado a
+mano** y run terminada con código 0.
 
-**Qué hacer:** correr `python src/macro_pipeline/orchestration/main.py` a mano,
-con las banderas de publicación **encendidas**, y **rechazar** el borrador en
-Telegram. Repetir hasta que la corrida llegue limpia al botón.
+Lo que ese único ensayo dejó verificado de punta a punta, y que ningún test
+podía dar:
+
+- **La rama de rechazo funciona**: `telegram_draft_rejected` con el `from_id`
+  del operador (o sea que el filtro de `TELEGRAM_ALLOWED_USER_ID` dejó pasar al
+  correcto), fila marcada `failed` con `reason="rejected_by_human"`, y
+  `pipeline_aborted_by_human` con salida 0.
+- **El sincronizado de estado escribe de verdad**: dos `state_pushed` en la
+  misma corrida —al tomar el lock y al cerrarla—, y el aviso de «primera
+  corrida o pérdida de estado» apareció como se esperaba. Esa sorpresa ya no
+  cae el viernes.
+- **La ruta buena de datos**: `data_source=fmp`, así que se publica el nivel y
+  no sólo la variación.
+
+**Qué sigue haciendo falta antes de publicar:** el IPC (abajo) y la auditoría
+de datos. La mecánica ya no es el riesgo; el significado de las cifras, sí.
 
 Qué mirar en esa corrida, además de que no reviente:
 
