@@ -19,7 +19,7 @@ from datetime import date
 import pytest
 
 from macro_pipeline.orchestration.main import MacroOrchestrator, _generic_headline
-from macro_pipeline.validators.schemas import WeeklyCloseData
+from macro_pipeline.validators.schemas import MacroSnapshot, WeeklyCloseData
 
 
 def _data() -> WeeklyCloseData:
@@ -40,12 +40,12 @@ def test_the_generic_headline_carries_both_real_returns():
     modelo". Si el texto pierde una cifra, esa premisa deja de ser cierta y la
     degradacion pasa a costar informacion en vez de solo redaccion.
     """
-    titular = _generic_headline(_data())
+    titular = _generic_headline(_data(), data_source="fmp")
 
     assert "+1.20%" in titular
     assert "-1.90%" in titular
-    assert "S&P500" in titular
-    assert "NASDAQ" in titular
+    assert "S&P 500" in titular
+    assert "Nasdaq Composite" in titular
 
 
 # Las cuatro credenciales de los componentes que `__init__` construye *antes*
@@ -107,3 +107,103 @@ def test_the_llm_layer_is_still_built_when_the_key_is_there(buildable_env, monke
 
     assert orch.llm is not None
     assert orch.validator_agent is not None
+
+
+def _macro() -> MacroSnapshot:
+    return MacroSnapshot(
+        cpi_yoy=0.0336,
+        cpi_as_of=date(2026, 7, 1),
+        unemployment_rate=4.1,
+        unrate_as_of=date(2026, 7, 1),
+        treasury_10y=4.75,
+        dgs10_as_of=date(2026, 8, 31),
+    )
+
+
+def test_the_deterministic_headline_carries_everything_the_image_shows():
+    """Con el LLM apagado este texto es el post, no la degradación de un post.
+
+    Mientras fue la rama de degradación alcanzaba con que llevara las dos
+    cifras de mercado. Al pasar a ser el copy publicado tiene que decir lo
+    mismo que la imagen: nivel, fecha del dato y el bloque macro con su
+    referencia temporal. Los formatos son los de la plantilla a propósito —un
+    mismo post no puede escribir el mismo número de dos maneras.
+    """
+    titular = _generic_headline(_data_con_macro(), data_source="fmp")
+
+    assert "2026-08-21" in titular
+    assert "S&P 500: 5,100.00 (+1.20% semanal)" in titular
+    assert "Nasdaq Composite: 16,000.00 (-1.90% semanal)" in titular
+    assert "IPC interanual: +3.4% (07/2026)" in titular
+    assert "Desempleo: 4.1% (07/2026)" in titular
+    assert "Treasury 10A: 4.75% (al 31/08/2026)" in titular
+    assert "Fuentes: FMP, FRED" in titular
+
+
+def test_the_deterministic_headline_omits_the_level_it_must_not_publish():
+    """Sin nivel publicable el retorno se queda solo, igual que en la tarjeta.
+
+    Es ADR-009 divergencia 4 en el texto: por la ruta de Alpha Vantage el
+    nivel es el del ETF, y publicarlo bajo la etiqueta del índice sería la
+    invariante de ADR-001 rota en el copy en vez de en la imagen.
+    """
+    data = _data_con_macro().model_copy(
+        update={"sp500_close": None, "nasdaq_close": None}
+    )
+
+    titular = _generic_headline(data, data_source="av")
+
+    assert "S&P 500: +1.20% semanal" in titular
+    assert "Nasdaq Composite: -1.90% semanal" in titular
+    assert "5,100" not in titular
+    assert "16,000" not in titular
+
+
+def test_the_deterministic_headline_names_the_source_the_data_came_from():
+    """La atribución sigue al dato, no al camino feliz.
+
+    Escribir «FMP» sobre cifras que trajo Alpha Vantage es exactamente la
+    etiqueta equivocada que `docs/data-dictionary.md` persigue, y encima en el
+    único lugar del post donde se prometen fuentes.
+    """
+    data = _data_con_macro().model_copy(
+        update={"sp500_close": None, "nasdaq_close": None}
+    )
+
+    titular = _generic_headline(data, data_source="av")
+
+    assert "Fuentes: Alpha Vantage, FRED" in titular
+    assert "FMP" not in titular
+
+
+def test_the_deterministic_headline_drops_the_macro_block_when_there_is_none():
+    """FRED caído no puede dejar el post prometiendo una fuente que no aportó."""
+    titular = _generic_headline(_data(), data_source="fmp")
+
+    assert "IPC" not in titular
+    assert "Desempleo" not in titular
+    assert "Treasury" not in titular
+    assert "Fuentes: FMP" in titular
+    assert "FRED" not in titular
+
+
+def test_the_deterministic_headline_fits_in_a_tweet():
+    """280 es el límite duro de X (ADR-003), y el emoji cuenta doble ahí.
+
+    El texto es de formato fijo y sus números están acotados, así que esto se
+    puede fijar con un test en vez de con una guarda en ejecución. Se mide
+    contra el caso más ancho: todo presente y cifras de cinco dígitos.
+    """
+    ancho = _data_con_macro().model_copy(
+        update={"sp500_close": 99999.99, "nasdaq_close": 99999.99}
+    )
+
+    titular = _generic_headline(ancho, data_source="fmp")
+
+    assert len(titular) + titular.count("📊") <= 280, (
+        f"el titular determinista mide {len(titular)} y no entra en un tweet"
+    )
+
+
+def _data_con_macro() -> WeeklyCloseData:
+    return _data().model_copy(update={"macro": _macro()})

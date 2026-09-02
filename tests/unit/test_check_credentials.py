@@ -223,7 +223,7 @@ def test_the_example_declares_both_publish_flags(check_credentials):
     assert ejemplo.get("PUBLISH_LINKEDIN") == "true"
 
 
-def test_the_example_declares_the_six_component_switches_commented(check_credentials):
+def test_the_example_declares_five_component_switches_commented(check_credentials):
     """Comentados y no puestos, a diferencia de las dos banderas de publicación.
 
     Ausente significa encendido, así que no hay nada que copiar al `.env`:
@@ -235,16 +235,29 @@ def test_the_example_declares_the_six_component_switches_commented(check_credent
     comentadas = check_credentials._commented_names(ejemplo)
     declaradas = check_credentials._parse_env_file(ejemplo)
 
-    for var in (
-        "USE_FMP",
-        "USE_AV",
-        "USE_FRED",
-        "USE_ANTHROPIC",
-        "USE_R2",
-        "USE_TELEGRAM",
-    ):
+    for var in ("USE_FMP", "USE_AV", "USE_FRED", "USE_R2", "USE_TELEGRAM"):
         assert var in comentadas, var
         assert var not in declaradas, var
+
+
+def test_the_example_declares_the_llm_switch_off(check_credentials):
+    """`USE_ANTHROPIC` es la excepción, y va declarado en `false`.
+
+    La regla de arriba vale mientras el default —encendido— sea el que el
+    proyecto quiere. Desde el 2026-09-02 no lo es: la capa LLM está apagada a
+    propósito y el titular lo arma el pipeline. Dejarlo comentado haría que un
+    clon nuevo corriera con el modelo encendido, contradiciendo al README, al
+    ROADMAP y a este mismo fichero.
+
+    El costo es el que la regla general evita: un `.env` sin esta variable saca
+    una línea de deriva. Se acepta, porque `report_env_drift` sólo imprime y no
+    decide el código de salida — y porque con el LLM apagado por diseño, un
+    `.env` que no lo diga es una configuración incompleta y no una ausencia
+    correcta.
+    """
+    declaradas = check_credentials._parse_env_file(ROOT / ".env.example")
+
+    assert declaradas.get("USE_ANTHROPIC") == "false"
 
 
 def test_report_prints_every_finding_with_its_reason(

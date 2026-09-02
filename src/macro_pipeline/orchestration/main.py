@@ -83,8 +83,11 @@ _CONSECUENCIA = {
 _LOCK_VIEJO_SEGUNDOS = 7200
 
 
-def _generic_headline(data: WeeklyCloseData) -> str:
-    """El titular que publica el pipeline cuando la capa LLM no redacta.
+_NOMBRE_DE_FUENTE = {"fmp": "FMP", "av": "Alpha Vantage", "mock": "datos de prueba"}
+
+
+def _generic_headline(data: WeeklyCloseData, data_source: str) -> str:
+    """El titular determinista: el que publica el pipeline sin capa LLM.
 
     Vive acá y no dentro de la rama de degradación porque lo usan dos caminos
     que alertan distinto —la capa LLM caída, que avisa, y la capa LLM sin
@@ -92,12 +95,50 @@ def _generic_headline(data: WeeklyCloseData) -> str:
     que «el bloque genérico lleva las cifras reales». Con dos copias esa
     premisa se puede volver falsa en una sola de ellas, que es donde nadie
     mira.
+
+    Desde el 2026-09-02 dejó de ser sólo la rama de degradación: con
+    `USE_ANTHROPIC=false` es **el** copy publicado, así que dice lo mismo que
+    la imagen. Los formatos son los de `playwright_engine` a propósito — un
+    mismo post no puede escribir el mismo número de dos maneras.
+
+    `data_source` se pasa y no se infiere de que falte el nivel, porque lo que
+    se está escribiendo es una atribución: poner «FMP» sobre cifras que trajo
+    Alpha Vantage sería la etiqueta equivocada en el único lugar del post donde
+    se prometen fuentes.
     """
-    return (
-        f"📊 Cierre de Mercado Semanal:\n"
-        f"S&P500: {data.sp500_weekly_return * 100:+.2f}%\n"
-        f"NASDAQ: {data.nasdaq_weekly_return * 100:+.2f}%"
-    )
+    lineas = [f"📊 Cierre de Mercado Semanal — {data.date.strftime('%Y-%m-%d')}", ""]
+
+    # Sin nivel publicable el retorno ocupa su lugar, igual que en la tarjeta
+    # (ADR-009, divergencia 4): por la ruta de AV el nivel es el del ETF, y
+    # publicarlo bajo la etiqueta del índice rompe ADR-001 en el copy.
+    for titulo, close, retorno in (
+        ("S&P 500", data.sp500_close, data.sp500_weekly_return),
+        ("Nasdaq Composite", data.nasdaq_close, data.nasdaq_weekly_return),
+    ):
+        semanal = f"{retorno * 100:+.2f}% semanal"
+        lineas.append(
+            f"{titulo}: {close:,.2f} ({semanal})"
+            if close is not None
+            else f"{titulo}: {semanal}"
+        )
+
+    fuentes = [_NOMBRE_DE_FUENTE.get(data_source, data_source)]
+
+    if data.macro is not None:
+        macro = data.macro
+        lineas += [
+            "",
+            f"IPC interanual: {macro.cpi_yoy * 100:+.1f}% "
+            f"({macro.cpi_as_of.strftime('%m/%Y')})",
+            f"Desempleo: {macro.unemployment_rate:.1f}% "
+            f"({macro.unrate_as_of.strftime('%m/%Y')})",
+            f"Treasury 10A: {macro.treasury_10y:.2f}% "
+            f"(al {macro.dgs10_as_of.strftime('%d/%m/%Y')})",
+        ]
+        fuentes.append("FRED")
+
+    lineas += ["", f"Fuentes: {', '.join(fuentes)}"]
+    return "\n".join(lineas)
 
 
 class MacroOrchestrator:
@@ -797,7 +838,7 @@ class MacroOrchestrator:
                             else "capa_no_disponible"
                         ),
                     )
-                    headline = _generic_headline(data)
+                    headline = _generic_headline(data, data_source)
                     validator_approved = None
                     prompt_version = None
                 else:
@@ -889,7 +930,7 @@ class MacroOrchestrator:
                             # el contract test (ver ADR-001). El aviso va antes de
                             # pedir aprobacion para que llegue en ese orden.
                             telegram.send_alert(degradation)
-                            headline = _generic_headline(data)
+                            headline = _generic_headline(data, data_source)
                     prompt_version = _PROMPT_VERSION
 
                 # ── Degradación: el cierre sale por la ruta de Alpha Vantage ───
