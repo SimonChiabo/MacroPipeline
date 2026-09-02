@@ -941,7 +941,9 @@ def test_el_mensaje_de_error_lee_la_clave_de_telegram(check_credentials):
 
     class Respuesta:
         status_code = 400
-        text = '{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}'
+        text = (
+            '{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}'
+        )
 
         @staticmethod
         def json():
@@ -1059,3 +1061,35 @@ def test_un_webhook_registrado_falla_aunque_el_token_sirva(
     salida = capsys.readouterr().out
     assert "409" in salida
     assert "deleteWebhook" in salida
+
+
+def test_un_chat_id_que_no_existe_falla_con_el_motivo_de_telegram(
+    check_credentials, monkeypatch, capsys
+):
+    """400 y no 401: el token sirve, el destino no.
+
+    Pasa con un TELEGRAM_CHAT_ID mal copiado y tambien cuando el operador nunca
+    le hablo al bot, que es la trampa de estreno: el bot no puede iniciar una
+    conversacion. La `description` es lo que distingue los dos casos, y por eso
+    la task 1 existe.
+    """
+    _credenciales_de_telegram(monkeypatch)
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {
+            "getMe": (200, {"ok": True, "result": {"username": "MacroPipelineBot"}}),
+            "getWebhookInfo": (200, {"ok": True, "result": {"url": ""}}),
+            "getChat": (
+                400,
+                {
+                    "ok": False,
+                    "error_code": 400,
+                    "description": "Bad Request: chat not found",
+                },
+            ),
+        },
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    assert "chat not found" in capsys.readouterr().out

@@ -637,6 +637,17 @@ def check_telegram() -> str:
         return NO_LISTO
     print(f"{OK} Sin webhook: el long polling de getUpdates tiene via libre.")
 
+    chat = _telegram_get(bot, "getChat", {"chat_id": str(bot.chat_id)})
+    if chat is None:
+        print("       Un 400 acá suele ser el TELEGRAM_CHAT_ID mal copiado, o")
+        print("       que el operador nunca inicio conversacion con el bot: un")
+        print("       bot no puede escribir primero. Un 403 es el bot bloqueado")
+        print("       o expulsado del grupo.")
+        return NO_LISTO
+
+    tipo = chat.get("type")
+    print(f"{OK} El chat existe y el bot lo alcanza (type={tipo}).")
+
     return LISTO
 
 
