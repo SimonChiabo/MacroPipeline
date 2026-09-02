@@ -1029,3 +1029,33 @@ def test_un_token_de_telegram_revocado_falla(check_credentials, monkeypatch, cap
     salida = capsys.readouterr().out
     assert "401" in salida
     assert "BotFather" in salida
+
+
+def test_un_webhook_registrado_falla_aunque_el_token_sirva(
+    check_credentials, monkeypatch, capsys
+):
+    """La credencial es valida y el HITL esta muerto igual.
+
+    `wait_for_approval` hace long polling con getUpdates, y Telegram le
+    contesta 409 mientras exista un webhook: el borrador sale, el boton no
+    llega nunca y la run se cuelga hasta el timeout. Es el mismo modo de fallo
+    que `x-access-level: read` — la credencial autentica, el modo de uso esta
+    roto—, y es la razon por la que este chequeo no se queda en getMe.
+    """
+    _credenciales_de_telegram(monkeypatch)
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {
+            "getMe": (200, {"ok": True, "result": {"username": "MacroPipelineBot"}}),
+            "getWebhookInfo": (
+                200,
+                {"ok": True, "result": {"url": "https://ejemplo.test/hook"}},
+            ),
+        },
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    salida = capsys.readouterr().out
+    assert "409" in salida
+    assert "deleteWebhook" in salida

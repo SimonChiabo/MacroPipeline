@@ -625,6 +625,18 @@ def check_telegram() -> str:
         return NO_LISTO
     print(f"{OK} El token autentica como @{identidad.get('username')}.")
 
+    webhook = _telegram_get(bot, "getWebhookInfo")
+    if webhook is None:
+        return NO_LISTO
+    if webhook.get("url"):
+        print(f"{FAIL} Hay un webhook registrado y eso mata el HITL:")
+        print("       `wait_for_approval` hace long polling con getUpdates, y")
+        print("       Telegram le contesta 409 mientras el webhook exista. El")
+        print("       borrador sale, el boton no llega nunca y la run se cuelga")
+        print("       hasta el timeout. Se borra con deleteWebhook.")
+        return NO_LISTO
+    print(f"{OK} Sin webhook: el long polling de getUpdates tiene via libre.")
+
     return LISTO
 
 
