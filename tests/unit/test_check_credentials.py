@@ -11,6 +11,7 @@ unico que lo decia era un `logger.warning` al arrancar.
 """
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -965,13 +966,20 @@ def _telegram_responde(check_credentials, monkeypatch, respuestas):
     metodo, asi que un fake que devuelva siempre lo mismo haria pasar tests que
     no prueban nada del orden. `respuestas` es {metodo: (status, cuerpo)}, y
     una llamada a un metodo que el test no declaro es un fallo del test.
+
+    Devuelve la lista `llamadas` de `(metodo, params)`, en orden: sin esto,
+    borrar el `params` de una llamada (p.ej. el `chat_id` de `getChat`) deja
+    la suite en verde igual, porque el fake solo mira el ultimo segmento de la
+    URL y tira los kwargs. Contra la API real ese `params` faltante pide el
+    chat de nadie.
     """
+    llamadas: list[tuple[str, dict[str, str] | None]] = []
 
     class Respuesta:
         def __init__(self, status_code, cuerpo):
             self.status_code = status_code
             self._cuerpo = cuerpo
-            self.text = str(cuerpo)
+            self.text = json.dumps(cuerpo)
 
         def json(self):
             return self._cuerpo
@@ -979,10 +987,12 @@ def _telegram_responde(check_credentials, monkeypatch, respuestas):
     def _get(url, *a, **k):
         metodo = url.rsplit("/", 1)[-1]
         assert metodo in respuestas, f"llamada inesperada a {metodo}"
+        llamadas.append((metodo, k.get("params")))
         status, cuerpo = respuestas[metodo]
         return Respuesta(status, cuerpo)
 
     monkeypatch.setattr(check_credentials.requests, "get", _get)
+    return llamadas
 
 
 def _credenciales_de_telegram(monkeypatch, allowed="4242"):
@@ -1103,7 +1113,7 @@ def test_un_chat_id_que_no_existe_falla_con_el_motivo_de_telegram(
     la task 1 existe.
     """
     _credenciales_de_telegram(monkeypatch)
-    _telegram_responde(
+    llamadas = _telegram_responde(
         check_credentials,
         monkeypatch,
         {
@@ -1122,3 +1132,49 @@ def test_un_chat_id_que_no_existe_falla_con_el_motivo_de_telegram(
 
     assert check_credentials.check_telegram() == check_credentials.NO_LISTO
     assert "chat not found" in capsys.readouterr().out
+    # Ancla que `getChat` se llama CON `chat_id`: sin este assert, borrar el
+    # argumento deja la suite en verde igual (el fake tira los kwargs), y
+    # contra la API real ese chequeo pediria el chat de nadie y quedaria en
+    # rojo permanente sin que ningun test se quejara.
+    assert ("getChat", {"chat_id": "4242"}) in llamadas
+
+
+def test_un_corte_de_red_en_getchat_no_imprime_la_pista_del_400(
+    check_credentials, monkeypatch, capsys
+):
+    """La pista del 400/403 es sobre el chat; un corte de red no llego a pedirlo.
+
+    `_telegram_get` tiene cinco causas distintas para devolver `None`, y la
+    pista de `getChat` es especifica de una sola: la rama generica de HTTP !=
+    200 (el 400 del chat mal copiado, el 403 del bot expulsado). Imprimirla
+    tambien en un corte de red pondria un diagnostico sobre un chat que nunca
+    se llego a pedir, como el `[FALLA] No se pudo contactar...` seguido de un
+    "Un 400 aca suele ser..." que no tiene nada que ver.
+    """
+    _credenciales_de_telegram(monkeypatch)
+
+    def _get(url, *a, **k):
+        metodo = url.rsplit("/", 1)[-1]
+        if metodo == "getChat":
+            raise check_credentials.requests.RequestException("conexion perdida")
+        cuerpos = {
+            "getMe": {"ok": True, "result": {"username": "MacroPipelineBot"}},
+            "getWebhookInfo": {"ok": True, "result": {"url": ""}},
+        }
+        assert metodo in cuerpos, f"llamada inesperada a {metodo}"
+
+        class Respuesta:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return cuerpos[metodo]
+
+        return Respuesta()
+
+    monkeypatch.setattr(check_credentials.requests, "get", _get)
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    salida = capsys.readouterr().out
+    assert "No se pudo contactar" in salida
+    assert "Un 400" not in salida

@@ -563,13 +563,22 @@ def check_r2() -> str:
 
 
 def _telegram_get(
-    bot: TelegramBot, metodo: str, params: dict[str, str] | None = None
+    bot: TelegramBot,
+    metodo: str,
+    params: dict[str, str] | None = None,
+    pista: str | None = None,
 ) -> dict[str, object] | None:
     """El `result` de un metodo de la API, o `None` dejando el motivo impreso.
 
     Los tres GET comparten la forma de la respuesta y la del error, asi que
     comparten el manejo. El 401 se nombra aparte porque es el unico que no se
     arregla en el `.env`: hay que volver a BotFather.
+
+    `pista` es una explicacion adicional, propia de quien llama (hoy solo
+    `getChat`), y se imprime UNICAMENTE en la rama generica de HTTP != 200:
+    ahi es donde caen el 400 y el 403 de los que habla el texto. Imprimirla
+    tambien en un corte de red o en el 401 pondria una pista sobre un chat que
+    nunca se llegó a pedir.
     """
     try:
         response = requests.get(f"{bot.base_url}/{metodo}", params=params, timeout=15)
@@ -583,8 +592,10 @@ def _telegram_get(
         print("       valor viejo deja de servir apenas se emite el nuevo.")
         return None
     if response.status_code != 200:
-        print(f"{FAIL} {metodo}: HTTP {response.status_code}: ", end="")
-        print(_mensaje_de_error(response))
+        motivo = _mensaje_de_error(response)
+        print(f"{FAIL} {metodo}: HTTP {response.status_code}: {motivo}")
+        if pista:
+            print(pista)
         return None
 
     try:
@@ -637,12 +648,18 @@ def check_telegram() -> str:
         return NO_LISTO
     print(f"{OK} Sin webhook: el long polling de getUpdates tiene via libre.")
 
-    chat = _telegram_get(bot, "getChat", {"chat_id": str(bot.chat_id)})
+    chat = _telegram_get(
+        bot,
+        "getChat",
+        {"chat_id": str(bot.chat_id)},
+        pista=(
+            "       Un 400 acá suele ser el TELEGRAM_CHAT_ID mal copiado, o\n"
+            "       que el operador nunca inicio conversacion con el bot: un\n"
+            "       bot no puede escribir primero. Un 403 es el bot bloqueado\n"
+            "       o expulsado del grupo."
+        ),
+    )
     if chat is None:
-        print("       Un 400 acá suele ser el TELEGRAM_CHAT_ID mal copiado, o")
-        print("       que el operador nunca inicio conversacion con el bot: un")
-        print("       bot no puede escribir primero. Un 403 es el bot bloqueado")
-        print("       o expulsado del grupo.")
         return NO_LISTO
 
     tipo = chat.get("type")
