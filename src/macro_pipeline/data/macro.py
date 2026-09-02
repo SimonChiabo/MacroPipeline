@@ -12,7 +12,12 @@ from macro_pipeline.validators.schemas import MacroSnapshot
 logger = structlog.get_logger(__name__)
 
 # Series de FRED que alimentan el bloque macro del cierre semanal
-CPI_SERIES = "CPIAUCSL"  # Índice de precios al consumidor (nivel, no variación)
+CPI_SERIES = "CPIAUCNS"  # IPC sin desestacionalizar (nivel, no variación)
+# Va la NSA y no la SA (`CPIAUCSL`) porque lo que se publica es el
+# interanual: comparando un mes contra el mismo mes del año anterior el
+# factor estacional se cancela solo, y es la serie que cita el BLS. La
+# desestacionalizada daba +3,3 % contra el 3,4 % del titular, y encima se
+# revisa hacia atrás cada año. Detalle en `docs/data-dictionary.md`.
 UNRATE_SERIES = "UNRATE"  # Tasa de desempleo (%)
 DGS10_SERIES = "DGS10"  # Rendimiento del Treasury a 10 años (%)
 

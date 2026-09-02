@@ -196,3 +196,24 @@ def test_safe_build_macro_snapshot_returns_snapshot_on_success(fake_fred):
     assert snap is not None
     assert snap.unemployment_rate == pytest.approx(4.1)
     assert motivo is None, "el camino feliz no deja motivo cargado"
+
+
+def test_cpi_is_requested_on_the_not_seasonally_adjusted_series(fake_fred):
+    """El interanual del IPC se pide sobre `CPIAUCNS`, la serie del titular.
+
+    La convención es NSA para el interanual y SA para la variación mensual: al
+    comparar un mes contra el mismo mes del año anterior el factor estacional
+    se cancela solo, así que desestacionalizar no aporta nada y sólo agrega la
+    revisión anual de los factores. Con `CPIAUCSL` el post publicaba +3,3 %
+    donde el BLS y los medios decían 3,4 % (ver `docs/data-dictionary.md`).
+
+    El assert va sobre la llamada y no sobre `CPI_SERIES` a propósito: una
+    aserción sobre la constante se cumple con sólo renombrarla, sin que el ETL
+    cambie de serie.
+    """
+    build_macro_snapshot(fake_fred, today=date(2026, 8, 9))
+
+    assert "CPIAUCNS" in fake_fred.calls
+    assert "CPIAUCSL" not in fake_fred.calls, (
+        "el ETL sigue pidiendo la serie desestacionalizada"
+    )

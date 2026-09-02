@@ -38,7 +38,9 @@ La alternativa de incluir tests contra APIs reales en el pipeline de PR tiene do
 
 **Estado de implementación (2026-08-21):**
 
-El workflow `contract-tests.yml` está creado y `tests/contract/test_fred_contract.py` cubre FRED con seis casos: el hito propuesto (`GDP` devuelve `date` y `value`), las tres series que consume el cierre semanal (`CPIAUCSL`, `UNRATE`, `DGS10`) con rangos de plausibilidad y control de frescura, la construcción completa del `MacroSnapshot` contra la API real, y el error esperado ante una serie inexistente.
+El workflow `contract-tests.yml` está creado y `tests/contract/test_fred_contract.py` cubre FRED con nueve casos: el hito propuesto (`GDP` devuelve `date` y `value`), las tres series que consume el cierre semanal (`CPIAUCNS`, `UNRATE`, `DGS10`) con rangos de plausibilidad y control de frescura, **la definición de esas mismas tres contra los metadatos de FRED** (ajuste estacional y frecuencia), la construcción completa del `MacroSnapshot` contra la API real, y el error esperado ante una serie inexistente.
+
+> **Nota (2026-09-02).** Los tres casos de definición se agregaron ese día, y la serie del IPC pasó de `CPIAUCSL` a `CPIAUCNS`. Los rangos de plausibilidad no distinguían una de otra —las dos son índices de nivel con la misma base—, así que el pipeline publicó la serie equivocada durante toda su vida sin que ningún test se pusiera en rojo. Lo que separa a las dos es lo que FRED dice que son, y eso es lo que ahora se verifica. Ver `docs/data-dictionary.md`.
 
 Cuatro decisiones que no estaban en la versión original de este ADR y conviene dejar escritas:
 

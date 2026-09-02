@@ -84,3 +84,59 @@ def test_unknown_series_raises_client_error(fred_client):
     """Una serie inexistente sigue siendo un error HTTP, no un DataFrame vacío."""
     with pytest.raises(FREDClientError):
         fred_client.get_series_observations("NO_EXISTE_ESTA_SERIE_XYZ")
+
+
+def _series_metadata(fred_client, series_id: str) -> dict:
+    """Metadatos de una serie (`/fred/series`), que el cliente no expone.
+
+    Se arma acá y no en `FREDClient` porque el pipeline no necesita los
+    metadatos para producir el snapshot: los necesita este contrato, para
+    verificar que la serie que consume sigue siendo la que su etiqueta promete.
+    Agregar el método al cliente sería superficie de producción que sólo usan
+    los tests.
+    """
+    response = fred_client.session.get(
+        f"{fred_client.BASE_URL}/series",
+        params={
+            "series_id": series_id,
+            "api_key": fred_client.api_key,
+            "file_type": "json",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()["seriess"][0]
+
+
+@pytest.mark.parametrize(
+    ("series_id", "seasonal_adjustment", "frequency"),
+    [
+        # El IPC va sin desestacionalizar porque lo que publicamos es el
+        # interanual, y ésa es la serie que cita el BLS. La desestacionalizada
+        # daba +3,3 % contra el 3,4 % del titular, y además se revisa hacia
+        # atrás cada año cuando el BLS recalcula los factores estacionales.
+        (CPI_SERIES, "Not Seasonally Adjusted", "Monthly"),
+        # El desempleo va desestacionalizado: la U-3 SA es la del titular.
+        (UNRATE_SERIES, "Seasonally Adjusted", "Monthly"),
+        # El rendimiento del Treasury no se desestacionaliza.
+        (DGS10_SERIES, "Not Seasonally Adjusted", "Daily"),
+    ],
+)
+def test_pipeline_series_keep_their_declared_meaning(
+    fred_client, series_id, seasonal_adjustment, frequency
+):
+    """Cada serie sigue siendo, según FRED, la medida que su etiqueta promete.
+
+    Los rangos de `rules.yaml` y el test de unidades de arriba no distinguen
+    `CPIAUCSL` de `CPIAUCNS`: las dos son índices de nivel con la misma base y
+    sus interanuales caen los dos dentro de `cpi_yoy_min/max`. Esa es la grieta
+    por la que se publicó la serie equivocada durante toda la vida del
+    proyecto. Lo único que las separa es lo que FRED dice que son.
+    """
+    meta = _series_metadata(fred_client, series_id)
+
+    assert meta["seasonal_adjustment"] == seasonal_adjustment, (
+        f"{series_id} es '{meta['seasonal_adjustment']}' y se esperaba "
+        f"'{seasonal_adjustment}': cambió la serie o cambió su definición."
+    )
+    assert meta["frequency"] == frequency
