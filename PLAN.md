@@ -8,9 +8,13 @@
 
 **Qué es:** Pipeline automatizado que ingesta datos macroeconómicos y financieros de fuentes públicas, los procesa de forma determinista, los renderiza visualmente y los publica multi-canal con aprobación humana asistida.
 
-**Por qué existe:** Proyecto de portfolio para demostrar habilidades de ingeniería de datos, arquitectura de sistemas, MLOps ligero y prácticas production-grade. No es un producto comercial ni un servicio financiero.
+**Por qué existe:** Demostrar capacidad de **ingeniería de pipelines de datos**: conectar múltiples fuentes, integrar herramientas heterogéneas y manejar **APIs de modelos de IA frontier**. El contenido macroeconómico es el vehículo, no el fin. No es un producto comercial ni un servicio financiero, y la tracción social no es una métrica de éxito.
 
 **Cómo se diferencia:** La arquitectura, no el contenido. El pipeline está diseñado para ser auditable, observable, testeable y resiliente — exactamente lo que un sistema de datos financieros real necesita.
+
+**Con qué criterio se decide:** el repo es el artefacto que se mira; las cuentas sociales son la prueba de que funciona. De ahí se sigue la pregunta con la que se evalúa cada decisión técnica: no «¿el post sale mejor?», sino **«¿esto demuestra ingeniería, y dónde se ve?»**.
+
+> **Nota (2026-09-02).** Esta sección decía «proyecto de portfolio para demostrar habilidades de ingeniería de datos, arquitectura de sistemas, MLOps ligero y prácticas production-grade» — más amplio y más tibio que el objetivo real. El objetivo se afinó en algún momento y el documento no lo registró. El cambio no es cosmético: el mismo día puso en duda la capa LLM tal como está, porque genera un titular que un template determinista escribiría igual. Ver [ROADMAP.md](./ROADMAP.md).
 
 ---
 

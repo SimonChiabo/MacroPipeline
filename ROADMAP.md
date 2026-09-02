@@ -243,6 +243,62 @@ incorrecta.**
 
 ---
 
+## Rediseño de la capa LLM — decidido el 2026-09-02, sesión propia
+
+**También necesita una sesión propia**, y es independiente de publicar: el
+pipeline puede salir a producción con la capa LLM tal como está.
+
+### El problema
+
+Simon miró el primer borrador real y preguntó si hace falta un LLM para
+generarlo. La respuesta honesta es **no**: un template determinista produciría
+ese mismo titular. Y hay algo peor cuando se mira de cerca — **el validador
+existe para cazar cifras inventadas en el titular, un riesgo que sólo existe
+porque un LLM escribe el titular**. La mitad de la capa resuelve un problema
+que introdujo la otra mitad.
+
+Bajo el objetivo que PLAN.md §1 fija desde hoy —demostrar ingeniería de
+pipelines, integración de herramientas y manejo de APIs de modelos frontier—
+eso no se sostiene: lo que la capa LLM demuestra hoy (structured outputs con
+schema estricto, prompts versionados, temperatura 0, detección de retiro de
+modelo, ADR-001) vive en el repo y es **todo defensivo**. Ninguna de esas
+decisiones produce algo que se vea.
+
+### La decisión: camino A
+
+**Darle al LLM un trabajo que sólo él puede hacer, y que se vea.** Sumar una
+fuente de **texto** —noticias del cierre, o el calendario de publicaciones
+macro— y que el LLM haga lo que un template no puede: extracción estructurada
+de texto no estructurado, clasificación y síntesis con citas. El post pasa de
+«tres números» a «tres números y por qué se movieron».
+
+Ataca las tres cosas del objetivo a la vez: **una fuente más** en el pipeline,
+**integración de herramientas**, y una **API frontier haciendo algo no
+trivial**. Y el validador deja de ser redundante: pasa a verificar que cada
+cifra del texto exista en el snapshot, que es un trabajo real.
+
+Se descartaron: **B**, mover la demostración al repo (evals, prompt caching,
+batch API, métricas de tokens) —serio, pero sigue sin verse—; y **C**, sacar el
+LLM del camino de publicación —el post gana confiabilidad y el proyecto pierde
+el eje de las APIs frontier—.
+
+### La tensión que esa sesión tiene que resolver
+
+**Camino A roza ADR-001.** Una síntesis que explique movimientos anda cerca de
+los números, y ADR-001 pone al LLM fuera del path numérico.
+
+La frontera propuesta, a validar en el diseño: **el LLM puede *citar* cifras
+que el pipeline le pasa, nunca calcularlas ni inferirlas**, y el validador
+verifica esa invariante cifra por cifra contra el snapshot. Eso conserva la
+decisión de ADR-001 y encima la vuelve visible, que es exactamente lo que hoy
+falta.
+
+Preguntas abiertas para esa sesión: qué fuente de texto (y si tiene API libre),
+qué pasa cuando esa fuente falla —¿degrada al post de hoy, o aborta?—, y cómo
+se evita que una síntesis plausible pero equivocada pase el validador.
+
+---
+
 ## Orden sugerido
 
 1. **Ensayo con rechazo** (bloqueador 1). Repetir hasta que llegue limpio al
