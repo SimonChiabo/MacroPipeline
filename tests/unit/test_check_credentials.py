@@ -1001,7 +1001,14 @@ def _credenciales_de_telegram(monkeypatch, allowed="4242"):
 
 
 def test_telegram_sin_token_no_sale_a_la_red(check_credentials, monkeypatch, capsys):
-    """La presencia se mira antes de contactar a nadie, como en los otros seis."""
+    """La presencia se mira antes de contactar a nadie, como en los otros seis.
+
+    El assert es sobre "sin definir" y no sobre "TELEGRAM_BOT_TOKEN" a secas:
+    ese segundo texto tambien lo imprime el `except ValueError` que envuelve
+    `TelegramBot()` cuando el constructor revienta por falta de credenciales,
+    asi que un test que solo mirara eso seguiria en verde con la guarda de
+    `_check_present` borrada. "sin definir" solo lo puede imprimir esa guarda.
+    """
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "4242")
 
@@ -1011,7 +1018,29 @@ def test_telegram_sin_token_no_sale_a_la_red(check_credentials, monkeypatch, cap
     monkeypatch.setattr(check_credentials.requests, "get", _no_deberia_llamar)
 
     assert check_credentials.check_telegram() == check_credentials.NO_LISTO
-    assert "TELEGRAM_BOT_TOKEN" in capsys.readouterr().out
+    assert "sin definir" in capsys.readouterr().out
+
+
+def test_un_token_de_telegram_con_el_placeholder_no_sale_a_la_red(
+    check_credentials, monkeypatch, capsys
+):
+    """El placeholder de .env.example es un string truthy: el constructor no lo caza.
+
+    `TelegramBot.__init__` solo revienta si el valor es falsy (ausente o
+    vacio); "your_telegram_bot_token" pasa esa prueba igual que un token real,
+    asi que sin la guarda de `_check_present` —que ademas mira `_is_placeholder`—
+    este caso saldria a la red con una credencial que nunca sirvio.
+    """
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "your_telegram_bot_token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "4242")
+
+    def _no_deberia_llamar(*a, **k):
+        raise AssertionError("no tenia que salir a la red con el placeholder")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _no_deberia_llamar)
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    assert "sigue con el placeholder" in capsys.readouterr().out
 
 
 def test_un_token_de_telegram_revocado_falla(check_credentials, monkeypatch, capsys):
