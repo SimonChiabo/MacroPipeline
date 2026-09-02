@@ -409,6 +409,23 @@ class MacroOrchestrator:
                     {"date": dates, "close": [16000 + i * 30 for i in range(10)]}
                 )
 
+        # Solo sesiones terminadas. El endpoint de FMP devuelve una fila para
+        # la sesion en curso y su `close` es el ultimo precio negociado, no el
+        # cierre: medido el 2026-09-02 sobre `^IXIC`, 26.211,996 a las 14:40
+        # UTC y 26.196,812 a las 14:59, con la misma fecha. Publicar esa fila
+        # es una cifra correcta bajo una etiqueta que promete otra cosa, que es
+        # lo que ADR-001 llama una cifra incorrecta.
+        #
+        # El corte es por fecha local y no por calendario de mercado, y alcanza
+        # porque el operador va por delante de ET: cuando aca empieza un dia,
+        # la sesion de ET del dia anterior ya cerro. El costo es que una
+        # corrida el viernes por la noche publica el jueves aunque el viernes
+        # ya sea definitivo — frescura por correccion, el intercambio de
+        # siempre.
+        hoy = date.today()
+        sp500_df = sp500_df[sp500_df["date"].dt.date < hoy]
+        nasdaq_df = nasdaq_df[nasdaq_df["date"].dt.date < hoy]
+
         if len(sp500_df) < 6 or len(nasdaq_df) < 6:
             raise ValueError(
                 "Datos insuficientes para calcular retornos semanales "
