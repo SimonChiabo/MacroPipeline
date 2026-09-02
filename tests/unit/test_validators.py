@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from macro_pipeline.data.macro import CPI_SERIES, DGS10_SERIES, UNRATE_SERIES
 from macro_pipeline.validators.engine import ValidationEngine, ValidationError
 from macro_pipeline.validators.schemas import (
     MacroReleaseData,
@@ -200,7 +201,7 @@ def test_validate_macro_snapshot_accepts_cpi_at_normal_release_lag(engine):
 
 def test_validate_macro_snapshot_rejects_stale_cpi(engine):
     """Un CPI de hace más de 90 días indica serie discontinuada o error de ingesta."""
-    with pytest.raises(ValidationError, match="CPIAUCSL"):
+    with pytest.raises(ValidationError, match=CPI_SERIES):
         engine.validate_macro_snapshot(
             _snapshot(cpi_as_of=date(2026, 1, 1)), today=TODAY
         )
@@ -315,3 +316,25 @@ def test_validate_weekly_close_sin_niveles_sigue_validando_el_retorno_del_nasdaq
     )
     with pytest.raises(ValidationError, match="Retorno del NASDAQ"):
         engine.validate_weekly_close(data)
+
+
+def test_stale_macro_alerts_name_the_series_the_etl_actually_requests(engine):
+    """El aviso de serie vieja nombra la serie que el ETL pide, no una copia.
+
+    El nombre estaba escrito a mano en `engine.py` y el ETL lo tiene en
+    `data/macro.py`. Mientras coincidieron nadie lo notó; cuando el IPC pasó a
+    `CPIAUCNS` la alerta siguió diciendo `CPIAUCSL`, que es mandar al operador
+    a mirar una serie que el pipeline ni consulta —la misma lección que
+    `safe_build_macro_snapshot` ya había aprendido con los motivos de fallo.
+
+    Se recorren las tres para que el acoplamiento quede fijado en las tres, y
+    no sólo en la que se rompió esta vez.
+    """
+    casos = [
+        (CPI_SERIES, {"cpi_as_of": date(2026, 1, 1)}),
+        (UNRATE_SERIES, {"unrate_as_of": date(2026, 1, 1)}),
+        (DGS10_SERIES, {"dgs10_as_of": date(2026, 1, 1)}),
+    ]
+    for series_id, override in casos:
+        with pytest.raises(ValidationError, match=series_id):
+            engine.validate_macro_snapshot(_snapshot(**override), today=TODAY)

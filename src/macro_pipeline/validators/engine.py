@@ -5,6 +5,7 @@ from typing import Any
 import structlog
 import yaml
 
+from macro_pipeline.data.macro import CPI_SERIES, DGS10_SERIES, UNRATE_SERIES
 from macro_pipeline.validators.schemas import (
     MacroReleaseData,
     MacroSnapshot,
@@ -163,10 +164,17 @@ class ValidationEngine:
                     f"{label} con valor {value} fuera del rango permitido."
                 )
 
+        # Los ids vienen del ETL y no se repiten a mano: son lo que el aviso le
+        # da al operador para ir a mirar, y una copia desincronizada lo manda a
+        # una serie que el pipeline ni consulta.
         staleness = [
-            ("CPIAUCSL", data.cpi_as_of, rules.get("cpi_max_staleness_days", 90)),
-            ("UNRATE", data.unrate_as_of, rules.get("unrate_max_staleness_days", 75)),
-            ("DGS10", data.dgs10_as_of, rules.get("dgs10_max_staleness_days", 10)),
+            (CPI_SERIES, data.cpi_as_of, rules.get("cpi_max_staleness_days", 90)),
+            (
+                UNRATE_SERIES,
+                data.unrate_as_of,
+                rules.get("unrate_max_staleness_days", 75),
+            ),
+            (DGS10_SERIES, data.dgs10_as_of, rules.get("dgs10_max_staleness_days", 10)),
         ]
         for series_id, as_of, max_days in staleness:
             age_days = (today - as_of).days
