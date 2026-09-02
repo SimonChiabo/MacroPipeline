@@ -14,17 +14,37 @@ Proyecto de portfolio. Demuestra arquitectura production-grade para un sistema d
 
 ## Qué hace
 
-Cada viernes, cuando cierra el mercado americano, el pipeline:
+Cada sábado, con el mercado cerrado y la semana completa, el pipeline:
 
 1. Ingesta datos de FRED, FMP y Alpha Vantage con retry/fallback.
 2. Procesa los números en Python determinista (sin LLM cerca de los datos).
 3. Valida con Pydantic + reglas declarativas en YAML + comparación histórica.
-4. Genera titulares con Claude API y los pasa por un *validator agent* de segunda opinión.
+4. Arma el titular con las cifras del snapshot, también de forma determinista.
 5. Renderiza plantillas distintas para X y LinkedIn sobre un data layer compartido.
 6. Envía el draft a un bot de Telegram con preview y botones de aprobación.
 7. Si aprueba, publica vía APIs nativas. Si no, descarta y queda registrado.
 
-Toda la ejecución se observa con OpenTelemetry y Grafana Cloud. Los datos crudos de cada run se archivan como snapshots inmutables en Cloudflare R2 para reproducibilidad. El fichero de estado de SQLite también viaja por R2: no sobrevive a un entorno efímero, y sin él la deduplicación que promete ADR-002 no se sostiene.
+**Por qué el sábado y no el viernes:** el endpoint de precios de FMP devuelve
+una fila para la sesión en curso, cuyo `close` es el último precio negociado y
+no el cierre. Con el mercado cerrado eso no puede pasar, y además la ventana de
+cinco días hábiles cae viernes contra viernes. El horario es la conveniencia,
+no la garantía: `_fetch_weekly_close` descarta las sesiones sin terminar corra
+el día que corra.
+
+**Sobre el paso 4:** la capa LLM existe, está testeada y hoy está apagada
+(`USE_ANTHROPIC=false`). Generaba un titular que un template determinista
+escribe igual, y su *validator agent* existía para cazar cifras inventadas por
+ella misma. Vuelve cuando tenga un trabajo que sólo ella pueda hacer —
+extracción y síntesis sobre fuentes de texto—, que es lo que
+[ROADMAP.md](./ROADMAP.md) llama el camino A.
+
+El estado del pipeline vive en SQLite y viaja por Cloudflare R2, porque no
+sobrevive a un entorno efímero y sin él la deduplicación que promete ADR-002 no
+se sostiene. La imagen renderizada de cada publicación también se sube ahí.
+
+La ejecución está instrumentada con structlog y OpenTelemetry. **Las trazas
+todavía no llegan a ningún lado:** no hay cuenta de Grafana Cloud y el
+exportador devuelve 401 en cada corrida (ver ROADMAP.md, bloqueador 5).
 
 ---
 
@@ -35,12 +55,14 @@ flowchart LR
     R[Claude Routine<br/>scheduled] --> ETL
     ETL[ETL determinista<br/>Pandas + Pydantic] --> APIs[FRED · FMP · AV]
     APIs --> ETL
-    ETL --> LLM[Claude API<br/>titulares + validator]
-    LLM --> Render[Render<br/>Pillow / Playwright]
+    ETL --> Titular[Titular determinista<br/>desde el snapshot]
+    LLM[Claude API<br/>apagada: USE_ANTHROPIC=false]:::off -.-> Titular
+    Titular --> Render[Render<br/>Pillow / Playwright]
     Render --> HITL[Telegram bot<br/>HITL]
     HITL -->|approve| Pub[X API + LinkedIn API]
-    ETL -.-> Obs[OpenTelemetry<br/>→ Grafana Cloud]
-    ETL -.-> Store[SQLite + R2<br/>snapshots]
+    ETL -.-> Obs[OpenTelemetry<br/>sin destino: 401]:::off
+    ETL -.-> Store[SQLite + R2<br/>estado + imagen]
+    classDef off stroke-dasharray: 4 4
 ```
 
 Diagrama detallado en [`PLAN.md`](./PLAN.md).
@@ -53,14 +75,14 @@ Diagrama detallado en [`PLAN.md`](./PLAN.md).
 |---|---|
 | Ingesta | Python 3.12 · FRED · FMP · Alpha Vantage |
 | Procesamiento | Pandas · Pydantic · reglas YAML |
-| LLM auxiliar | Claude Haiku 4.5 (titulares + validator agent) |
-| Orquestación | Claude Routines (scheduled triggers) |
+| LLM auxiliar | Claude Haiku 4.5 — implementado y **apagado** hoy (ver arriba) |
+| Orquestación | **Sin trigger todavía**: ADR-002 propone Claude Routines, GitHub Actions es el plan B |
 | Renderizado | Pillow (simples) · Playwright/HTML (complejos) |
 | Plantillas | Diseñadas en Claude Design, una por canal |
 | Publicación | X API v2 · LinkedIn API (Company Page) |
 | Aprobación | Telegram bot (long polling) |
-| Observabilidad | structlog · OpenTelemetry · Grafana Cloud |
-| Storage | SQLite (queue, sincronizado contra R2) · Cloudflare R2 (snapshots + estado) |
+| Observabilidad | structlog · OpenTelemetry · Grafana Cloud **(sin cuenta todavía)** |
+| Storage | SQLite (queue, sincronizado contra R2) · Cloudflare R2 (estado + imagen publicada) |
 | CI/CD | GitHub Actions · pre-commit · Codecov |
 
 ---

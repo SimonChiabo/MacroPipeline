@@ -15,17 +15,32 @@ estado real y las APIs ese día. Lo que no se pudo verificar se dice.
 | | |
 |---|---|
 | **Publicaciones** | **Cero.** Nunca salió un post. |
-| **Corridas del pipeline** | **Dos.** `weekly_close_2026-08-27`, `failed` sin motivo guardado (`mark_failed` todavía no lo registraba), y `weekly_close_2026-09-02`, el ensayo: llegó al botón y se rechazó a propósito. |
-| **Estado remoto** | **Existe desde el ensayo.** `state/state.db` en R2, 12288 bytes, escrito dos veces en esa corrida (al tomar el lock y al cerrarla). |
-| **Credenciales** | Las siete verificadas hoy contra sus APIs (`scripts/check_credentials.py`, código 0). |
-| **Trigger programado** | **No existe.** En `.github/workflows/` sólo hay `ci.yml` y `contract-tests.yml`, y ninguno ejecuta el pipeline. No hay Routine creada. |
-| **Punto de entrada** | `python src/macro_pipeline/orchestration/main.py` — el bloque `if __name__ == "__main__"` (`main.py:1103`). |
+| **Corridas del pipeline** | **Cinco.** La del 2026-08-27, `failed` sin motivo guardado; y cuatro el 2026-09-02: el primer ensayo completo (rechazado a mano), uno que murió sin red por un timeout externo, uno que se salteó por el lock huérfano que dejó el anterior, y el ensayo final con el pipeline determinista, rechazado a mano y cerrado con código 0. |
+| **Capa LLM** | **Apagada a propósito** (`USE_ANTHROPIC=false`). El titular lo arma el pipeline con las cifras del snapshot. Vuelve en el camino A. |
+| **Estado remoto** | `state/state.db` en R2, 12288 bytes. **Es el autoritativo**: el arranque lo baja encima del local, así que una reparación a mano que no lo toque no sobrevive al siguiente arranque. |
+| **Credenciales** | Las siete verificadas contra sus APIs (`scripts/check_credentials.py`, código 0). |
+| **Trigger programado** | **No existe.** En `.github/workflows/` sólo hay `ci.yml` y `contract-tests.yml`, y ninguno ejecuta el pipeline. No hay Routine creada. Decidido que corra los **sábados** (bloqueador 3). |
+| **Punto de entrada** | `python src/macro_pipeline/orchestration/main.py` — el bloque `if __name__ == "__main__"`. |
 | **Renderizado** | Playwright con Chromium instalado en la máquina local. |
 
 Las cinco fases del pipeline están escritas y testeadas por separado: datos,
-validación, renderizado, LLM, HITL y publicación (`main.py:746-964`). **Nunca
-corrieron las cinco juntas contra datos reales.** Ése es el riesgo central de
-todo lo que sigue.
+validación, renderizado, LLM, HITL y publicación. **Corrieron juntas y llegaron
+al botón de aprobar**, primero con la capa LLM y después sin ella. Eso corrió de
+lugar el riesgo central: ya no es que la mecánica falle, sino que las cifras no
+signifiquen lo que su etiqueta dice — y ese frente avanzó mucho el 2026-09-02.
+
+**Lo que se arregló ese día, todo con la fase roja verificada:**
+
+| | Antes | Ahora |
+|---|---|---|
+| IPC interanual | `CPIAUCSL` (desestacionalizada) → +3,3 % | `CPIAUCNS` → **+3,4 %**, la del titular |
+| Etiqueta del Nasdaq | «NASDAQ» a secas | **«Nasdaq Composite»** |
+| Precio publicado | podía ser **intradía** rotulado «Cierre» | sólo sesiones terminadas |
+| Titular | Claude Haiku 4.5 + validator | determinista, desde el snapshot |
+| Atribución | ninguna | «Fuentes: …», con la que trajo el dato |
+| Alertas del validador | nombraban una serie escrita a mano | nombran la que el ETL pide |
+
+El detalle de cada una está en [`docs/data-dictionary.md`](./docs/data-dictionary.md).
 
 ---
 
@@ -33,9 +48,9 @@ todo lo que sigue.
 
 ### No hay dry-run, y apagar las dos redes no lo sustituye
 
-El README ofrece `python -m macro_pipeline run weekly-close --dry-run`. **Ese
-comando no existe**: no hay `__main__.py`, no hay `console_scripts` en
-`pyproject.toml` y no hay ninguna bandera `--dry-run` en el código.
+**No existe ningún `--dry-run`**: no hay `__main__.py`, no hay `console_scripts`
+en `pyproject.toml` y no hay ninguna bandera así en el código. El README llegó a
+prometerlo; ya no (bloqueador 4).
 
 Y apagar las dos redes tampoco sirve de ensayo. Con `PUBLISH_X=false` y
 `PUBLISH_LINKEDIN=false`, `_publisher_failures()` no devuelve nada —un switch
@@ -87,17 +102,19 @@ podía dar:
 **Qué sigue haciendo falta antes de publicar:** el IPC (abajo) y la auditoría
 de datos. La mecánica ya no es el riesgo; el significado de las cifras, sí.
 
-Qué mirar en esa corrida, además de que no reviente:
+Qué mirar en el **próximo** ensayo —el del IPC, que cambia una cifra que se
+publica—:
 
-- **Los números del borrador**, contra la fuente. Es la única verificación que
-  ningún test puede hacer: los tests fijan el formato, no la veracidad.
-- **De qué fuente salió el cierre.** Si vino por Alpha Vantage, el nivel no se
-  publica y el renderer sube la variación semanal en su lugar (ADR-009,
-  divergencia 4). Es correcto, pero conviene verlo una vez con los ojos.
+- **La cifra del IPC contra la que publica el BLS.** Es el motivo del ensayo.
+- **El resto de los números del borrador**, contra su fuente y uno por uno. Es
+  la única verificación que ningún test puede hacer: los tests fijan el
+  formato, no la veracidad. La auditoría de más abajo dice qué comparar con qué.
 - **El titular del LLM.** Si dice «Cierre Semanal: Resumen del Mercado» a secas,
   la capa LLM cayó al fallback y hay que mirar por qué.
-- **Que llegue el aviso de «primera corrida o pérdida de estado».** Es esperado
-  y no es un fallo: no hay estado remoto todavía y esa corrida lo siembra.
+
+Dos cosas que ya no hace falta mirar, porque el ensayo las contestó: de qué
+fuente salió el cierre (dio `data_source=fmp`) y el aviso de «primera corrida o
+pérdida de estado», que apareció y sembró el estado remoto.
 
 ### 2. Por qué falló la corrida del 2026-08-27
 
@@ -125,20 +142,63 @@ dos cosas ya sabidas que la simplifican:
 Y una que hay que decidir: un workflow programado necesita los ~15 secrets del
 `.env` cargados en el repo, incluidos los cuatro de R2 con permiso de escritura.
 
-### 4. El README promete un comando que no existe
+**Cuándo: los sábados.** Decidido el 2026-09-02, y no es una preferencia de
+agenda — sale de un defecto que se encontró ese día.
 
-Dos salidas, y hay que elegir una:
+El endpoint `historical-price-eod/full` de FMP **devuelve una fila para la
+sesión en curso**, y su campo `close` es el último precio negociado. Medido
+sobre `^IXIC` el 2026-09-02: 26.211,996 a las 14:40 UTC y 26.196,812 a las
+14:59, con la misma fecha, y un volumen de 2.031 millones contra los 7.679 de
+una sesión completa. El ensayo de esa tarde publicó el primero de esos números
+rotulado «Cierre».
 
-- **Corregir el README** para que documente el punto de entrada real. Diez
-  minutos, cero código nuevo.
-- **Construir el CLI** (`__main__.py` con `run weekly-close` y un `--dry-run`
-  de verdad, que corra las cinco fases y se detenga antes de publicar). Es más
-  trabajo, pero da el ensayo repetible que hoy no existe y que haría falta cada
-  vez que se toque el ETL o el renderer.
+Con el mercado cerrado eso no puede pasar: la fila más reciente sólo puede ser
+una sesión terminada. Y hay un segundo motivo que el sábado resuelve solo: la
+última sesión es el viernes, y `BDay(5)` hacia atrás cae en el viernes anterior
+— **viernes contra viernes**, la ventana semanal más limpia que da ese cálculo.
+Un viernes por la mañana daría jueves contra jueves.
 
-Recomendación: corregir el README ahora —es una mentira en la primera página
-del repo— y decidir el CLI después del bloqueador 1, cuando se sepa cuántas
-veces hizo falta ensayar.
+Lo que el sábado no arregla: el Treasury sigue mostrando el jueves, porque FRED
+publica el dato de un día hábil la tarde del siguiente. Está rotulado con su
+propio `as_of`, así que es honesto.
+
+**El horario no es la garantía, es la conveniencia.** Un cron es una
+convención, y una corrida a mano un miércoles volvería a publicar un intradía.
+Desde el 2026-09-02 la regla vive en el código: `_fetch_weekly_close` descarta
+las filas cuya fecha sea la de hoy, así que sólo publica sesiones terminadas
+corra el día que corra. El sábado es lo que hace que esa regla no cueste nada
+de frescura.
+
+**Y una restricción que el lock dejó a la vista.** Si una corrida muere sin
+cerrar su fila, el guard del lock hace que *ninguna* corrida futura publique
+ese cierre, y lo único que avisa es un mensaje de Telegram. Con trigger
+automático y nadie mirando, un sábado puede pasar sin publicación y sin que
+nada más lo note. Pasó el 2026-09-02 en el ensayo, y la reparación tiene que
+tocar **R2**, no sólo la base local: el estado remoto es el autoritativo y el
+arranque lo baja encima del local.
+
+### 4. ~~El README promete un comando que no existe~~ — **cerrado el 2026-09-02**
+
+El comando ya no está: el README documenta el punto de entrada real
+(`python src/macro_pipeline/orchestration/main.py`) con la advertencia de que
+publica de verdad y se detiene en Telegram. Este documento afirmaba lo
+contrario hasta que se fue a corregirlo y no había nada que corregir.
+
+Sí había otras cuatro afirmaciones falsas, arregladas el mismo día:
+
+- «Cada viernes» → **cada sábado**, con el motivo escrito.
+- El paso 4 decía que el titular lo genera Claude. Hoy lo arma el pipeline.
+- «Toda la ejecución se observa con OpenTelemetry y Grafana Cloud» → las trazas
+  no llegan a ningún lado (bloqueador 5), y ahora el README lo dice.
+- «Los datos crudos de cada run se archivan como snapshots inmutables en R2» →
+  **eso nunca existió.** R2 guarda el fichero de estado y la imagen publicada,
+  nada más. Verificado siguiendo los dos únicos llamadores de `upload_object`.
+
+**Lo que sigue abierto es el CLI**, que era la otra mitad de este bloqueador:
+`__main__.py` con `run weekly-close` y un `--dry-run` de verdad, que corra las
+cinco fases y se detenga antes de publicar. Hoy el único ensayo posible es
+correr entero y rechazar a mano en Telegram, que funciona pero no sirve para
+CI. Después de la primera publicación.
 
 ### 5. Grafana no existe: la cuenta, no sólo el dashboard — *no bloquea publicar*
 
@@ -167,26 +227,26 @@ Las cinco fases corrieron juntas por primera vez y llegaron al botón de
 aprobar. El borrador se rechazó, no se publicó nada. Tres hallazgos, uno por
 categoría:
 
-### El IPC que publicamos no es el que publica todo el mundo
+### ~~El IPC que publicamos no es el que publica todo el mundo~~ — arreglado
 
-`macro.py:15` usa **`CPIAUCSL`**, la serie **desestacionalizada**. La cifra que
-citan los medios y el BLS como «IPC interanual» sale de **`CPIAUCNS`**, la
-serie **sin desestacionalizar**. Con el dato de julio de 2026, la diferencia es
-real y visible:
+`macro.py` usaba **`CPIAUCSL`**, la serie **desestacionalizada**. La cifra que
+citan los medios y el BLS como «IPC interanual» sale de **`CPIAUCNS`**, la sin
+desestacionalizar. Con el dato de julio de 2026 la diferencia caía justo en el
+dígito que se publica: **3,3039 %** contra **3,3648 %**, o sea +3,3 % contra
++3,4 %.
 
-| Serie | YoY |
-|---|---|
-| `CPIAUCSL` (la que publicamos) | **3.30 %** |
-| `CPIAUCNS` (la del titular) | **3.36 %** → se redondea a **3.4 %** |
+Cualquiera que comparara el post contra una noticia iba a ver 3,3 donde el
+mundo dice 3,4 y concluir que el pipeline calcula mal. Es la misma familia que
+la divergencia 4 de ADR-009: la etiqueta correcta sobre el instrumento
+equivocado.
 
-Cualquiera que compare el post contra una noticia va a ver 3.3 donde el mundo
-dice 3.4, y va a concluir que el pipeline calcula mal. Es la misma familia que
-la divergencia 4 de ADR-009 —la etiqueta correcta sobre el instrumento
-equivocado—, y por lo tanto **hay que arreglarlo antes de publicar**. La
-convención es: desestacionalizada para la variación mensual, sin desestacionalizar
-para la interanual, que es la que este bloque muestra.
+**Corregido el 2026-09-02**, con dos tests que lo anclan y un motivo extra que
+apareció al escribirlo: la serie SA se revisa hacia atrás cada año cuando el BLS
+recalcula los factores estacionales, así que publicarla hacía que la cifra de un
+post viejo pudiera dejar de ser reproducible sin que nadie tocara el pipeline.
+El detalle en [`docs/data-dictionary.md`](./docs/data-dictionary.md).
 
-### El Treasury a 10 años llega con hasta dos días de retraso
+### El Treasury a 10 años llega con un día hábil de retraso
 
 No es un fallo: `DGS10` es diaria pero FRED la publica con lag. El 2026-09-02
 la última observación disponible era la del **2026-08-31** (4.75 %), mientras
@@ -201,45 +261,39 @@ Ver el bloqueador 5, arriba.
 
 ---
 
-## Auditoría pendiente: qué es **exactamente** cada dato que publicamos
+## ~~Auditoría pendiente~~ — hecha el 2026-09-02
 
-**Necesita una sesión propia.** Es el trabajo que la divergencia del IPC dejó
-al descubierto, y es previo a publicar.
+Vive en **[`docs/data-dictionary.md`](./docs/data-dictionary.md)**: qué mide
+exactamente cada una de las siete cifras que publicamos, qué transformación le
+aplicamos, con cuánto retraso llega y si la etiqueta del post se corresponde
+con eso. Cada fila se cerró contra los metadatos que devuelven las APIs, no de
+memoria.
 
-**Por qué, y qué NO alcanza.** La divergencia del IPC se encontró de
-casualidad: Simon buscó la cifra a mano y no coincidió. Nadie audita las series
-en ninguna parte —los tests fijan el formato y los rangos de
-`validators/rules.yaml`, no el significado—, así que cualquier otra serie
-podría tener el mismo problema y nadie se enteraría.
+**Cómo quedó:** cuatro filas ya estaban bien y ahora se sabe *por qué*; dos se
+arreglaron —el IPC y la etiqueta del Nasdaq—; una sigue abierta. Y apareció una
+octava cosa que no estaba en ninguna fila, el precio intradía, que también se
+arregló.
 
-Y hay una trampa que ya se pisó en el ensayo: **el desempleo dio 4.1 % y se
-declaró «coincide exacto», comparando dígitos y no definiciones.** No se
-verificó si `UNRATE` es la misma medida que la que se estaba mirando (U-3
-contra U-6), si está desestacionalizada, ni de qué mes es la referencia. **Un
-número igual con definiciones distintas es una coincidencia, no una
-validación** — y encima es peor que una diferencia visible, porque no llama la
-atención de nadie.
+**Lo único que sigue abierto es la fila 6, el fallback de Alpha Vantage**, con
+dos problemas y ninguna salida elegida:
 
-**Qué hay que auditar, uno por uno:**
+- **`QQQ` sigue al Nasdaq-100, que no es el Composite de `^IXIC`.** Si FMP se
+  cae, la tarjeta rotulada «Nasdaq Composite» pasa a mostrar otro índice. Los
+  dos difieren 11,4 % en nivel, medido el 2026-09-02.
+- **`TIME_SERIES_DAILY` devuelve cierres sin ajustar.** Sobre un ETF eso sesga
+  el retorno en las semanas ex-dividendo, unas cuatro al año por instrumento.
 
-| Dato | Fuente | Lo que hay que establecer |
-|---|---|---|
-| IPC interanual | FRED `CPIAUCSL` | Ya se sabe que está mal: va `CPIAUCNS` |
-| Desempleo | FRED `UNRATE` | ¿U-3? ¿Desestacionalizada? ¿Qué mes? |
-| Treasury 10A | FRED `DGS10` | ¿Constant maturity? ¿Nominal o real? Lag confirmado: hasta 2 días |
-| Cierre S&P 500 | FMP `^GSPC` | ¿Precio de cierre oficial? ¿Ajustado? |
-| Cierre Nasdaq | FMP `^IXIC` | ¿Composite o Nasdaq-100? La etiqueta del post dice «NASDAQ» |
-| Fallback de ambos | AV `SPY` / `QQQ` | ETFs: sólo se publica el retorno, ya resuelto en divergencia 4 |
-| Retorno «semanal» | cálculo propio | Es una **ventana móvil de 5 días hábiles**, no una semana calendario. ¿La etiqueta lo respeta? |
+No bloquea publicar, porque sólo aparece si FMP falla. Pero es exactamente la
+ruta degradada, que es donde nadie mira.
 
-Para cada uno: **qué mide exactamente**, qué transformación le aplicamos,
-con qué frecuencia y con cuánto retraso se publica, **cómo se llama el número
-que el público conoce**, y si la etiqueta que le pone el post se corresponde
-con eso.
-
-El criterio es el de ADR-001 llevado al ETL, que es lo que ya destapó la
-divergencia 4: **una cifra correcta bajo una etiqueta equivocada es una cifra
-incorrecta.**
+**Lo que la auditoría dejó como método, más allá de sus respuestas.** Las dos
+cosas que encontró de verdad —la divergencia del IPC y el precio intradía— las
+encontró un humano mirando un borrador y desconfiando de un número. Ningún test
+las podía encontrar: las dos eran cifras correctas bajo etiquetas equivocadas, y
+las dos caían dentro de todos los rangos de `rules.yaml`. Lo que sí puede hacer
+el código es **impedir que vuelvan**, y eso es lo que ahora fijan los tests de
+identidad: un contract test que le pregunta a FRED qué es cada serie, y la
+guarda de sesiones terminadas.
 
 ---
 
@@ -301,35 +355,50 @@ se evita que una síntesis plausible pero equivocada pase el validador.
 
 ## Orden sugerido
 
-1. **Ensayo con rechazo** (bloqueador 1). Repetir hasta que llegue limpio al
-   botón.
-2. **Primera publicación real**, aprobando el botón en una corrida igual a la
-   anterior.
-3. **Trigger** (bloqueador 3), ya con la certeza de que el pipeline funciona.
-4. **README/CLI** (bloqueador 4) y **Grafana** (5), en cualquier orden.
+**Actualizado el 2026-09-02 al cierre de la sesión.** El paso 1 —la auditoría de
+datos con el arreglo del IPC— está hecho, y de paso cayeron la etiqueta del
+Nasdaq, el precio intradía y el bloqueador 4.
 
-**El ensayo del paso 1 no necesita esperar al viernes**, y conviene hacerlo
-antes. Verificado en el código el 2026-09-02:
+Siguen las dos pistas de siempre, y no compiten por el mismo riesgo: **publicar**
+(donde ya no queda nada de significado sin resolver que bloquee) y **el objetivo
+real** de PLAN.md §1, de donde sale el camino A.
 
-- El retorno **no** es de lunes a viernes: es una ventana móvil de cinco días
-  hábiles. `_fetch_weekly_close` toma el último cierre disponible y lo compara
-  contra el primero que sea anterior o igual a ese día menos `BDay(5)`
-  (`main.py:377-393`), con el corte por fecha real para no sesgarse con los
-  feriados. Un miércoles da miércoles contra miércoles: un retorno semanal
-  legítimo, no media semana.
-- El bloque macro es una ventana hacia atrás desde hoy (`macro.py:95-96`) y la
-  plantilla imprime la fecha del propio dato (`playwright_engine.py:137`).
-  Ninguna de las cinco fases pregunta qué día de la semana es.
-- **El `event_id` lleva la fecha** (`weekly_close_2026-09-02` contra
-  `weekly_close_2026-09-04`), así que un ensayo entre semana no ocupa la fila
-  del viernes ni puede interferir con la corrida real.
+### El orden
 
-De regalo, el ensayo siembra el estado remoto en R2, así que el viernes ya no
-llega el aviso de «primera corrida o pérdida de estado» y una sorpresa menos
-cae en el día que importa.
+1. ~~Auditoría de datos, con el arreglo del IPC~~ — **hecha**, en
+   [`docs/data-dictionary.md`](./docs/data-dictionary.md).
+2. **Primera publicación real** — el próximo sábado, aprobando el botón en una
+   corrida igual a la del ensayo. Es el siguiente paso.
+3. **Camino A**: el rediseño de la capa LLM, en sesión propia, con el pipeline
+   habiendo publicado al menos una vez.
+4. **Trigger** (bloqueador 3), sábados, ya con la certeza de que el pipeline
+   funciona de punta a punta en producción.
+5. **Grafana** (bloqueador 5), que no bloquea nada de lo anterior.
 
-El paso 2 —la publicación de verdad— sí conviene que sea un viernes, que es la
-cadencia que el proyecto eligió.
+Y sueltos, sin sesión propia: **el fallback de Alpha Vantage** (la única fila
+abierta de la auditoría), **el CLI con `--dry-run`** —la mitad del bloqueador 4
+que sigue viva— y **la etiqueta del log** `cause="capa_no_disponible"`, que hoy
+no distingue una capa apagada a propósito de una sin credencial.
+
+### Por qué la auditoría fue antes que el camino A
+
+Se decidió así y la sesión lo confirmó: camino A hace que el post explique **por
+qué se movieron** los números, y montar una síntesis encima de series mal
+etiquetadas no arrastra el error, lo amplifica. Dos de las tres cosas que se
+arreglaron —el IPC y el intradía— habrían quedado dentro de esa síntesis.
+
+### Lo que hay que saber antes de la primera publicación
+
+- **Sábado, con el mercado cerrado.** El motivo está en el bloqueador 3.
+- **`USE_ANTHROPIC=false`.** El titular es determinista; aprobar publica ese
+  texto, no uno redactado por un modelo.
+- **Aprobar publica de verdad** en X y LinkedIn: las dos banderas están en
+  `true`. Rechazar sigue siendo el ensayo seguro.
+- **Si una corrida muere sin cerrar su fila**, el guard del lock hace que
+  ninguna corrida futura publique ese cierre, y lo único que avisa es un
+  Telegram. La reparación tiene que tocar **R2**, no sólo la base local: el
+  estado remoto es el autoritativo y el arranque lo baja encima. Pasó el
+  2026-09-02 y la primera reparación no sirvió justamente por eso.
 
 ---
 
