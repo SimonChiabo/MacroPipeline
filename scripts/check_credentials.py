@@ -619,6 +619,18 @@ def check_telegram() -> str:
     escribir porque la API de S3 no ofrece forma de confirmar el permiso sin
     ejercerlo; Telegram sí la ofrece, y mandar un mensaje en cada corrida
     rompería la promesa de pasividad del script por nada.
+
+    **Verificado en vivo el 2026-09-02 contra el bot real**, porque la suite
+    corre contra respuestas falsas y eso prueba la logica, no el contrato:
+
+    - `getMe` trae `username` directo en `result`.
+    - `getWebhookInfo` devuelve `url` **presente y vacia** (`''`) cuando no hay
+      webhook, no ausente.
+    - `getChat` devuelve `id` como **int**. Importa mas de lo que parece: si
+      viniera como string, la comparacion con `allowed_user_id` —que es int—
+      seria siempre distinta y este chequeo fallaria en rojo para todo el
+      mundo, sin que ningun test lo viera.
+    - Con un `chat_id` inexistente contesta **400 con `description`**, no 401.
     """
     if _check_present(TELEGRAM_VARS):
         return NO_LISTO
