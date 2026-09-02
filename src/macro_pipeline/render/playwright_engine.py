@@ -110,8 +110,12 @@ class PlaywrightEngine:
             + self._build_metric_card(
                 "S&P 500", data.sp500_close, data.sp500_weekly_return
             )
+            # "Nasdaq Composite" y no "NASDAQ": `^IXIC` es el Composite, y el
+            # Nasdaq-100 es otro indice que cotiza ~11% mas alto. Con la
+            # etiqueta corta, quien mire una terminal ve otro numero y concluye
+            # que el pipeline calcula mal (docs/data-dictionary.md, fila 5).
             + self._build_metric_card(
-                "NASDAQ", data.nasdaq_close, data.nasdaq_weekly_return
+                "Nasdaq Composite", data.nasdaq_close, data.nasdaq_weekly_return
             )
             + "</div>"
         )

@@ -172,3 +172,20 @@ def test_render_sin_niveles_conserva_el_bloque_macro(mock_sync_playwright):
 
     assert "IPC interanual" in html
     assert "variación semanal" in html
+
+
+@patch("macro_pipeline.render.playwright_engine.sync_playwright")
+def test_render_names_the_nasdaq_index_it_actually_publishes(mock_sync_playwright):
+    """La tarjeta dice cuál de los dos Nasdaq es.
+
+    `^IXIC` es el Composite; el Nasdaq-100 es otro indice y cotiza ~11% mas
+    alto (medido el 2026-09-02: 26.099,77 contra 29.077,22). Rotulado
+    «NASDAQ» a secas, quien mire una terminal de mercado ve otro numero y
+    concluye que el pipeline calcula mal — le paso al propio autor del
+    proyecto. Es la misma familia que la divergencia 4 de ADR-009: la etiqueta
+    correcta sobre el instrumento equivocado, esta vez al reves.
+    """
+    html = _rendered_html(mock_sync_playwright, _weekly_close())
+
+    assert "Nasdaq Composite" in html
+    assert ">NASDAQ<" not in html
