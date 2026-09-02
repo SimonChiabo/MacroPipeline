@@ -140,10 +140,23 @@ el que se escribió; no se duplica.
 `USE_TELEGRAM: "false"` en el paso de LinkedIn de `contract-tests.yml`, junto a
 los otros cuatro y con el comentario que ya llevan.
 
-Sin eso, ese paso —que corre sólo con los secrets de LinkedIn— ejecutaría el
-chequeo de Telegram sin `TELEGRAM_BOT_TOKEN`, saldría con código `1` y la
-alerta culparía a LinkedIn de una credencial de Telegram. Es literalmente el
-error de planificación de ayer, que dejó el repo roto durante cuatro tasks:
+**El motivo no es el que parece, y conviene escribirlo bien.** Ese paso **sí
+tiene** `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` en su bloque `env:` —los usa
+para mandar su propia alerta—, así que sin el blindaje el chequeo de Telegram
+no fallaría por falta de credenciales: **correría de verdad**, todas las
+noches, contra el bot y el chat privado del operador. Eso es peor que un rojo
+ruidoso, por tres motivos:
+
+- Un paso cuya alerta habla de LinkedIn pasaría a decidir su color con una
+  credencial de Telegram. El día que el token se revoque o alguien registre un
+  webhook, la alerta culparía a LinkedIn — y esa alerta **tampoco se podría
+  entregar**, porque viaja por el mismo token muerto (limitación (d) de
+  ADR-009).
+- El nightly empezaría a depender de que el chat privado del operador sea
+  alcanzable desde CI, que no es algo que ese job deba requerir.
+- Y hoy pasaría en verde, así que nada lo delataría hasta el día que falle.
+
+La lección de ayer se sostiene igual, sólo que por la vía del falso verde:
 **cuando un cambio amplía lo que un script verifica, el blindaje de quien ya lo
 invoca va en el mismo commit.**
 
@@ -175,10 +188,13 @@ legítimos, que es como un chequeo se termina apagando.
 
 ## Documentación
 
-«los seis componentes» aparece en el docstring del módulo de
-`check_credentials.py`, en el `print` de apertura de `main()` y en el README.
-Pasan a siete. El ancho de la columna del resumen (`:<15`) no cambia:
-`Telegram:` mide 9.
+«seis» aparece en cuatro sitios de `check_credentials.py` (el docstring del
+módulo, el de `_encabezado`, el de `check_x` y el comentario del ancho de
+columna) y en uno de `contract-tests.yml`. Pasan a siete. El README no lleva la
+cuenta: sólo invoca el script, así que no se toca.
+
+El ancho de la columna del resumen (`:<15`) tampoco cambia: `Telegram:` mide 9,
+y el más largo sigue siendo `Alpha Vantage:` con 14.
 
 ## Costes aceptados
 
