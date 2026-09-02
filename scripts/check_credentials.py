@@ -199,14 +199,18 @@ def _mensaje_de_error(response: requests.Response) -> str:
     """El texto que la API da para explicarse, o el cuerpo crudo.
 
     FRED pone el motivo real en `error_message` y devuelve 400, no 401: sin
-    esto el diagnostico seria "HTTP 400" a secas.
+    esto el diagnostico seria "HTTP 400" a secas. Telegram hace lo mismo en
+    `description`, asi que las dos claves se miran acá y no se duplica la
+    funcion.
     """
     try:
         cuerpo = response.json()
     except ValueError:
         return response.text[:200]
-    if isinstance(cuerpo, dict) and "error_message" in cuerpo:
-        return str(cuerpo["error_message"])
+    if isinstance(cuerpo, dict):
+        for clave in ("error_message", "description"):
+            if clave in cuerpo:
+                return str(cuerpo[clave])
     return response.text[:200]
 
 

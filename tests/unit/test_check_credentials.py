@@ -929,3 +929,28 @@ def test_r2_falla_si_lo_escrito_no_se_puede_releer(
 
     assert check_credentials.check_r2() == check_credentials.NO_LISTO
     assert "no se pudo releer" in capsys.readouterr().out
+
+
+def test_el_mensaje_de_error_lee_la_clave_de_telegram(check_credentials):
+    """Telegram explica el fallo en `description`, como FRED en `error_message`.
+
+    Sin esta rama, un chat_id equivocado se reporta como "HTTP 400" a secas y
+    el script deja de hacer justo lo que existe para hacer: decirle a un humano
+    que tiene mal configurado.
+    """
+
+    class Respuesta:
+        status_code = 400
+        text = '{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}'
+
+        @staticmethod
+        def json():
+            return {
+                "ok": False,
+                "error_code": 400,
+                "description": "Bad Request: chat not found",
+            }
+
+    assert check_credentials._mensaje_de_error(Respuesta()) == (
+        "Bad Request: chat not found"
+    )
