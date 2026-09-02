@@ -106,8 +106,9 @@ pre-commit install
 # Tests con fixtures (rápido)
 pytest tests/unit tests/integration
 
-# Generar un post en dry-run (sin publicar)
-python -m macro_pipeline run weekly-close --dry-run
+# Correr el cierre semanal (publica de verdad; se detiene en Telegram
+# esperando tu aprobacion, y rechazar el borrador no publica nada)
+python src/macro_pipeline/orchestration/main.py
 ```
 
 ---

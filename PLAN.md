@@ -213,8 +213,8 @@
 - [x] Crear cuenta personal LinkedIn (si no existe) + Company Page MacroPipeline
 - [x] Crear repo público `github.com/SimonChiabo/MacroPipeline`
 - [x] Crear bot de Telegram (`@BotFather`)
-- [ ] Provisionar cuenta Cloudflare R2 free tier
-- [ ] Crear cuenta Grafana Cloud free tier
+- [x] Provisionar cuenta Cloudflare R2 free tier
+- [x] Crear cuenta Grafana Cloud free tier
 
 ### Semana 1 — ETL determinista + validación
 - [x] Esqueleto del repo con estructura recomendada
@@ -234,7 +234,7 @@
 - [x] Tests de snapshot sobre outputs renderizados
 
 ### Semana 3 — Orquestación + HITL
-- [x] Configurar Claude Routine para cierre semanal del viernes
+- [ ] Configurar Claude Routine para cierre semanal del viernes — **no existe**; ver [ROADMAP.md](./ROADMAP.md) §3
 - [x] Bot Telegram: envío de drafts con preview + botones
 - [x] Long polling desde Python
 - [x] Estado en SQLite + snapshots a R2
@@ -243,7 +243,7 @@
 ### Semana 4 — Publicación + observabilidad completa
 - [x] X API v2: publicación de hilos
 - [x] LinkedIn API: publicación en Company Page (texto + PDF carrusel)
-- [ ] Workflow `contract-tests.yml` nightly con alertas Telegram
+- [x] Workflow `contract-tests.yml` nightly con alertas Telegram
 - [ ] Dashboard Grafana completo (runs OK/KO, latencia, errores)
 
 ### Semanas 5-8 — Operación HITL

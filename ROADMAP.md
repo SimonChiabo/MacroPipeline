@@ -1,0 +1,159 @@
+# Camino a la primera publicación
+
+> Este documento cubre **una sola pregunta**: qué falta para que MacroPipeline
+> publique su primer cierre semanal. El roadmap general del proyecto —semanas,
+> fases, alcance— sigue en [PLAN.md §7](./PLAN.md). Acá no hay fechas: el orden
+> es por riesgo, y la fecha sale cuando los bloqueadores estén cerrados.
+
+**Estado al 2026-09-02.** Todo lo de abajo está verificado contra el código, el
+estado real y las APIs ese día. Lo que no se pudo verificar se dice.
+
+---
+
+## Dónde estamos
+
+| | |
+|---|---|
+| **Publicaciones** | **Cero.** Nunca salió un post. |
+| **Corridas del pipeline** | **Una.** `weekly_close_2026-08-27`, terminó en `failed`. La fila no guarda motivo: `mark_failed` todavía no lo registraba. |
+| **Estado remoto** | Ausente. `state/state.db` no existe en R2 — esa corrida es anterior al sincronizado, que se escribió el 2026-08-31. |
+| **Credenciales** | Las siete verificadas hoy contra sus APIs (`scripts/check_credentials.py`, código 0). |
+| **Trigger programado** | **No existe.** En `.github/workflows/` sólo hay `ci.yml` y `contract-tests.yml`, y ninguno ejecuta el pipeline. No hay Routine creada. |
+| **Punto de entrada** | `python src/macro_pipeline/orchestration/main.py` — el bloque `if __name__ == "__main__"` (`main.py:1103`). |
+| **Renderizado** | Playwright con Chromium instalado en la máquina local. |
+
+Las cinco fases del pipeline están escritas y testeadas por separado: datos,
+validación, renderizado, LLM, HITL y publicación (`main.py:746-964`). **Nunca
+corrieron las cinco juntas contra datos reales.** Ése es el riesgo central de
+todo lo que sigue.
+
+---
+
+## Dos cosas que hay que saber antes de planificar nada
+
+### No hay dry-run, y apagar las dos redes no lo sustituye
+
+El README ofrece `python -m macro_pipeline run weekly-close --dry-run`. **Ese
+comando no existe**: no hay `__main__.py`, no hay `console_scripts` en
+`pyproject.toml` y no hay ninguna bandera `--dry-run` en el código.
+
+Y apagar las dos redes tampoco sirve de ensayo. Con `PUBLISH_X=false` y
+`PUBLISH_LINKEDIN=false`, `_publisher_failures()` no devuelve nada —un switch
+apagado es una decisión, no un fallo— y la run **sale con 0 en el punto de
+decisión** (`main.py:540-544`, log `no_publishers_enabled`), antes de la fase
+de datos. No ejercita ni el ETL, ni el renderer, ni el LLM, ni el HITL.
+
+### El ensayo real existe, y es el propio HITL
+
+La corrida completa con las banderas encendidas se detiene en Telegram y espera
+hasta una hora (`wait_for_approval`, `timeout_seconds=3600`). **Rechazar el
+borrador es el ensayo de punta a punta**: ejercita las cinco fases contra datos
+reales y no publica nada.
+
+Qué deja: la fila queda `failed` con `reason="rejected_by_human"` y la run
+devuelve 0 (`main.py:1054-1057`). `mark_in_progress` re-arma el lock sobre una
+fila `failed`, así que el mismo día se puede reintentar y publicar. Es
+exactamente el margen de seguridad que ADR-004 diseñó.
+
+**El kill switch, mientras tanto, es `USE_TELEGRAM=false`**: pausa el pipeline
+entero con código 0 y sin alertar, porque un componente apagado a propósito no
+es un fallo (`main.py:488-490`).
+
+---
+
+## Los bloqueadores, en orden de riesgo
+
+### 1. Las cinco fases nunca corrieron juntas — *el bloqueador real*
+
+Todo lo demás es logística. Esto es lo único que no se sabe: si el pipeline
+completo, contra datos reales de un viernes, llega hasta el botón de aprobar.
+
+**Qué hacer:** correr `python src/macro_pipeline/orchestration/main.py` a mano,
+con las banderas de publicación **encendidas**, y **rechazar** el borrador en
+Telegram. Repetir hasta que la corrida llegue limpia al botón.
+
+Qué mirar en esa corrida, además de que no reviente:
+
+- **Los números del borrador**, contra la fuente. Es la única verificación que
+  ningún test puede hacer: los tests fijan el formato, no la veracidad.
+- **De qué fuente salió el cierre.** Si vino por Alpha Vantage, el nivel no se
+  publica y el renderer sube la variación semanal en su lugar (ADR-009,
+  divergencia 4). Es correcto, pero conviene verlo una vez con los ojos.
+- **El titular del LLM.** Si dice «Cierre Semanal: Resumen del Mercado» a secas,
+  la capa LLM cayó al fallback y hay que mirar por qué.
+- **Que llegue el aviso de «primera corrida o pérdida de estado».** Es esperado
+  y no es un fallo: no hay estado remoto todavía y esa corrida lo siembra.
+
+### 2. Por qué falló la corrida del 2026-08-27
+
+No se sabe, y no se puede saber: esa fila no guarda motivo. Desde entonces
+`mark_failed` sí lo registra, así que **el bloqueador 1 responde también a
+éste**: la próxima corrida deja el motivo escrito si vuelve a fallar.
+
+No conviene investigarlo por separado. Seis días de commits pasaron por encima
+—entre ellos el sincronizado de estado y cuatro arreglos del arranque—, así que
+la causa de agosto puede ya no existir.
+
+### 3. No hay nada que dispare el pipeline
+
+Sin esto no hay publicación semanal, sólo corridas a mano. La decisión está
+planteada en ADR-002 (Claude Routines) con GitHub Actions como plan B, y hay
+dos cosas ya sabidas que la simplifican:
+
+- **El entorno efímero dejó de ser un problema.** El fichero de estado viaja
+  entero por R2 desde el 2026-08-31, así que las dos opciones sirven.
+- **Los secrets de R2 van en el paso de pre-chequeo del workflow**, si se elige
+  GitHub Actions. Con la regla «R2 configurado → sincroniza», un workflow al
+  que se le olviden correría local-only y en silencio, y el mismo cierre podría
+  salir dos veces.
+
+Y una que hay que decidir: un workflow programado necesita los ~15 secrets del
+`.env` cargados en el repo, incluidos los cuatro de R2 con permiso de escritura.
+
+### 4. El README promete un comando que no existe
+
+Dos salidas, y hay que elegir una:
+
+- **Corregir el README** para que documente el punto de entrada real. Diez
+  minutos, cero código nuevo.
+- **Construir el CLI** (`__main__.py` con `run weekly-close` y un `--dry-run`
+  de verdad, que corra las cinco fases y se detenga antes de publicar). Es más
+  trabajo, pero da el ensayo repetible que hoy no existe y que haría falta cada
+  vez que se toque el ETL o el renderer.
+
+Recomendación: corregir el README ahora —es una mentira en la primera página
+del repo— y decidir el CLI después del bloqueador 1, cuando se sepa cuántas
+veces hizo falta ensayar.
+
+### 5. Dashboard de Grafana — *no bloquea publicar*
+
+La cuenta existe y el endpoint OTLP está configurado; falta el dashboard
+(PLAN.md §7, semana 4). Se puede hacer después del primer post, y de hecho
+conviene: con corridas reales encima hay métricas que mirar.
+
+---
+
+## Orden sugerido
+
+1. **Ensayo con rechazo** (bloqueador 1). Repetir hasta que llegue limpio al
+   botón.
+2. **Primera publicación real**, aprobando el botón en una corrida igual a la
+   anterior.
+3. **Trigger** (bloqueador 3), ya con la certeza de que el pipeline funciona.
+4. **README/CLI** (bloqueador 4) y **Grafana** (5), en cualquier orden.
+
+Los pasos 1 y 2 se pueden hacer cualquier viernes; los datos del cierre son de
+la semana que corre, así que un ensayo un martes trae datos de un cierre que no
+terminó.
+
+---
+
+## Lo que este documento no cubre
+
+- **Cobertura de CI para R2 y Telegram.** El nightly apaga los cinco
+  componentes no publicadores, así que sus credenciales sólo se verifican
+  corriendo el chequeo a mano. No bloquea publicar.
+- **Las divergencias 5, 6 y 7 de ADR-009**, abiertas a propósito.
+- **El residuo del sincronizado**: un crash con un corte de R2 encima puede
+  dejar el remoto en `in_progress` y el local en `failed`. Desde el
+  2026-09-01 eso alerta si el relanzamiento llega más de dos horas después.
