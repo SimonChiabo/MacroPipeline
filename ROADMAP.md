@@ -180,11 +180,51 @@ propio `as_of` y el 10 años se rotula «al 31/08/2026» (`playwright_engine.py:
 así que el post es honesto. Sólo hay que saberlo: un cierre del viernes va a
 mostrar el rendimiento del miércoles o el jueves, nunca el del día.
 
-El desempleo (4.1 %) coincidió exacto con la fuente.
-
 ### La observabilidad estaba muda
 
 Ver el bloqueador 5, arriba.
+
+---
+
+## Auditoría pendiente: qué es **exactamente** cada dato que publicamos
+
+**Necesita una sesión propia.** Es el trabajo que la divergencia del IPC dejó
+al descubierto, y es previo a publicar.
+
+**Por qué, y qué NO alcanza.** La divergencia del IPC se encontró de
+casualidad: Simon buscó la cifra a mano y no coincidió. Nadie audita las series
+en ninguna parte —los tests fijan el formato y los rangos de
+`validators/rules.yaml`, no el significado—, así que cualquier otra serie
+podría tener el mismo problema y nadie se enteraría.
+
+Y hay una trampa que ya se pisó en el ensayo: **el desempleo dio 4.1 % y se
+declaró «coincide exacto», comparando dígitos y no definiciones.** No se
+verificó si `UNRATE` es la misma medida que la que se estaba mirando (U-3
+contra U-6), si está desestacionalizada, ni de qué mes es la referencia. **Un
+número igual con definiciones distintas es una coincidencia, no una
+validación** — y encima es peor que una diferencia visible, porque no llama la
+atención de nadie.
+
+**Qué hay que auditar, uno por uno:**
+
+| Dato | Fuente | Lo que hay que establecer |
+|---|---|---|
+| IPC interanual | FRED `CPIAUCSL` | Ya se sabe que está mal: va `CPIAUCNS` |
+| Desempleo | FRED `UNRATE` | ¿U-3? ¿Desestacionalizada? ¿Qué mes? |
+| Treasury 10A | FRED `DGS10` | ¿Constant maturity? ¿Nominal o real? Lag confirmado: hasta 2 días |
+| Cierre S&P 500 | FMP `^GSPC` | ¿Precio de cierre oficial? ¿Ajustado? |
+| Cierre Nasdaq | FMP `^IXIC` | ¿Composite o Nasdaq-100? La etiqueta del post dice «NASDAQ» |
+| Fallback de ambos | AV `SPY` / `QQQ` | ETFs: sólo se publica el retorno, ya resuelto en divergencia 4 |
+| Retorno «semanal» | cálculo propio | Es una **ventana móvil de 5 días hábiles**, no una semana calendario. ¿La etiqueta lo respeta? |
+
+Para cada uno: **qué mide exactamente**, qué transformación le aplicamos,
+con qué frecuencia y con cuánto retraso se publica, **cómo se llama el número
+que el público conoce**, y si la etiqueta que le pone el post se corresponde
+con eso.
+
+El criterio es el de ADR-001 llevado al ETL, que es lo que ya destapó la
+divergencia 4: **una cifra correcta bajo una etiqueta equivocada es una cifra
+incorrecta.**
 
 ---
 
