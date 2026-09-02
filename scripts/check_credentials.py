@@ -41,6 +41,7 @@ from macro_pipeline.components import (
     component_enabled,
 )
 from macro_pipeline.storage.r2_client import R2Client, R2ClientError
+from macro_pipeline.telegram.bot import TelegramBot
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -62,6 +63,9 @@ FRED_VARS = ("FRED_API_KEY",)
 AV_VARS = ("ALPHA_VANTAGE_API_KEY",)
 ANTHROPIC_VARS = ("ANTHROPIC_API_KEY",)
 R2_VARS = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+# Las dos que exige `TelegramBot.__init__`. `TELEGRAM_ALLOWED_USER_ID` no
+# entra: su ausencia avisa, no falla, porque el cierre se publica igual.
+TELEGRAM_VARS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 
 # El marcador que ya conoce el repo. Mismo texto y mismo motivo que en
 # `tests/contract/test_av_contract.py`: separa "no pudimos verificar" de "la
@@ -554,6 +558,72 @@ def check_r2() -> str:
         print("       nunca borra, así que el permiso de Delete no le hace falta.")
         return LISTO
     print(f"{OK} DeleteObject: el objeto de prueba se limpió.")
+
+    return LISTO
+
+
+def _telegram_get(
+    bot: TelegramBot, metodo: str, params: dict[str, str] | None = None
+) -> dict[str, object] | None:
+    """El `result` de un metodo de la API, o `None` dejando el motivo impreso.
+
+    Los tres GET comparten la forma de la respuesta y la del error, asi que
+    comparten el manejo. El 401 se nombra aparte porque es el unico que no se
+    arregla en el `.env`: hay que volver a BotFather.
+    """
+    try:
+        response = requests.get(f"{bot.base_url}/{metodo}", params=params, timeout=15)
+    except requests.RequestException as e:
+        print(f"{FAIL} No se pudo contactar la API de Telegram: {e}")
+        return None
+
+    if response.status_code == 401:
+        print(f"{FAIL} 401 en {metodo}: el TELEGRAM_BOT_TOKEN no autentica.")
+        print("       Un token revocado o regenerado en BotFather da esto: el")
+        print("       valor viejo deja de servir apenas se emite el nuevo.")
+        return None
+    if response.status_code != 200:
+        print(f"{FAIL} {metodo}: HTTP {response.status_code}: ", end="")
+        print(_mensaje_de_error(response))
+        return None
+
+    try:
+        cuerpo = response.json()
+    except ValueError:
+        print(f"{FAIL} {metodo}: Telegram no devolvió JSON: {response.text[:200]}")
+        return None
+
+    resultado = cuerpo.get("result")
+    if not isinstance(resultado, dict):
+        print(f"{FAIL} {metodo}: la respuesta no trae un `result` utilizable.")
+        return None
+    return resultado
+
+
+def check_telegram() -> str:
+    """Tres GET de solo lectura: el token, el modo de uso y el chat.
+
+    Solo lectura y no un mensaje de prueba porque acá sí alcanza. R2 tuvo que
+    escribir porque la API de S3 no ofrece forma de confirmar el permiso sin
+    ejercerlo; Telegram sí la ofrece, y mandar un mensaje en cada corrida
+    rompería la promesa de pasividad del script por nada.
+    """
+    if _check_present(TELEGRAM_VARS):
+        return NO_LISTO
+
+    try:
+        bot = TelegramBot()
+    except ValueError as e:
+        print(f"{FAIL} {e}")
+        return NO_LISTO
+
+    # getMe va primero por el mismo motivo por el que el put va antes que el
+    # get en R2: sin él, un 400 de getChat no distingue "chat mal configurado"
+    # de "token revocado", y el diagnostico sale al reves.
+    identidad = _telegram_get(bot, "getMe")
+    if identidad is None:
+        return NO_LISTO
+    print(f"{OK} El token autentica como @{identidad.get('username')}.")
 
     return LISTO
 

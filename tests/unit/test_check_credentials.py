@@ -954,3 +954,78 @@ def test_el_mensaje_de_error_lee_la_clave_de_telegram(check_credentials):
     assert check_credentials._mensaje_de_error(Respuesta()) == (
         "Bad Request: chat not found"
     )
+
+
+def _telegram_responde(check_credentials, monkeypatch, respuestas):
+    """Falsea `requests.get` despachando por el ultimo segmento de la URL.
+
+    Los tres GET del chequeo van al mismo host y solo se distinguen por el
+    metodo, asi que un fake que devuelva siempre lo mismo haria pasar tests que
+    no prueban nada del orden. `respuestas` es {metodo: (status, cuerpo)}, y
+    una llamada a un metodo que el test no declaro es un fallo del test.
+    """
+
+    class Respuesta:
+        def __init__(self, status_code, cuerpo):
+            self.status_code = status_code
+            self._cuerpo = cuerpo
+            self.text = str(cuerpo)
+
+        def json(self):
+            return self._cuerpo
+
+    def _get(url, *a, **k):
+        metodo = url.rsplit("/", 1)[-1]
+        assert metodo in respuestas, f"llamada inesperada a {metodo}"
+        status, cuerpo = respuestas[metodo]
+        return Respuesta(status, cuerpo)
+
+    monkeypatch.setattr(check_credentials.requests, "get", _get)
+
+
+def _credenciales_de_telegram(monkeypatch, allowed="4242"):
+    """Las tres variables, con valores de juguete.
+
+    Explicitas en cada test y no heredadas del `.env` real: la fixture es de
+    modulo y deja las credenciales de verdad en el entorno, asi que un test que
+    no las pise pasaria o fallaria segun la maquina.
+    """
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:token-de-juguete")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "4242")
+    if allowed is None:
+        monkeypatch.delenv("TELEGRAM_ALLOWED_USER_ID", raising=False)
+    else:
+        monkeypatch.setenv("TELEGRAM_ALLOWED_USER_ID", allowed)
+
+
+def test_telegram_sin_token_no_sale_a_la_red(check_credentials, monkeypatch, capsys):
+    """La presencia se mira antes de contactar a nadie, como en los otros seis."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "4242")
+
+    def _no_deberia_llamar(*a, **k):
+        raise AssertionError("no tenia que salir a la red sin token")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _no_deberia_llamar)
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    assert "TELEGRAM_BOT_TOKEN" in capsys.readouterr().out
+
+
+def test_un_token_de_telegram_revocado_falla(check_credentials, monkeypatch, capsys):
+    """Un token regenerado en BotFather deja al viejo autenticando con 401.
+
+    Es el caso que apaga el HITL de ADR-004 entero: sin token no hay aprobacion
+    y tampoco hay canal para avisar de que no hay canal.
+    """
+    _credenciales_de_telegram(monkeypatch)
+    _telegram_responde(
+        check_credentials,
+        monkeypatch,
+        {"getMe": (401, {"ok": False, "description": "Unauthorized"})},
+    )
+
+    assert check_credentials.check_telegram() == check_credentials.NO_LISTO
+    salida = capsys.readouterr().out
+    assert "401" in salida
+    assert "BotFather" in salida
