@@ -298,7 +298,7 @@ def test_a_disabled_network_cannot_turn_the_script_red(
     """
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
-    _apagar_los_cuatro(monkeypatch)
+    _apagar_los_cinco(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     assert check_credentials.main() == 0
@@ -317,7 +317,7 @@ def test_a_disabled_network_is_not_even_checked(check_credentials, monkeypatch):
     """
     llamadas = []
     monkeypatch.setenv("PUBLISH_X", "false")
-    _apagar_los_cuatro(monkeypatch)
+    _apagar_los_cinco(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
         check_credentials, "check_x", lambda: llamadas.append("x") or True
@@ -339,7 +339,7 @@ def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
     de fallo imprimen una linea legible.
     """
     monkeypatch.setenv("PUBLISH_X", "yes")
-    _apagar_los_cuatro(monkeypatch)
+    _apagar_los_cinco(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     assert check_credentials.main() == 1
@@ -422,14 +422,14 @@ def test_un_401_deja_el_marcador_que_el_nightly_grepea(
     assert "LINKEDIN_TOKEN_DEAD" in capsys.readouterr().out
 
 
-def _apagar_los_cuatro(monkeypatch):
-    """Los cuatro componentes nuevos, apagados.
+def _apagar_los_cinco(monkeypatch):
+    """Los cinco componentes que no son las dos redes, apagados.
 
     Sin esto, un test que llame a `main()` contacta FRED, Alpha Vantage,
-    Anthropic y R2 de verdad: `component_enabled` trata la variable ausente
-    como encendido a proposito, y la suite unitaria no sale a la red.
+    Anthropic, R2 y Telegram de verdad: `component_enabled` trata la variable
+    ausente como encendido a proposito, y la suite unitaria no sale a la red.
     """
-    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2"):
+    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2", "USE_TELEGRAM"):
         monkeypatch.setenv(var, "false")
 
 
@@ -444,7 +444,7 @@ def test_un_componente_apagado_no_se_chequea_ni_pone_rojo(
     llamadas = []
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
-    _apagar_los_cuatro(monkeypatch)
+    _apagar_los_cinco(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
         check_credentials, "check_fred", lambda: llamadas.append("fred") or "listo"
@@ -657,6 +657,7 @@ def test_el_rate_limit_de_av_no_cambia_el_codigo_de_salida(
     monkeypatch.setenv("USE_FRED", "false")
     monkeypatch.setenv("USE_ANTHROPIC", "false")
     monkeypatch.setenv("USE_R2", "false")
+    monkeypatch.setenv("USE_TELEGRAM", "false")
     monkeypatch.setenv("USE_AV", "true")
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -1279,3 +1280,26 @@ def test_sin_allowed_user_id_avisa_pero_no_pone_rojo(
 
     assert check_credentials.check_telegram() == check_credentials.LISTO
     assert "cualquiera en el chat puede aprobar" in capsys.readouterr().out
+
+
+def test_telegram_apagado_no_se_chequea_ni_pone_rojo(
+    check_credentials, monkeypatch, capsys
+):
+    """La septima fila de la tabla, y su gate.
+
+    Confirma dos cosas de una: que Telegram aparece en el resumen (o sea que
+    esta cableado en `main()`) y que `USE_TELEGRAM=false` lo saltea sin
+    contactar a nadie, como los otros seis.
+    """
+    monkeypatch.setenv("PUBLISH_X", "false")
+    monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
+    _apagar_los_cinco(monkeypatch)
+    monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
+
+    def _no_deberia_llamar(*a, **k):
+        raise AssertionError("un componente apagado no se contacta")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _no_deberia_llamar)
+
+    assert check_credentials.main() == 0
+    assert "Telegram:       apagado" in capsys.readouterr().out

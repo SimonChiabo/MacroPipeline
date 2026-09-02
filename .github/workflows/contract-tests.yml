@@ -172,13 +172,22 @@ jobs:
           PUBLISH_X: "false"
           # Mismo movimiento que el `PUBLISH_X` de arriba y por el mismo
           # motivo: este paso verifica LinkedIn y su alerta habla de LinkedIn.
-          # Desde que el script chequea los seis componentes, dejarlos
+          # Desde que el script chequea los siete componentes, dejarlos
           # encendidos aca lo pondria rojo por credenciales que este job no
           # tiene, y la alerta culparia a LinkedIn de que falta la key de FRED.
           USE_FRED: "false"
           USE_AV: "false"
           USE_ANTHROPIC: "false"
           USE_R2: "false"
+          # Telegram se apaga por un motivo distinto al de los otros cuatro:
+          # este paso SI tiene TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID, porque
+          # los usa para mandar su propia alerta. Sin esta linea el chequeo
+          # correria de verdad, todas las noches, contra el bot y el chat
+          # privado del operador: el color de un paso que habla de LinkedIn
+          # pasaria a depender de una credencial de Telegram, y el dia que ese
+          # token muera la alerta culparia a LinkedIn — sin poder entregarse,
+          # porque viaja por ese mismo token.
+          USE_TELEGRAM: "false"
           PUBLISH_LINKEDIN: ${{ vars.PUBLISH_LINKEDIN }}
           LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
           LINKEDIN_PERSON_URN: ${{ secrets.LINKEDIN_PERSON_URN }}

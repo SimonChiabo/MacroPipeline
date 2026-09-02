@@ -1,4 +1,4 @@
-"""Verifica que las credenciales de los seis componentes sirvan de verdad.
+"""Verifica que las credenciales de los siete componentes sirvan de verdad.
 
 El pipeline solo comprueba que las variables *existan*: una key presente pero
 rotada o revocada es indistinguible de una buena hasta que la corrida pega
@@ -38,6 +38,7 @@ from macro_pipeline.components import (
     USE_AV_VAR,
     USE_FRED_VAR,
     USE_R2_VAR,
+    USE_TELEGRAM_VAR,
     component_enabled,
 )
 from macro_pipeline.storage.r2_client import R2Client, R2ClientError
@@ -185,7 +186,7 @@ def _check_present(names: tuple[str, ...]) -> list[str]:
 
 
 def _encabezado(titulo: str) -> None:
-    """La linea de seccion, del mismo ancho para los seis."""
+    """La linea de seccion, del mismo ancho para los siete."""
     print(f"\n-- {titulo} " + "-" * max(3, 48 - len(titulo)))
 
 
@@ -221,7 +222,7 @@ def _mensaje_de_error(response: requests.Response) -> str:
 def check_x() -> bool:
     """GET /2/users/me: confirma que las cuatro credenciales autentican.
 
-    El encabezado de seccion lo imprime `main()` para los seis componentes:
+    El encabezado de seccion lo imprime `main()` para los siete componentes:
     imprimirlo tambien aca lo duplicaba.
     """
     if _check_present(X_VARS):
@@ -703,6 +704,7 @@ def main() -> int:
         ("Alpha Vantage", USE_AV_VAR, check_av),
         ("Anthropic", USE_ANTHROPIC_VAR, check_anthropic),
         ("R2", USE_R2_VAR, check_r2),
+        ("Telegram", USE_TELEGRAM_VAR, check_telegram),
     ]
 
     # Todos los switches, antes de contactar a nadie. Uno ilegible no puede
@@ -730,7 +732,7 @@ def main() -> int:
     for titulo, estado in resultados:
         # 15 y no 9: el ancho viejo entraba para `X:`, `LinkedIn:` y `FRED:`,
         # pero `Alpha Vantage:` mide 14 y `Anthropic:` 10, asi que la columna
-        # salia dentada. Este es el titulo mas largo de los seis mas un espacio.
+        # salia dentada. Este es el titulo mas largo de los siete mas un espacio.
         print(f"{titulo + ':':<15} {estado}")
 
     if all(estado == "apagado" for _, estado in resultados):
