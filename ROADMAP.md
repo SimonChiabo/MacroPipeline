@@ -15,7 +15,7 @@ estado real y las APIs ese día. Lo que no se pudo verificar se dice.
 | | |
 |---|---|
 | **Publicaciones** | **Cero.** Nunca salió un post. |
-| **Corridas del pipeline** | **Cinco.** La del 2026-08-27, `failed` sin motivo guardado; y cuatro el 2026-09-02: el primer ensayo completo (rechazado a mano), uno que murió sin red por un timeout externo, uno que se salteó por el lock huérfano que dejó el anterior, y el ensayo final con el pipeline determinista, rechazado a mano y cerrado con código 0. |
+| **Corridas del pipeline** | La base no las cuenta, y no puede: una corrida que aborta antes del lock no deja fila (`mark_failed` es un `UPDATE` a secas). Lo que `published_events` tiene son **dos filas, las dos en `failed`**, `weekly_close_2026-08-27` y `weekly_close_2026-09-02`, ninguna con `x_post_id` ni `linkedin_post_id`. Sólo la segunda lleva `locked_at`: la primera es anterior a esa columna. El motivo del fallo no está en ninguna de las dos —la tabla no tiene columna para él, `mark_failed` lo manda al log— así que la fila sola no distingue un rechazo humano de una excepción. |
 | **Capa LLM** | **Apagada a propósito** (`USE_ANTHROPIC=false`). El titular lo arma el pipeline con las cifras del snapshot. Vuelve en el camino A. |
 | **Estado remoto** | `state/state.db` en R2, 12288 bytes. **Es el autoritativo**: el arranque lo baja encima del local, así que una reparación a mano que no lo toque no sobrevive al siguiente arranque. |
 | **Credenciales** | Las siete verificadas contra sus APIs (`scripts/check_credentials.py`, código 0). |
@@ -118,9 +118,12 @@ pérdida de estado», que apareció y sembró el estado remoto.
 
 ### 2. Por qué falló la corrida del 2026-08-27
 
-No se sabe, y no se puede saber: esa fila no guarda motivo. Desde entonces
-`mark_failed` sí lo registra, así que **el bloqueador 1 responde también a
-éste**: la próxima corrida deja el motivo escrito si vuelve a fallar.
+No se sabe, y no se puede saber desde la base: `published_events` no tiene
+columna de motivo, ni la tenía entonces ni la tiene ahora. `mark_failed` recibe
+el `reason` y lo manda al log (`event_marked_failed`), no a la tabla, así que
+**el motivo de un fallo sólo sobrevive si alguien guardó la salida de esa
+corrida**. Para el 2026-08-27 no se guardó. Escribir el motivo en la fila es
+trabajo pendiente y no está hecho.
 
 No conviene investigarlo por separado. Seis días de commits pasaron por encima
 —entre ellos el sincronizado de estado y cuatro arreglos del arranque—, así que

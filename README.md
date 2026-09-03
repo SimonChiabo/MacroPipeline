@@ -1,50 +1,53 @@
 # MacroPipeline
 
-> Pipeline automatizado que ingesta datos macroeconómicos de fuentes públicas, los procesa de forma determinista, los renderiza visualmente y los publica multi-canal con aprobación humana asistida.
+> Pipeline de datos macroeconómicos: ingesta de fuentes públicas con fallback entre proveedores, procesamiento determinista, validación por contrato, y publicación en X y LinkedIn detrás de un gate de aprobación humana.
 
 [![CI](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/ci.yml)
 [![Contract Tests](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/contract-tests.yml/badge.svg)](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/contract-tests.yml)
 [![codecov](https://codecov.io/gh/SimonChiabo/MacroPipeline/branch/main/graph/badge.svg)](https://codecov.io/gh/SimonChiabo/MacroPipeline)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Proyecto de portfolio. Demuestra arquitectura production-grade para un sistema de datos financieros: determinismo, validación, observabilidad, resiliencia ante APIs externas, y human-in-the-loop como kill switch natural. **No es asesoramiento financiero.**
+Proyecto de portfolio. Lo que hay para mirar es la arquitectura de un sistema de datos que depende de ocho servicios externos y tiene que decidir, para cada uno, si su caída degrada la salida o la cancela. **No es asesoramiento financiero.**
+
+---
+
+## Estado
+
+Tres cosas distintas, y conviene no mezclarlas:
+
+| | |
+|---|---|
+| **Corre hoy** | El ETL contra FMP, Alpha Vantage y FRED; la validación; el render; el HITL de Telegram; los publicadores de X y LinkedIn; el estado en SQLite sincronizado contra Cloudflare R2. Se lanza **a mano**: `python src/macro_pipeline/orchestration/main.py`. |
+| **Construido y apagado** | La capa LLM (generador de titulares + validator agent con tool-use forzado). Existe, está testeada y está apagada por configuración: `USE_ANTHROPIC=false`. El titular lo arma el pipeline con las cifras del snapshot. Vuelve cuando tenga un trabajo que sólo ella pueda hacer — ver el camino A en [ROADMAP.md](./ROADMAP.md). |
+| **No existe** | El trigger programado. En `.github/workflows/` hay dos workflows y ninguno ejecuta el pipeline. ADR-002 propone Claude Routines y GitHub Actions como plan B; no hay ninguno de los dos montado. Tampoco hay backend de trazas: la corrida abre siete spans de OpenTelemetry —uno raíz y seis de fase— y, sin `OTEL_EXPORTER_OTLP_ENDPOINT`, no se registra ningún exportador y los spans se descartan al cerrarse. |
+
+**Publicaciones: cero.** La tabla `published_events` tiene dos filas y las dos están en `failed`; ninguna tiene `x_post_id` ni `linkedin_post_id`.
+
+```sh
+$ python -c "import sqlite3,os; c=sqlite3.connect(os.path.expanduser('~/.macropipeline/state.db')); print(c.execute('select status, count(*) from published_events group by status').fetchall())"
+[('failed', 2)]
+```
+
+Rechazar el borrador en Telegram deja exactamente ese rastro: `mark_failed(event_id, reason="rejected_by_human")` y salida 0 ([`orchestration/main.py:1112`](./src/macro_pipeline/orchestration/main.py)). El motivo viaja al log y no a la tabla — `published_events` no tiene columna para él, así que la fila sola no distingue un rechazo humano de una excepción. Ese rechazo es la prueba de punta a punta del gate humano, y es la única forma de ensayo que existe hoy: no hay `--dry-run`.
 
 ---
 
 ## Qué hace
 
-Cada sábado, con el mercado cerrado y la semana completa, el pipeline:
+Cada corrida:
 
-1. Ingesta datos de FRED, FMP y Alpha Vantage con retry/fallback.
-2. Procesa los números en Python determinista (sin LLM cerca de los datos).
-3. Valida con Pydantic + reglas declarativas en YAML + comparación histórica.
-4. Arma el titular con las cifras del snapshot, también de forma determinista.
-5. Renderiza plantillas distintas para X y LinkedIn sobre un data layer compartido.
-6. Envía el draft a un bot de Telegram con preview y botones de aprobación.
-7. Si aprueba, publica vía APIs nativas. Si no, descarta y queda registrado.
+1. Pide precios diarios de `^GSPC` y `^IXIC` a FMP, con retry sobre 429 y 5xx. Si FMP falla, cae a `SPY` y `QQQ` de Alpha Vantage.
+2. Descarta las sesiones sin terminar, calcula el retorno de cinco días hábiles contra la fecha real, y trae el bloque macro de FRED (`CPIAUCNS`, `UNRATE`, `DGS10`).
+3. Valida con Pydantic y con rangos de plausibilidad y umbrales de frescura declarados en [`src/macro_pipeline/validators/rules.yaml`](./src/macro_pipeline/validators/rules.yaml).
+4. Arma el titular con las cifras del snapshot, de forma determinista.
+5. Renderiza una tarjeta PNG de 1080×1080 con Playwright sobre una plantilla HTML.
+6. Manda titular e imagen a un bot de Telegram con botones de aprobar y rechazar, y espera hasta una hora.
+7. Si se aprueba, publica el **texto** en X y en LinkedIn. Si se rechaza, no publica y la fila queda registrada.
 
-**Por qué el sábado y no el viernes:** el endpoint de precios de FMP devuelve
-una fila para la sesión en curso, cuyo `close` es el último precio negociado y
-no el cierre. Con el mercado cerrado eso no puede pasar, y además la ventana de
-cinco días hábiles cae viernes contra viernes. El horario es la conveniencia,
-no la garantía: `_fetch_weekly_close` descarta las sesiones sin terminar corra
-el día que corra.
+**Dónde va la imagen:** a la preview de Telegram y a R2. Los dos publicadores mandan sólo texto — `XClient.post_tweet(text)` y `LinkedInClient.post_text(text)` no aceptan otra cosa. Adjuntarla a los posts es trabajo pendiente, no una decisión.
 
-**Sobre el paso 4:** la capa LLM existe, está testeada y hoy está apagada
-(`USE_ANTHROPIC=false`). Generaba un titular que un template determinista
-escribe igual, y su *validator agent* existía para cazar cifras inventadas por
-ella misma. Vuelve cuando tenga un trabajo que sólo ella pueda hacer —
-extracción y síntesis sobre fuentes de texto—, que es lo que
-[ROADMAP.md](./ROADMAP.md) llama el camino A.
-
-El estado del pipeline vive en SQLite y viaja por Cloudflare R2, porque no
-sobrevive a un entorno efímero y sin él la deduplicación que promete ADR-002 no
-se sostiene. La imagen renderizada de cada publicación también se sube ahí.
-
-La ejecución está instrumentada con structlog y OpenTelemetry. **Las trazas
-todavía no llegan a ningún lado:** no hay cuenta de Grafana Cloud y el
-exportador devuelve 401 en cada corrida (ver ROADMAP.md, bloqueador 5).
+**Por qué el cierre se toma con el mercado cerrado:** el endpoint de precios de FMP devuelve una fila para la sesión en curso, cuyo `close` es el último precio negociado. Medido el 2026-09-02 sobre `^IXIC`: 26.211,996 a las 14:40 UTC y 26.196,812 a las 14:59, con la misma fecha. `_fetch_weekly_close` descarta esas filas corra el día que corra; el horario es conveniencia, no garantía.
 
 ---
 
@@ -52,98 +55,150 @@ exportador devuelve 401 en cada corrida (ver ROADMAP.md, bloqueador 5).
 
 ```mermaid
 flowchart LR
-    R[Claude Routine<br/>scheduled] --> ETL
-    ETL[ETL determinista<br/>Pandas + Pydantic] --> APIs[FRED · FMP · AV]
-    APIs --> ETL
+    Manual[Lanzamiento manual]:::hoy --> ETL
+    ETL[ETL determinista<br/>Pandas + Pydantic] --> FMP[FMP<br/>^GSPC · ^IXIC]
+    FMP -.->|falla| AV[Alpha Vantage<br/>SPY · QQQ<br/>sin nivel de cierre]
+    ETL --> FRED[FRED<br/>CPIAUCNS · UNRATE · DGS10]
     ETL --> Titular[Titular determinista<br/>desde el snapshot]
-    LLM[Claude API<br/>apagada: USE_ANTHROPIC=false]:::off -.-> Titular
-    Titular --> Render[Render<br/>Pillow / Playwright]
-    Render --> HITL[Telegram bot<br/>HITL]
-    HITL -->|approve| Pub[X API + LinkedIn API]
-    ETL -.-> Obs[OpenTelemetry<br/>sin destino: 401]:::off
-    ETL -.-> Store[SQLite + R2<br/>estado + imagen]
+    LLM[Capa LLM<br/>apagada: USE_ANTHROPIC=false]:::off -.-> Titular
+    Titular --> Render[Render 1080x1080<br/>Playwright + HTML]
+    Render -->|imagen + texto| HITL[Telegram<br/>aprobar / rechazar]
+    HITL -->|aprobado: solo texto| Pub[X API v2 + LinkedIn API]
+    Render -.->|imagen| R2[(Cloudflare R2)]
+    Estado[(SQLite<br/>published_events)] <-->|pull al arrancar<br/>push en cada escritura| R2
+    ETL -.-> Obs[OpenTelemetry<br/>sin backend]:::off
     classDef off stroke-dasharray: 4 4
+    classDef hoy stroke-width:2px
 ```
 
 Diagrama detallado en [`PLAN.md`](./PLAN.md).
 
 ---
 
-## Stack
+## Lo que hay adentro
 
-| Capa | Tecnología |
-|---|---|
-| Ingesta | Python 3.12 · FRED · FMP · Alpha Vantage |
-| Procesamiento | Pandas · Pydantic · reglas YAML |
-| LLM auxiliar | Claude Haiku 4.5 — implementado y **apagado** hoy (ver arriba) |
-| Orquestación | **Sin trigger todavía**: ADR-002 propone Claude Routines, GitHub Actions es el plan B |
-| Renderizado | Pillow (simples) · Playwright/HTML (complejos) |
-| Plantillas | Diseñadas en Claude Design, una por canal |
-| Publicación | X API v2 · LinkedIn API (Company Page) |
-| Aprobación | Telegram bot (long polling) |
-| Observabilidad | structlog · OpenTelemetry · Grafana Cloud **(sin cuenta todavía)** |
-| Storage | SQLite (queue, sincronizado contra R2) · Cloudflare R2 (estado + imagen publicada) |
-| CI/CD | GitHub Actions · pre-commit · Codecov |
+Las piezas que justifican el tamaño del repo. Cada una con su archivo.
+
+**El punto de decisión de arranque** — [`orchestration/main.py:509`](./src/macro_pipeline/orchestration/main.py), `_startup_exit_code`. Seis ramas ordenadas, y el orden es parte de la lógica: un switch con un valor ilegible se ve igual que un componente apagado a propósito, así que la rama que lo detecta va primero o el caso más alarmante sale en silencio con código 0. El constructor no puede morir por una credencial ausente; junta los motivos y este método decide, una sola vez, si la corrida sigue y qué se avisa.
+
+**La política de degradación, componente por componente** — [ADR-009](./docs/adr/009-degradation-policy.md). Empieza reconociendo que la política no existía: había cinco decisiones locales tomadas en commits distintos, cada una razonable por separado. Documenta siete divergencias entre lo escrito y el código; **tres siguen abiertas** y están marcadas como tales.
+
+**Switches por componente** — [`components.py`](./src/macro_pipeline/components.py). Ocho componentes con credenciales, ocho variables (`USE_FMP`, `USE_AV`, `USE_FRED`, `USE_ANTHROPIC`, `USE_R2`, `USE_TELEGRAM`, `PUBLISH_X`, `PUBLISH_LINKEDIN`). `build_component` devuelve tres estados distintos y el orquestador los separa: listo, apagado a propósito (se loggea y no alerta — una decisión propia no es un fallo), y encendido y roto (alerta con el motivo). Un valor que no sea `true` ni `false` levanta en vez de adivinar.
+
+**El fallback degrada a propósito** — [`orchestration/main.py:462`](./src/macro_pipeline/orchestration/main.py). Por la ruta de Alpha Vantage el nivel de cierre **no se publica**: FMP cotiza los índices (`^GSPC`, `^IXIC`) y AV cotiza los ETF (`SPY`, `QQQ`), que están a otra escala. El trade-off es explícito: se pierde el nivel, que no sobrevive al cambio de instrumento, y se conserva el retorno, que sí. Publicar 765,72 rotulado «S&P 500» sería una cifra correcta bajo una etiqueta que promete otra cosa.
+
+**Idempotencia parcial por red** — [`orchestration/main.py:801`](./src/macro_pipeline/orchestration/main.py). Si X publicó y LinkedIn falló, relanzar el mismo día publica sólo LinkedIn: `x_already_done` y `linkedin_already_done` salen del estado previo, y el `post_id` se persiste inmediatamente después de cada canal.
+
+**Detección de lock huérfano** — [`orchestration/main.py:655`](./src/macro_pipeline/orchestration/main.py), `_avisar_lock_trabado`. Una muerte no atrapable deja la fila en `in_progress` y ningún `except` la cubre. La función avisa ante cualquier antigüedad implausible —vieja, en el futuro, ilegible, o desconocida porque la fila es anterior a la columna— y **no expira el lock**: auto-expirar uno que podría pertenecer a una corrida viva es el camino a publicar el mismo cierre dos veces.
+
+**Redacción de credenciales en los logs** — [`observability/redaction.py`](./src/macro_pipeline/observability/redaction.py). FRED y FMP exigen la key como query param, así que urllib3 imprime la URL entera cuando reintenta. El filtro actúa a nivel de handler, que es el punto de paso obligado: cubre structlog y las librerías de terceros por igual.
+
+**Qué es exactamente cada cifra publicada** — [`docs/data-dictionary.md`](./docs/data-dictionary.md). Ocho cifras auditadas contra su fuente, con las correcciones que salieron de ahí y lo que queda pendiente. La que más se notó: el IPC interanual salía de `CPIAUCSL` (desestacionalizada) y ahora sale de `CPIAUCNS`, que es la que cita el BLS.
+
+---
+
+## Empezar
+
+Hay dos caminos y no piden lo mismo. El primero funciona en un clon limpio sin configurar nada.
+
+### Correr los tests
+
+```sh
+git clone https://github.com/SimonChiabo/MacroPipeline
+cd MacroPipeline
+
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+pip install -e ".[dev]"
+pytest
+```
+
+Sin `.env`, sin claves y sin red:
+
+```
+364 passed, 1 skipped, 28 deselected
+```
+
+El skip es el chequeo de deriva entre `.env` y `.env.example`, que no tiene nada que comparar sin un `.env` local. Los 28 deseleccionados son los contract tests: `pyproject.toml` fija `addopts = -m 'not contract'` para que el `pytest` local no salga a la red.
+
+**393 tests en total** — 293 unitarios, 72 de integración, 28 de contrato — y **93 % de cobertura**:
+
+```sh
+pytest tests/unit tests/integration --cov=src/macro_pipeline
+# TOTAL   1305   92   93%
+```
+
+Los contract tests pegan contra las APIs reales y hay que pedirlos explícitamente. Sin credenciales se saltean, nombrando cuál falta:
+
+```sh
+$ pytest -m contract
+28 skipped, 365 deselected
+```
+
+### Correr el pipeline
+
+Esto sí necesita cuentas. Antes de empezar hay que dar de alta:
+
+- Una **app de X** con OAuth 1.0a (cuatro credenciales: consumer key/secret y access token/secret).
+- Un **token de LinkedIn** con `w_member_social`, más el URN de la persona. Es publicación a perfil personal.
+- Un **bot de Telegram** creado con BotFather, y el `chat_id` del chat donde va a escribir.
+- Un **bucket de Cloudflare R2** con un token de lectura y escritura.
+- Claves de **FRED**, **FMP** y **Alpha Vantage** (las tres tienen tier gratuito).
+- Una clave de **Anthropic**, sólo si vas a encender la capa LLM.
+
+```sh
+# Navegador para el render. Sin esto el pipeline muere en la fase de
+# renderizado con PlaywrightEngineError.
+playwright install chromium
+
+cp .env.example .env
+$EDITOR .env
+
+# Verifica que las credenciales sirven de verdad, no que estén presentes.
+# No publica nada; para R2 escribe y borra un objeto de prueba en tu bucket.
+python scripts/check_credentials.py
+
+pre-commit install
+
+# Publica de verdad. Se detiene en Telegram esperando tu aprobación;
+# rechazar el borrador no publica nada.
+python src/macro_pipeline/orchestration/main.py
+```
+
+Tres cosas que conviene saber antes de la primera corrida:
+
+**Sin Telegram no se publica nunca**, y los dos casos son distintos. Apagado a propósito con `USE_TELEGRAM=false`, el pipeline se pausa entero: código 0, en silencio, sin dejar fila. Encendido y sin credenciales, aborta con código 1 — es el caso irreducible, porque no hay canal para avisar de que no hay canal. Ese es también el kill switch del sistema.
+
+**El estado vive fuera del repositorio.** Cada corrida crea y escribe `~/.macropipeline/state.db`, incluso si aborta al arrancar. Se cambia con `STATE_DB_PATH`. Si R2 está configurado, el fichero se baja al arrancar y se sube en cada escritura: el remoto es el autoritativo, así que una reparación a mano que no lo toque no sobrevive al siguiente arranque.
+
+**`scripts/check_credentials.py` cubre siete de los ocho componentes.** Verifica X, LinkedIn, FRED, Alpha Vantage, Anthropic, R2 y Telegram contra sus APIs. **FMP no está en el checker**, y es la fuente primaria de precios: su credencial sólo se descubre rota cuando la corrida pega contra la API, y entonces el pipeline cae a Alpha Vantage y publica sin nivel de cierre.
 
 ---
 
 ## Decisiones de diseño
 
-El proyecto está documentado con **Architecture Decision Records** en [`docs/adr/`](./docs/adr/). Las más relevantes:
+Nueve **Architecture Decision Records** en [`docs/adr/`](./docs/adr/):
 
-- [ADR-001](./docs/adr/001-llm-out-of-numbers.md) — El LLM no toca números. Solo titulares y validación.
+- [ADR-001](./docs/adr/001-llm-out-of-numbers.md) — El LLM no toca números. Sólo titulares y validación.
 - [ADR-002](./docs/adr/002-claude-routines.md) — Claude Routines como orquestador, GitHub Actions como plan B.
-- [ADR-003](./docs/adr/003-templates-per-channel.md) — Plantillas por canal sobre data layer compartido.
-- [ADR-004](./docs/adr/004-hitl-first-month.md) — Human-in-the-loop primeros 30 días.
-- [ADR-008](./docs/adr/008-contract-tests.md) — Contract tests nightly contra APIs reales.
+- [ADR-003](./docs/adr/003-templates-per-channel.md) — Plantillas por canal sobre un data layer compartido. Es el ADR que más se adelantó al código: hoy hay una sola plantilla.
+- [ADR-004](./docs/adr/004-hitl-first-month.md) — Human-in-the-loop los primeros 30 días, con criterio de salida escrito.
+- [ADR-005](./docs/adr/005-native-apis.md) — APIs nativas en vez de Buffer, Make o Zapier.
+- [ADR-006](./docs/adr/006-telegram-first.md) — Telegram antes que Slack: long polling, sin endpoint público que mantener.
+- [ADR-007](./docs/adr/007-storage-hybrid.md) — SQLite para el estado operacional, R2 para lo remoto.
+- [ADR-008](./docs/adr/008-contract-tests.md) — Contract tests nightly, separados del pipeline de PR.
 - [ADR-009](./docs/adr/009-degradation-policy.md) — Qué fallo degrada y qué fallo aborta, componente por componente.
 
-Para el plan completo, ver [`PLAN.md`](./PLAN.md).
-
----
-
-## Setup local
-
-```bash
-# Clonar
-git clone https://github.com/SimonChiabo/MacroPipeline
-cd macro-pipeline
-
-# Entorno
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Configurar (API keys de FRED, FMP, Alpha Vantage, Anthropic, Telegram, X, LinkedIn)
-cp .env.example .env
-$EDITOR .env
-
-# Verificar que las credenciales sirven de verdad (no publica; para R2
-# escribe y borra un objeto de prueba en tu bucket)
-python scripts/check_credentials.py
-
-# Hooks
-pre-commit install
-
-# Tests con fixtures (rápido)
-pytest tests/unit tests/integration
-
-# Correr el cierre semanal (publica de verdad; se detiene en Telegram
-# esperando tu aprobacion, y rechazar el borrador no publica nada)
-python src/macro_pipeline/orchestration/main.py
-```
+Plan completo en [`PLAN.md`](./PLAN.md); qué falta para la primera publicación, en [`ROADMAP.md`](./ROADMAP.md).
 
 ---
 
 ## El token de LinkedIn vence cada ~60 días
 
-Se reemite a mano desde el token generator del portal: con este montaje
-(`w_member_social`) no hay refresh programático, así que rotar es coste externo
-y lo único que el repo puede hacer es avisar a tiempo.
+Se reemite a mano desde el token generator del portal: con este montaje (`w_member_social`) no hay refresh programático, así que rotar es coste externo y lo único que el repo puede hacer es avisar a tiempo.
 
-El nightly avisa por Telegram los días **50, 55, 58 y después todos los días**,
-y además autentica la credencial contra `/v2/userinfo` en cada corrida, así que
-un token **revocado** también se caza.
+El nightly avisa por Telegram los días **50, 55, 58 y después todos los días**, y además autentica la credencial contra `/v2/userinfo` en cada corrida, así que un token **revocado** también se caza.
 
 **Al rotar hay que actualizar la fecha en dos sitios:**
 
@@ -155,95 +210,87 @@ LINKEDIN_TOKEN_ISSUED=2026-10-20
 gh variable set LINKEDIN_TOKEN_ISSUED --body "2026-10-20"
 ```
 
-Si no querés rotarlo, `PUBLISH_LINKEDIN=false` apaga la red y silencia el aviso
-—en el `.env` y en `gh variable set PUBLISH_LINKEDIN --body "false"`—. Al
-volver a encenderlo, la fecha vieja hace que el primer nightly avise solo.
+Si no querés rotarlo, `PUBLISH_LINKEDIN=false` apaga la red y silencia el aviso —en el `.env` y en `gh variable set PUBLISH_LINKEDIN --body "false"`—. Al volver a encenderlo, la fecha vieja hace que el primer nightly avise solo.
 
 ---
 
-## Secrets en GitHub
+## Secrets y variables en GitHub
 
-El nightly de contract tests (`.github/workflows/contract-tests.yml`) corre
-contra las APIs reales, así que necesita credenciales en **Settings → Secrets
-and variables → Actions**. El `.env` local no viaja a Actions.
+El nightly (`.github/workflows/contract-tests.yml`) corre contra las APIs reales, así que necesita credenciales en **Settings → Secrets and variables → Actions**. El `.env` local no viaja a Actions.
 
 | Secret | Obligatorio | Para qué |
 |---|---|---|
-| `FRED_API_KEY` | Sí | Sin esto el nightly no puede verificar ningún contrato. |
-| `TELEGRAM_BOT_TOKEN` | No | Envía la alerta cuando el nightly falla. |
-| `TELEGRAM_CHAT_ID` | No | Destinatario de esa alerta. |
-| `FMP_API_KEY` | Todavía no | Reservado para los contract tests de FMP. |
-| `ALPHA_VANTAGE_API_KEY` | Todavía no | Ídem, Alpha Vantage. |
-| `CODECOV_TOKEN` | No | Subida de cobertura; el job no falla sin él. |
+| `FRED_API_KEY` | Sí | El paso de pre-chequeo sale con 1 si falta. |
+| `FMP_API_KEY` | Sí | Ídem. |
+| `ALPHA_VANTAGE_API_KEY` | Sí | Ídem. |
+| `ANTHROPIC_API_KEY` | Sí | Ídem. Los contract tests del validator agent pegan contra la API real aunque la capa esté apagada en el pipeline. |
+| `LINKEDIN_ACCESS_TOKEN` | Sí, salvo que `PUBLISH_LINKEDIN=false` | El paso que verifica la credencial contra `/v2/userinfo`. |
+| `LINKEDIN_PERSON_URN` | Ídem | Ídem. |
+| `TELEGRAM_BOT_TOKEN` | No | Transporta las alertas del nightly. Sin él, el aviso queda en el resumen del run. |
+| `TELEGRAM_CHAT_ID` | No | Destinatario de esas alertas. |
+| `CODECOV_TOKEN` | Sí, para `.github/workflows/ci.yml` | La subida corre con `fail_ci_if_error: true`: sin token el job de tests falla. |
+
+| Variable | Para qué |
+|---|---|
+| `LINKEDIN_TOKEN_ISSUED` | Fecha de emisión del token; de acá salen los avisos de vencimiento. |
+| `PUBLISH_LINKEDIN` | `false` apaga la red y saltea los dos pasos de LinkedIn del nightly. |
 
 ```sh
 gh secret set FRED_API_KEY -R SimonChiabo/MacroPipeline
-gh secret set TELEGRAM_BOT_TOKEN -R SimonChiabo/MacroPipeline
-gh secret set TELEGRAM_CHAT_ID -R SimonChiabo/MacroPipeline
 gh secret list -R SimonChiabo/MacroPipeline   # verificar
 ```
 
-El workflow comprueba los secrets **antes** de instalar nada y falla nombrando
-lo que falta. Los de Telegram solo generan un aviso: que no haya canal de
-alerta degrada el aviso, no la verificación. `ci.yml` no necesita ningún
-secret — mockea todas las dependencias externas.
+El pre-chequeo corre **antes** de instalar nada y nombra de una todos los secrets que faltan, en vez de morir en el primero. Los de Telegram sólo generan un aviso: que no haya canal de alerta degrada el aviso, no la verificación. Fuera de `CODECOV_TOKEN`, `.github/workflows/ci.yml` no necesita ningún secret: unitarios e integración mockean todas las dependencias externas.
 
 ---
 
 ## Estructura del repo
 
 ```
-macro-pipeline/
+MacroPipeline/
 ├── src/macro_pipeline/
-│   ├── data/              # Clientes API + ETL
-│   ├── validators/        # Pydantic + reglas YAML
-│   ├── llm/               # Cliente Claude (titulares + validator)
-│   ├── templates/         # Plantillas por canal
-│   ├── render/            # Pillow + Playwright
-│   ├── publishers/        # X + LinkedIn
-│   ├── telegram/          # HITL bot
-│   ├── observability/     # OTel setup
-│   └── orchestration/     # Entry points para Routines
+│   ├── components.py      # Switches por componente
+│   ├── data/              # Clientes FMP / AV / FRED + snapshot macro
+│   ├── validators/        # Schemas Pydantic + rules.yaml
+│   ├── llm/               # Cliente Claude + validator agent (apagados)
+│   ├── templates/         # weekly_close.html
+│   ├── render/            # PlaywrightEngine (en uso) · PillowEngine (sin uso)
+│   ├── publishers/        # X + LinkedIn, sólo texto
+│   ├── telegram/          # Bot HITL con long polling
+│   ├── observability/     # OTel + structlog + redacción de secretos
+│   ├── storage/           # SQLite + sincronizado contra R2
+│   └── orchestration/     # main.py — único punto de entrada
 ├── tests/
-│   ├── unit/              # Lógica pura, sin red
-│   ├── integration/       # Con fixtures grabadas
-│   ├── contract/          # Contra APIs reales (nightly)
-│   └── fixtures/          # Responses JSON grabadas
-├── docs/adr/              # Architecture Decision Records
-└── .github/workflows/     # CI, contract tests, coverage
+│   ├── unit/              # 293 tests, sin red
+│   ├── integration/       # 72 tests, orquestador de punta a punta con mocks
+│   ├── contract/          # 28 tests contra APIs reales (marcador `contract`)
+│   └── fixtures/          # Una respuesta JSON grabada de FRED
+├── scripts/               # check_credentials.py · linkedin_token_alert.py
+├── docs/adr/              # 9 ADRs
+└── .github/workflows/     # ci.yml · contract-tests.yml
 ```
 
 ---
 
-## Roadmap
+## Limitaciones conocidas
 
-- ✅ **Semana 0** — Setup administrativo (cuentas, repo, bot)
-- 🚧 **Semana 1** — ETL determinista + validación + tests
-- ⏳ **Semana 2** — Renderizado + LLM auxiliar
-- ⏳ **Semana 3** — Orquestación + HITL Telegram
-- ⏳ **Semana 4** — Publicación + observabilidad completa
-- ⏳ **Semanas 5-8** — Operación HITL, iteración
-- ⏳ **Mes 3** — Migración Telegram → Slack, escala
+Además de las tres divergencias abiertas de [ADR-009](./docs/adr/009-degradation-policy.md):
 
-Detalle completo en [`PLAN.md`](./PLAN.md).
-
----
-
-## Aprende del proyecto
-
-Si te interesa el patrón de algún componente concreto, las implementaciones de referencia están comentadas:
-
-- **ETL resiliente con fallback** → `src/macro_pipeline/data/`
-- **Validator agent con tool-use forzado** → `src/macro_pipeline/llm/validator.py`
-- **HITL bot con Telegram long polling** → `src/macro_pipeline/telegram/`
-- **Contract tests automatizados** → `tests/contract/`
-- **Snapshot tests para renderers** → `tests/integration/test_render.py`
+- **No hay `--dry-run`.** El único punto de entrada es `src/macro_pipeline/orchestration/main.py`; no hay `console_scripts` ni `__main__.py`. Apagar las dos redes no sirve de ensayo: la corrida sale con 0 en el punto de decisión, antes de la fase de datos. El único ensayo real es rechazar el borrador en Telegram.
+- **`pytest` a secas falla con un `.env` local que tenga `USE_ANTHROPIC=false`.** [`tests/contract/conftest.py:19`](./tests/contract/conftest.py) llama a `load_dotenv` al importarse, y pytest importa esa conftest aunque el marcador `contract` deseleccione sus tests: la variable se filtra al proceso y tumba un test unitario que espera la capa LLM encendida. En un clon sin `.env` y en CI no ocurre. Mientras tanto: `pytest tests/unit tests/integration`.
+- **Dos corridas el mismo día se pisan la imagen en R2.** La clave es `{event_id}.png` y el `event_id` lleva la fecha del día, sin versionado de objeto.
+- **FMP no está en `scripts/check_credentials.py`.**
+- **`PillowEngine`, `FMPClient.get_earnings_calendar` y `MacroReleaseData` no se usan desde ningún punto de entrada.** Están escritos y testeados; ningún camino del pipeline los invoca.
+- **Las dependencias de runtime van con rangos abiertos y no hay lockfile.** Las de desarrollo sí están fijadas: `ruff`, `mypy` y `pytest` son gates de CI y cambian de opinión entre minors.
+- **La historia de git incluye un `.env` y un `.venv/` de los primeros commits.** Las claves de las APIs de datos eran placeholders; el token de Telegram que había ahí fue rotado. El `.venv/` es lo que engorda el clon; su tamaño sale de `git count-objects -vH`.
 
 ---
 
 ## Disclaimer
 
 Proyecto de ingeniería de datos con fines educativos y de portfolio. Los datos provienen de fuentes públicas (FRED, FMP, Alpha Vantage) y se publican respetando los términos de uso de cada proveedor. **El contenido no constituye asesoramiento financiero, fiscal ni de inversión.** Las decisiones financieras son responsabilidad de quien las toma. El autor no se hace responsable del uso que terceros hagan de la información publicada.
+
+Política de privacidad: [`docs/PRIVACY.md`](./docs/PRIVACY.md).
 
 ---
 

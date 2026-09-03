@@ -3,7 +3,7 @@ name = "macro-pipeline"
 version = "0.1.0"
 description = "Automated macroeconomic data pipeline"
 authors = [
-    { name = "Simon Chiabo", email = "simon.chiabo@example.com" }
+    { name = "Simon Chiabo", email = "simonchiabo@gmail.com" }
 ]
 dependencies = [
     "pandas>=2.2.0",
