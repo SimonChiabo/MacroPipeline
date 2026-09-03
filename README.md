@@ -23,14 +23,14 @@ Tres cosas distintas, y conviene no mezclarlas:
 | **Construido y apagado** | La capa LLM (generador de titulares + validator agent con tool-use forzado). Existe, está testeada y está apagada por configuración: `USE_ANTHROPIC=false`. El titular lo arma el pipeline con las cifras del snapshot. Vuelve cuando tenga un trabajo que sólo ella pueda hacer — ver el camino A en [ROADMAP.md](./ROADMAP.md). |
 | **No existe** | El trigger programado. En `.github/workflows/` hay dos workflows y ninguno ejecuta el pipeline. ADR-002 propone Claude Routines y GitHub Actions como plan B; no hay ninguno de los dos montado. Tampoco hay backend de trazas: la corrida abre siete spans de OpenTelemetry —uno raíz y seis de fase— y, sin `OTEL_EXPORTER_OTLP_ENDPOINT`, no se registra ningún exportador y los spans se descartan al cerrarse. |
 
-**Publicaciones: cero.** La tabla `published_events` tiene dos filas y las dos están en `failed`; ninguna tiene `x_post_id` ni `linkedin_post_id`.
+**Publicaciones: cero.** Ninguna corrida llegó a publicar: no hay una sola fila marcada `published`, ni con un `post_id` de X o de LinkedIn.
 
 ```sh
-$ python -c "import sqlite3,os; c=sqlite3.connect(os.path.expanduser('~/.macropipeline/state.db')); print(c.execute('select status, count(*) from published_events group by status').fetchall())"
-[('failed', 2)]
+$ python -c "import sqlite3,os; c=sqlite3.connect(os.path.expanduser('~/.macropipeline/state.db')); print(c.execute('select count(*) from published_events where status=? or x_post_id is not null or linkedin_post_id is not null', ('published',)).fetchone()[0])"
+0
 ```
 
-Rechazar el borrador en Telegram deja exactamente ese rastro: `mark_failed(event_id, reason="rejected_by_human")` y salida 0 ([`orchestration/main.py:1112`](./src/macro_pipeline/orchestration/main.py)). El motivo viaja al log y no a la tabla — `published_events` no tiene columna para él, así que la fila sola no distingue un rechazo humano de una excepción. Ese rechazo es la prueba de punta a punta del gate humano, y es la única forma de ensayo que existe hoy: no hay `--dry-run`.
+Ese cero es lo que cambia el día que salga el primer post. Las corridas que llegaron al gate se rechazaron a mano, que es el rastro que deja rechazar: `mark_failed(event_id, reason="rejected_by_human")` y salida 0 ([`orchestration/main.py:1112`](./src/macro_pipeline/orchestration/main.py)). El motivo viaja al log y no a la tabla — `published_events` no tiene columna para él, así que la fila sola no distingue un rechazo humano de una excepción. Ese rechazo es la prueba de punta a punta del gate humano, y es la única forma de ensayo que existe hoy: no hay `--dry-run`.
 
 ---
 

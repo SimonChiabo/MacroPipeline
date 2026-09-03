@@ -15,7 +15,7 @@ estado real y las APIs ese día. Lo que no se pudo verificar se dice.
 | | |
 |---|---|
 | **Publicaciones** | **Cero.** Nunca salió un post. |
-| **Corridas del pipeline** | La base no las cuenta, y no puede: una corrida que aborta antes del lock no deja fila (`mark_failed` es un `UPDATE` a secas). Lo que `published_events` tiene son **dos filas, las dos en `failed`**, `weekly_close_2026-08-27` y `weekly_close_2026-09-02`, ninguna con `x_post_id` ni `linkedin_post_id`. Sólo la segunda lleva `locked_at`: la primera es anterior a esa columna. El motivo del fallo no está en ninguna de las dos —la tabla no tiene columna para él, `mark_failed` lo manda al log— así que la fila sola no distingue un rechazo humano de una excepción. |
+| **Corridas del pipeline** | La base no las cuenta, y no puede: una corrida que aborta antes del lock no deja fila (`mark_failed` es un `UPDATE` a secas). Las que sí dejaron fila están todas en `failed`, y ninguna tiene `x_post_id` ni `linkedin_post_id`. El motivo tampoco está en la fila —la tabla no tiene columna para él, `mark_failed` lo manda al log— así que hace falta la salida de esa corrida para distinguir un rechazo humano de una excepción. |
 | **Capa LLM** | **Apagada a propósito** (`USE_ANTHROPIC=false`). El titular lo arma el pipeline con las cifras del snapshot. Vuelve en el camino A. |
 | **Estado remoto** | `state/state.db` en R2, 12288 bytes. **Es el autoritativo**: el arranque lo baja encima del local, así que una reparación a mano que no lo toque no sobrevive al siguiente arranque. |
 | **Credenciales** | Las siete verificadas contra sus APIs (`scripts/check_credentials.py`, código 0). |
@@ -221,6 +221,52 @@ válida copiada del ejemplo.
 
 Falta entonces: crear la cuenta free tier, poner endpoint y token de verdad, y
 recién ahí el dashboard (PLAN.md §7, semana 4).
+
+---
+
+## La corrida del 2026-09-03
+
+Llegó al gate de Telegram y se rechazó a mano. Trece segundos desde el arranque
+hasta el botón; salida `0`; `weekly_close_2026-09-03` quedó en `failed`, sin
+`x_post_id`, sin `linkedin_post_id` y sin `image_url`.
+
+Es la primera corrida completa con el pipeline determinista y con los arreglos
+de datos del 2026-09-02 puestos, así que ejercitó contra datos reales cosas que
+hasta ahora sólo habían pasado por tests:
+
+- **El ciclo de estado contra R2 entero**: `state_pulled` (12288 bytes) al
+  arrancar, `state_pushed` al tomar el lock y otro al cerrar la fila.
+- **La ruta de FMP**: 1253 registros por índice, `data_source=fmp`, así que se
+  publica el nivel de cierre y no sólo la variación.
+- **El corte de la sesión en curso**: el cierre publicado es el del 2026-09-02,
+  no el precio intradía del día de la corrida.
+- **El IPC desde `CPIAUCNS`**: 0,033648 interanual. Ese cambio se había
+  verificado con tests y con un contract test, nunca con una corrida.
+- **El titular determinista**: `llm_layer_not_participating` con causa
+  `capa_no_disponible`, o sea la capa apagada por `USE_ANTHROPIC=false`.
+- **El render**: Playwright, 69509 bytes.
+- **El filtro de operador**: el `from_id` del callback coincidió con
+  `TELEGRAM_ALLOWED_USER_ID`. Si no hubiera coincidido, el botón se descartaba
+  en silencio y la corrida se colgaba hasta el timeout de una hora.
+- **La rama de rechazo**: `mark_failed` con el motivo al log, push del estado y
+  salida `0`.
+
+Lo que **no** ejercitó, y sigue sin ejercitarse nunca:
+
+- **La rama de publicación.** `post_tweet` y `post_text` siguen con cero
+  llamadas reales; sólo corren con una aprobación detrás.
+- **La subida de la imagen a R2.** Vive dentro del bloque `if approved`
+  (`orchestration/main.py:1030`), así que un rechazo no la alcanza:
+  `image_url` quedó en `None`. Lo único que viajó a R2 fue el fichero de
+  estado.
+- **El fallback a Alpha Vantage.** FMP respondió, así que la cascada no se
+  entró.
+- **La capa LLM.** Apagada por configuración.
+
+Consumo: dos llamadas a FMP y tres a FRED. Cero a Alpha Vantage y a Anthropic.
+
+El exportador de OpenTelemetry devolvió `401 Unauthorized` dos veces, que es lo
+que el bloqueador 5 ya describe.
 
 ---
 
@@ -434,6 +480,38 @@ y lo manda al log (`event_marked_failed`); la tabla creada en
 fila en `failed` no distingue un rechazo humano de una excepción, y por eso no
 se sabe ni se puede saber por qué falló la corrida del 2026-08-27. Es cambio de
 esquema y necesita migración, porque hay una base viva en R2.
+
+**Una fila puede quedar en `failed` con publicaciones vivas.** Encontrado el
+2026-09-03 leyendo el bloque `if approved` de `orchestration/main.py:1023`, no
+por un fallo observado.
+
+`mark_x_published` (`storage/state.py:215`) y `mark_linkedin_published`
+(`storage/state.py:225`) escriben **sólo la columna del `post_id`**: dejan el
+`status` en `in_progress`. Y `mark_failed` (`storage/state.py:310`) marca
+`failed` toda fila cuyo estado no sea ya `published`. Entre medio hay dos
+sitios que pueden levantar después de que X publicó:
+
+- `linkedin.post_text` (`orchestration/main.py:1091`), que levanta
+  `LinkedInClientError`.
+- el push del estado a R2 dentro del propio `mark_x_published`: `_notify_write`
+  (`storage/state.py:57`) **propaga lo que levante el hook**, y corre después
+  de que el `UPDATE` local ya commiteó.
+
+Cualquiera de los dos sube al manejador general (`orchestration/main.py:1116`),
+que llama a `mark_failed`. Resultado: la fila dice `failed` con un `x_post_id`
+poblado y un tweet publicado.
+
+No es una pérdida de datos —el `post_id` queda persistido y la reconciliación
+parcial hace que un relanzamiento del mismo día se saltee X y publique sólo
+LinkedIn— pero el estado miente sobre lo que salió, y es el mismo campo que
+mira quien audita después. Va junto con la columna de motivo: las dos son
+cambios de esquema y de estados sobre una base viva.
+
+Lo que **no** es un camino a esto, aunque lo parezca: la subida de la imagen a
+R2. Corre **antes** que las dos redes (`orchestration/main.py:1030`), no
+después, y su `except Exception` (`orchestration/main.py:1048`) degrada en el
+sitio —loguea `r2_upload_failed_degrading`, avisa por Telegram y sigue con
+`image_url=None`—, así que no llega al manejador general ni impide publicar.
 
 **La clave de R2 lleva la fecha del día.** `orchestration/main.py:1033` sube la
 imagen como `f"{event_id}.png"`, y `event_id` es `weekly_close_<fecha de hoy>`.
