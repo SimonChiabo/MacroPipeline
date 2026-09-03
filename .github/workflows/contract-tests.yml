@@ -172,14 +172,15 @@ jobs:
           PUBLISH_X: "false"
           # Mismo movimiento que el `PUBLISH_X` de arriba y por el mismo
           # motivo: este paso verifica LinkedIn y su alerta habla de LinkedIn.
-          # Desde que el script chequea los siete componentes, dejarlos
+          # Desde que el script chequea los ocho componentes, dejarlos
           # encendidos aca lo pondria rojo por credenciales que este job no
           # tiene, y la alerta culparia a LinkedIn de que falta la key de FRED.
           USE_FRED: "false"
+          USE_FMP: "false"
           USE_AV: "false"
           USE_ANTHROPIC: "false"
           USE_R2: "false"
-          # Telegram se apaga por un motivo distinto al de los otros cuatro:
+          # Telegram se apaga por un motivo distinto al de los otros cinco:
           # este paso SI tiene TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID, porque
           # los usa para mandar su propia alerta. Sin esta linea el chequeo
           # correria de verdad, todas las noches, contra el bot y el chat

@@ -466,16 +466,20 @@ en sí, no el nombre: el fallback de verdad está ejercitado en
 y comprueba que la fuente pasa a ser AV y que el nivel de cierre queda en
 `None`.
 
-**FMP sigue fuera de `scripts/check_credentials.py`.** Es la única de las ocho
-credenciales que no se verifica antes de correr, y es la de la fuente primaria
-de precios: hoy se descubre rota cuando la corrida ya cayó a Alpha Vantage y
-publica sin nivel de cierre. El chequeo está diseñado y probado contra la API
-real —una sola llamada, al mismo endpoint que usa `_fetch_weekly_close`— pero
-no se puede activar sin añadir `USE_FMP: "false"` al paso «Verificar la
-credencial de LinkedIn» de `.github/workflows/contract-tests.yml`: ese paso
-corre el script sin `FMP_API_KEY`, así que con FMP registrado saldría con `1`
-todas las noches y mandaría una alerta culpando a LinkedIn de que falta la key
-de FMP. Las dos cosas van juntas, en un commit.
+**El orquestador dice «los seis componentes» y ya son ocho.**
+`orchestration/main.py:630` arma la alerta de degradación de arranque con el
+texto «`python scripts/check_credentials.py` verifica los seis componentes
+contra su API de verdad». Eran seis cuando se escribió; con Telegram
+(2026-09-02) pasaron a siete y con FMP (2026-09-03) a ocho, que es lo que hoy
+cubre la lista `chequeos` del script y coincide con las ocho constantes
+`*_VAR` de `components.py`.
+
+Es una cadena, no lógica: la alerta llega igual y dice lo mismo de fondo. Pero
+va a Telegram cuando un componente arranca sin credenciales, o sea justo cuando
+alguien la va a leer para decidir si aprueba, y un número que no cuadra con lo
+que el script imprime es de las cosas que hacen dudar del resto del mensaje. No
+se toca ahora porque `orchestration/main.py` es el fichero que ejecuta la
+corrida del sábado.
 
 ### Divergencias abiertas de ADR-009
 

@@ -311,7 +311,7 @@ def test_a_disabled_network_cannot_turn_the_script_red(
     """
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
-    _apagar_los_cinco(monkeypatch)
+    _apagar_los_seis(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     assert check_credentials.main() == 0
@@ -330,7 +330,7 @@ def test_a_disabled_network_is_not_even_checked(check_credentials, monkeypatch):
     """
     llamadas = []
     monkeypatch.setenv("PUBLISH_X", "false")
-    _apagar_los_cinco(monkeypatch)
+    _apagar_los_seis(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
         check_credentials, "check_x", lambda: llamadas.append("x") or True
@@ -352,7 +352,7 @@ def test_a_malformed_flag_gets_a_diagnostic_and_not_a_traceback(
     de fallo imprimen una linea legible.
     """
     monkeypatch.setenv("PUBLISH_X", "yes")
-    _apagar_los_cinco(monkeypatch)
+    _apagar_los_seis(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     assert check_credentials.main() == 1
@@ -435,21 +435,28 @@ def test_un_401_deja_el_marcador_que_el_nightly_grepea(
     assert "LINKEDIN_TOKEN_DEAD" in capsys.readouterr().out
 
 
-def _apagar_los_cinco(monkeypatch):
-    """Los cinco componentes que no son las dos redes, apagados.
+def _apagar_los_seis(monkeypatch):
+    """Los seis componentes que no son las dos redes, apagados.
 
-    Sin esto, un test que llame a `main()` contacta FRED, Alpha Vantage,
+    Sin esto, un test que llame a `main()` contacta FRED, FMP, Alpha Vantage,
     Anthropic, R2 y Telegram de verdad: `component_enabled` trata la variable
     ausente como encendido a proposito, y la suite unitaria no sale a la red.
     """
-    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2", "USE_TELEGRAM"):
+    for var in (
+        "USE_FRED",
+        "USE_FMP",
+        "USE_AV",
+        "USE_ANTHROPIC",
+        "USE_R2",
+        "USE_TELEGRAM",
+    ):
         monkeypatch.setenv(var, "false")
 
 
 def test_un_componente_apagado_no_se_chequea_ni_pone_rojo(
     check_credentials, monkeypatch, capsys
 ):
-    """La misma regla que ya rige para las redes, extendida a los cuatro.
+    """La misma regla que ya rige para las redes, extendida a los cinco.
 
     Apagar es una decision, no un fallo (tercer eje de ADR-009): el componente
     no se contacta y no cuenta para el codigo de salida.
@@ -457,7 +464,7 @@ def test_un_componente_apagado_no_se_chequea_ni_pone_rojo(
     llamadas = []
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
-    _apagar_los_cinco(monkeypatch)
+    _apagar_los_seis(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
     monkeypatch.setattr(
         check_credentials, "check_fred", lambda: llamadas.append("fred") or "listo"
@@ -474,7 +481,7 @@ def test_un_switch_ilegible_de_un_componente_nuevo_no_da_traceback(
 ):
     """Mismo trato que `PUBLISH_X=yes`, y antes de contactar a nadie.
 
-    Los seis switches se leen enteros antes de correr ningun chequeo: con uno
+    Los ocho switches se leen enteros antes de correr ningun chequeo: con uno
     ilegible, ninguna API se contacta. Si se leyeran de a uno dentro del bucle,
     un `USE_FRED` mal escrito dejaria a X ya contactada.
     """
@@ -561,17 +568,217 @@ def test_fred_sin_respuesta_pone_rojo(check_credentials, monkeypatch, capsys):
     assert "No se pudo contactar" in salida
 
 
-def test_el_nightly_apaga_los_cinco_componentes_no_publicadores(check_credentials):
+class _RespuestaFMP:
+    """Lo minimo que `check_fmp` le pregunta a una respuesta de requests."""
+
+    def __init__(self, status_code, cuerpo, text=""):
+        self.status_code = status_code
+        self._cuerpo = cuerpo
+        self.text = text
+
+    def json(self):
+        if self._cuerpo is _SIN_JSON:
+            raise ValueError("no es json")
+        return self._cuerpo
+
+
+_SIN_JSON = object()
+
+# Tres sesiones, con la forma que devuelve `historical-price-eod/full`.
+_SESIONES = [
+    {"symbol": "^GSPC", "date": "2026-09-02", "close": 7666.6},
+    {"symbol": "^GSPC", "date": "2026-09-01", "close": 7634.58},
+    {"symbol": "^GSPC", "date": "2026-08-31", "close": 7612.1},
+]
+
+
+def test_fmp_con_key_valida_pasa(check_credentials, monkeypatch, capsys):
+    """Una lista de sesiones con 200 es lo unico que cuenta como autenticado."""
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _RespuestaFMP(200, _SESIONES),
+    )
+
+    assert check_credentials.check_fmp() == check_credentials.LISTO
+    assert "[ OK ]" in capsys.readouterr().out
+
+
+def test_fmp_pregunta_por_el_mismo_endpoint_que_el_pipeline(
+    check_credentials, monkeypatch
+):
+    """El chequeo tiene que ejercitar el endpoint que la corrida va a usar.
+
+    `quote` costaria una llamada igual y autenticaria igual, pero un plan que
+    no da acceso a `historical-price-eod/full` dejaria este chequeo en verde y
+    la corrida cayendo a Alpha Vantage — o sea publicando sin nivel de cierre,
+    que es justo lo que el script existe para adelantar. El simbolo tambien se
+    fija: `^GSPC` es uno de los dos que pide `_fetch_weekly_close`, y pedir el
+    ETF verificaria una ruta que el pipeline no toma.
+    """
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    llamadas = []
+
+    def _registrar(url, **kwargs):
+        llamadas.append((url, kwargs))
+        return _RespuestaFMP(200, _SESIONES)
+
+    monkeypatch.setattr(check_credentials.requests, "get", _registrar)
+
+    check_credentials.check_fmp()
+
+    assert len(llamadas) == 1, "el chequeo tiene que costar una sola llamada"
+    url, kwargs = llamadas[0]
+    assert url.endswith("/stable/historical-price-eod/full")
+    assert kwargs["params"]["symbol"] == "^GSPC"
+
+
+def test_fmp_con_key_invalida_muestra_el_mensaje_de_la_api(
+    check_credentials, monkeypatch, capsys
+):
+    """FMP contesta 401 y explica el motivo en `Error Message`.
+
+    Verificado contra la API real el 2026-09-03: una key invalida devuelve
+    exactamente esa clave, que es por lo que `_mensaje_de_error` la mira.
+    """
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _RespuestaFMP(401, {"Error Message": "Invalid API KEY."}),
+    )
+
+    assert check_credentials.check_fmp() == check_credentials.NO_LISTO
+    assert "Invalid API KEY" in capsys.readouterr().out
+
+
+def test_fmp_con_cuota_agotada_no_dice_que_la_key_no_sirve(
+    check_credentials, monkeypatch, capsys
+):
+    """Mismo criterio que Alpha Vantage: agotar la cuota no es rotar la key.
+
+    Un `NO listo` aca pondria el script en rojo por haberlo usado, y mandaria
+    a alguien al portal de FMP a reemitir una credencial sana.
+    """
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests, "get", lambda *a, **k: _RespuestaFMP(429, {})
+    )
+
+    assert check_credentials.check_fmp() == check_credentials.SIN_VERIFICAR
+    assert "SIN VERIFICAR" in capsys.readouterr().out
+
+
+def test_fmp_con_un_error_servido_en_200_falla(check_credentials, monkeypatch, capsys):
+    """FMP sirve algunos errores de plan con HTTP 200 y un dict en el cuerpo.
+
+    Lo documenta `FMPClient.get_historical_prices`, que trata ese caso como
+    respuesta vacia. Un chequeo que solo mirara el status code lo daria por
+    bueno, que es la forma exacta del verde que no verifico nada.
+    """
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _RespuestaFMP(200, {"Error Message": "Exclusive Endpoint"}),
+    )
+
+    assert check_credentials.check_fmp() == check_credentials.NO_LISTO
+    assert "Exclusive Endpoint" in capsys.readouterr().out
+
+
+def test_fmp_sin_sesiones_en_la_ventana_sigue_siendo_listo(
+    check_credentials, monkeypatch
+):
+    """Una ventana sin ruedas no es un fallo de la credencial.
+
+    Un feriado largo puede dejar diez dias sin sesiones, y lo que se esta
+    verificando es que la key autentica. Tratarlo como fallo pondria el script
+    en rojo por el calendario.
+    """
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests, "get", lambda *a, **k: _RespuestaFMP(200, [])
+    )
+
+    assert check_credentials.check_fmp() == check_credentials.LISTO
+
+
+def test_fmp_sin_json_falla(check_credentials, monkeypatch, capsys):
+    """Un 200 con un cuerpo que no es JSON: un proxy, un portal cautivo."""
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+    monkeypatch.setattr(
+        check_credentials.requests,
+        "get",
+        lambda *a, **k: _RespuestaFMP(200, _SIN_JSON, text="<html>portal</html>"),
+    )
+
+    assert check_credentials.check_fmp() == check_credentials.NO_LISTO
+    assert "no devolvio JSON" in capsys.readouterr().out
+
+
+def test_fmp_sin_respuesta_pone_rojo(check_credentials, monkeypatch, capsys):
+    """No haber podido verificar pone rojo, y el texto nombra el transporte.
+
+    Igual que FRED: una alerta que dice "la key no sirve" por un corte de red
+    manda a rotar una credencial sana.
+    """
+    monkeypatch.setenv("FMP_API_KEY", "una-key-cualquiera")
+
+    def _revienta(*a, **k):
+        raise check_credentials.requests.RequestException("sin ruta al host")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _revienta)
+
+    assert check_credentials.check_fmp() == check_credentials.NO_LISTO
+    assert "No se pudo contactar" in capsys.readouterr().out
+
+
+def test_fmp_sin_key_no_sale_a_la_red(check_credentials, monkeypatch, capsys):
+    """La presencia se mira antes de contactar a nadie, como en los otros siete.
+
+    El assert es sobre "sin definir" y no sobre "FMP_API_KEY": ese texto lo
+    imprime tambien `_check_present` al listar la key cargada, asi que solo el
+    primero distingue la guarda.
+    """
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    def _no_deberia_llamar(*a, **k):
+        raise AssertionError("no tenia que salir a la red sin key")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _no_deberia_llamar)
+
+    assert check_credentials.check_fmp() == check_credentials.NO_LISTO
+    assert "sin definir" in capsys.readouterr().out
+
+
+def test_una_key_de_fmp_con_el_placeholder_no_sale_a_la_red(
+    check_credentials, monkeypatch, capsys
+):
+    """El valor de `.env.example` es truthy y gastaria una llamada para nada."""
+    monkeypatch.setenv("FMP_API_KEY", "your_fmp_api_key")
+
+    def _no_deberia_llamar(*a, **k):
+        raise AssertionError("no tenia que salir a la red con el placeholder")
+
+    monkeypatch.setattr(check_credentials.requests, "get", _no_deberia_llamar)
+
+    assert check_credentials.check_fmp() == check_credentials.NO_LISTO
+    assert "sigue con el placeholder" in capsys.readouterr().out
+
+
+def test_el_nightly_apaga_los_seis_componentes_no_publicadores(check_credentials):
     """El blindaje del paso de LinkedIn, fijado por un test.
 
     Ese paso corre el script con solo los secrets de LinkedIn. Sin apagar
-    FRED, Alpha Vantage, Anthropic y R2, cae en la rama generica y manda "la
+    FRED, FMP, Alpha Vantage, Anthropic y R2, cae en la rama generica y manda "la
     verificacion de la credencial de LinkedIn fallo por otro motivo" todas las
     noches, culpando a LinkedIn de que falta la key de FRED. El comentario de
     ese mismo paso ya nombra ese modo de fallo: una alerta que señala al
     componente equivocado es peor que ninguna.
 
-    Telegram esta en la misma tupla pero por un motivo distinto: a esos cuatro
+    Telegram esta en la misma tupla pero por un motivo distinto: a esos cinco
     les falta el secret en este job, y por eso fallarian sin la linea. Este
     paso SI tiene `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` —los usa para
     mandar su propia alerta—, asi que sin `USE_TELEGRAM: "false"` el chequeo
@@ -579,8 +786,12 @@ def test_el_nightly_apaga_los_cinco_componentes_no_publicadores(check_credential
     pasaria en verde hasta el dia que ese token muera, y ese dia la alerta de
     LinkedIn quedaria rota sin que nadie lo hubiera visto venir.
 
+    `USE_FMP` entro el 2026-09-03, con el chequeo de FMP. Sin esa linea el
+    paso saldria con 1 todas las noches —no tiene `FMP_API_KEY`— y la alerta
+    diria que fallo la credencial de LinkedIn.
+
     Se lee el YAML como texto y no con un parser: lo que hay que fijar es que
-    las cinco lineas esten en ESE paso, y el bloque se identifica por su
+    las seis lineas esten en ESE paso, y el bloque se identifica por su
     nombre.
     """
     workflow = (ROOT / ".github" / "workflows" / "contract-tests.yml").read_text(
@@ -589,7 +800,14 @@ def test_el_nightly_apaga_los_cinco_componentes_no_publicadores(check_credential
     inicio = workflow.index("name: Verificar la credencial de LinkedIn")
     paso = workflow[inicio : workflow.index("\n      - name:", inicio + 1)]
 
-    for var in ("USE_FRED", "USE_AV", "USE_ANTHROPIC", "USE_R2", "USE_TELEGRAM"):
+    for var in (
+        "USE_FRED",
+        "USE_FMP",
+        "USE_AV",
+        "USE_ANTHROPIC",
+        "USE_R2",
+        "USE_TELEGRAM",
+    ):
         assert f'{var}: "false"' in paso, (
             f"{var} no esta apagada en el paso de LinkedIn: ese paso corre el "
             f"chequeo con solo los secrets de LinkedIn y va a alertar todas "
@@ -676,6 +894,10 @@ def test_el_rate_limit_de_av_no_cambia_el_codigo_de_salida(
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
     monkeypatch.setenv("USE_FRED", "false")
+    # Sin esto el test sale a la API de FMP de verdad donde haya key en el
+    # `.env`, y falla donde no la haya: el chequeo de FMP entro despues que
+    # este test. Apagar todo menos lo que se esta midiendo es la regla.
+    monkeypatch.setenv("USE_FMP", "false")
     monkeypatch.setenv("USE_ANTHROPIC", "false")
     monkeypatch.setenv("USE_R2", "false")
     monkeypatch.setenv("USE_TELEGRAM", "false")
@@ -1320,7 +1542,7 @@ def test_telegram_apagado_no_se_chequea_ni_pone_rojo(
     """
     monkeypatch.setenv("PUBLISH_X", "false")
     monkeypatch.setenv("PUBLISH_LINKEDIN", "false")
-    _apagar_los_cinco(monkeypatch)
+    _apagar_los_seis(monkeypatch)
     monkeypatch.setattr(check_credentials, "report_env_drift", lambda *a, **k: None)
 
     def _no_deberia_llamar(*a, **k):

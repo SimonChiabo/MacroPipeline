@@ -118,7 +118,7 @@ pytest
 Sin `.env`, sin claves y sin red:
 
 ```
-370 passed, 1 skipped, 28 deselected
+380 passed, 1 skipped, 28 deselected
 ```
 
 El skip es el chequeo de deriva entre `.env` y `.env.example`, que no tiene nada que comparar sin un `.env` local. Los 28 deseleccionados son los contract tests: `pyproject.toml` fija `addopts = -m 'not contract'` para que el `pytest` local no salga a la red. El mismo comando pasa entero con un `.env` puesto: las credenciales de los contract tests se leen a un diccionario y no viajan por `os.environ`, así que no alcanzan a ningún test que no sea de contrato.
@@ -129,7 +129,7 @@ Los 28 contract tests pegan contra las APIs reales y hay que pedirlos explícita
 
 ```sh
 $ pytest -m contract
-28 skipped, 371 deselected
+28 skipped, 381 deselected
 ```
 
 ### Correr el pipeline
@@ -168,7 +168,7 @@ Tres cosas que conviene saber antes de la primera corrida:
 
 **El estado vive fuera del repositorio.** Cada corrida crea y escribe `~/.macropipeline/state.db`, incluso si aborta al arrancar. Se cambia con `STATE_DB_PATH`. Si R2 está configurado, el fichero se baja al arrancar y se sube en cada escritura: el remoto es el autoritativo, así que una reparación a mano que no lo toque no sobrevive al siguiente arranque.
 
-**`scripts/check_credentials.py` cubre siete de los ocho componentes.** Verifica X, LinkedIn, FRED, Alpha Vantage, Anthropic, R2 y Telegram contra sus APIs. **FMP no está en el checker**, y es la fuente primaria de precios: su credencial sólo se descubre rota cuando la corrida pega contra la API, y entonces el pipeline cae a Alpha Vantage y publica sin nivel de cierre.
+**`scripts/check_credentials.py` cubre los ocho componentes.** X, LinkedIn, FRED, FMP, Alpha Vantage, Anthropic, R2 y Telegram, cada uno contra su API. No comprueba que la variable esté puesta: comprueba que la credencial autentica, que es lo que distingue una key ausente de una rotada. El de FMP pide el mismo endpoint de precios que `_fetch_weekly_close`, con una sola llamada y una ventana de diez días: un plan que autenticara pero no diera acceso a ese endpoint dejaría la corrida cayendo a Alpha Vantage, o sea publicando sin nivel de cierre.
 
 ---
 
@@ -274,7 +274,6 @@ Además de las tres divergencias abiertas de [ADR-009](./docs/adr/009-degradatio
 
 - **No hay `--dry-run`.** El único punto de entrada es `src/macro_pipeline/orchestration/main.py`; no hay `console_scripts` ni `__main__.py`. Apagar las dos redes no sirve de ensayo: la corrida sale con 0 en el punto de decisión, antes de la fase de datos. El único ensayo real es rechazar el borrador en Telegram.
 - **Dos corridas el mismo día se pisan la imagen en R2.** La clave es `{event_id}.png` y el `event_id` lleva la fecha del día, sin versionado de objeto.
-- **FMP no está en `scripts/check_credentials.py`.** Es la única de las ocho credenciales que no se verifica antes de correr. Activarlo exige además apagar `USE_FMP` en el paso de LinkedIn del nightly, que corre ese script sin `FMP_API_KEY`; las dos cosas van juntas, y están anotadas en [`ROADMAP.md`](./ROADMAP.md).
 - **`PillowEngine`, `FMPClient.get_earnings_calendar` y `MacroReleaseData` no se usan desde ningún punto de entrada.** Están escritos y testeados; ningún camino del pipeline los invoca.
 - **Las dependencias de runtime van con rangos abiertos y no hay lockfile.** Las de desarrollo sí están fijadas: `ruff`, `mypy` y `pytest` son gates de CI y cambian de opinión entre minors.
 - **La historia de git incluye un `.env` y un `.venv/` de los primeros commits.** Las claves de las APIs de datos eran placeholders; el token de Telegram que había ahí fue rotado. El `.venv/` es lo que engorda el clon; su tamaño sale de `git count-objects -vH`.

@@ -1,4 +1,4 @@
-"""Verifica que las credenciales de los siete componentes sirvan de verdad.
+"""Verifica que las credenciales de los ocho componentes sirvan de verdad.
 
 El pipeline solo comprueba que las variables *existan*: una key presente pero
 rotada o revocada es indistinguible de una buena hasta que la corrida pega
@@ -24,7 +24,7 @@ import re
 import sys
 import uuid
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -36,6 +36,7 @@ from macro_pipeline.components import (
     PUBLISH_X_VAR,
     USE_ANTHROPIC_VAR,
     USE_AV_VAR,
+    USE_FMP_VAR,
     USE_FRED_VAR,
     USE_R2_VAR,
     USE_TELEGRAM_VAR,
@@ -61,6 +62,7 @@ OK, FAIL, WARN = "[ OK ]", "[FALLA]", "[AVISO]"
 LISTO, NO_LISTO, SIN_VERIFICAR = "listo", "NO listo", "sin verificar"
 
 FRED_VARS = ("FRED_API_KEY",)
+FMP_VARS = ("FMP_API_KEY",)
 AV_VARS = ("ALPHA_VANTAGE_API_KEY",)
 ANTHROPIC_VARS = ("ANTHROPIC_API_KEY",)
 R2_VARS = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
@@ -186,7 +188,7 @@ def _check_present(names: tuple[str, ...]) -> list[str]:
 
 
 def _encabezado(titulo: str) -> None:
-    """La linea de seccion, del mismo ancho para los siete."""
+    """La linea de seccion, del mismo ancho para los ocho."""
     print(f"\n-- {titulo} " + "-" * max(3, 48 - len(titulo)))
 
 
@@ -205,15 +207,15 @@ def _mensaje_de_error(response: requests.Response) -> str:
 
     FRED pone el motivo real en `error_message` y devuelve 400, no 401: sin
     esto el diagnostico seria "HTTP 400" a secas. Telegram hace lo mismo en
-    `description`, asi que las dos claves se miran acá y no se duplica la
-    funcion.
+    `description` y FMP en `Error Message`, asi que las tres claves se miran
+    acá y no se duplica la funcion.
     """
     try:
         cuerpo = response.json()
     except ValueError:
         return response.text[:200]
     if isinstance(cuerpo, dict):
-        for clave in ("error_message", "description"):
+        for clave in ("error_message", "description", "Error Message"):
             if clave in cuerpo:
                 return str(cuerpo[clave])
     return response.text[:200]
@@ -222,7 +224,7 @@ def _mensaje_de_error(response: requests.Response) -> str:
 def check_x() -> bool:
     """GET /2/users/me: confirma que las cuatro credenciales autentican.
 
-    El encabezado de seccion lo imprime `main()` para los siete componentes:
+    El encabezado de seccion lo imprime `main()` para los ocho componentes:
     imprimirlo tambien aca lo duplicaba.
     """
     if _check_present(X_VARS):
@@ -369,6 +371,72 @@ def check_fred() -> str:
 
     print(f"{FAIL} HTTP {response.status_code}: {_mensaje_de_error(response)}")
     return NO_LISTO
+
+
+def check_fmp() -> str:
+    """El mismo endpoint de precios que pide el pipeline, en ventana corta.
+
+    **Una llamada.** Y contra `historical-price-eod/full` y no contra `quote`,
+    que costaria lo mismo: un plan que autentica pero no da acceso a este
+    endpoint dejaria el chequeo en verde y la corrida cayendo a Alpha Vantage
+    —o sea publicando sin nivel de cierre— por un motivo que este script existe
+    para adelantar. El simbolo es `^GSPC`, uno de los dos que pide
+    `_fetch_weekly_close`.
+
+    La ventana de diez dias no ahorra cuota (FMP cuenta peticiones, no filas)
+    pero baja la respuesta de ~1250 filas a las de esas sesiones. Que venga
+    vacia no es un fallo de la credencial: un feriado largo la deja sin filas y
+    lo que se esta verificando es que la key autentica.
+    """
+    if _check_present(FMP_VARS):
+        return NO_LISTO
+
+    hoy = date.today()
+    try:
+        response = requests.get(
+            "https://financialmodelingprep.com/stable/historical-price-eod/full",
+            params={
+                "symbol": "^GSPC",
+                "apikey": os.environ["FMP_API_KEY"],
+                "from": (hoy - timedelta(days=10)).isoformat(),
+                "to": hoy.isoformat(),
+            },
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"{FAIL} No se pudo contactar la API de FMP: {e}")
+        print("       La key quedo sin verificar; no es necesariamente ella.")
+        return NO_LISTO
+
+    if response.status_code == 429:
+        print(f"{WARN} FMP contesto 429: se agoto la cuota, asi que la key")
+        print("       quedo SIN VERIFICAR. No es un fallo de la credencial.")
+        return SIN_VERIFICAR
+
+    if response.status_code != 200:
+        print(f"{FAIL} HTTP {response.status_code}: {_mensaje_de_error(response)}")
+        return NO_LISTO
+
+    try:
+        datos = response.json()
+    except ValueError:
+        print(f"{FAIL} FMP no devolvio JSON: {response.text[:200]}")
+        return NO_LISTO
+
+    # Un dict con HTTP 200 es como FMP sirve algunos errores de plan; lo
+    # documenta `FMPClient.get_historical_prices`, que trata ese caso como
+    # respuesta vacia. Aca se nombra, porque el motivo es lo accionable.
+    if not isinstance(datos, list):
+        print(
+            f"{FAIL} FMP devolvio un error con HTTP 200: {_mensaje_de_error(response)}"
+        )
+        return NO_LISTO
+
+    print(
+        f"{OK} La key de FMP autentica y el endpoint de precios responde "
+        f"({len(datos)} sesiones en los ultimos 10 dias)."
+    )
+    return LISTO
 
 
 def check_av() -> str:
@@ -713,6 +781,7 @@ def main() -> int:
         ("X", PUBLISH_X_VAR, _veredicto(check_x)),
         ("LinkedIn", PUBLISH_LINKEDIN_VAR, _veredicto(check_linkedin)),
         ("FRED", USE_FRED_VAR, check_fred),
+        ("FMP", USE_FMP_VAR, check_fmp),
         ("Alpha Vantage", USE_AV_VAR, check_av),
         ("Anthropic", USE_ANTHROPIC_VAR, check_anthropic),
         ("R2", USE_R2_VAR, check_r2),
@@ -744,7 +813,7 @@ def main() -> int:
     for titulo, estado in resultados:
         # 15 y no 9: el ancho viejo entraba para `X:`, `LinkedIn:` y `FRED:`,
         # pero `Alpha Vantage:` mide 14 y `Anthropic:` 10, asi que la columna
-        # salia dentada. Este es el titulo mas largo de los siete mas un espacio.
+        # salia dentada. Este es el titulo mas largo de los ocho mas un espacio.
         print(f"{titulo + ':':<15} {estado}")
 
     if all(estado == "apagado" for _, estado in resultados):
