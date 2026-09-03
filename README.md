@@ -1,6 +1,6 @@
 # MacroPipeline
 
-> Pipeline de datos macroeconómicos: ingesta de fuentes públicas con fallback entre proveedores, procesamiento determinista, validación por contrato, y publicación en X y LinkedIn detrás de un gate de aprobación humana.
+> Cierre semanal del S&P 500 y el Nasdaq Composite: ingesta con fallback entre proveedores de precios, validación por contrato, y gate de aprobación humana antes de publicar en X y LinkedIn. El contexto macroeconómico de FRED es opcional y degrada sin abortar.
 
 [![CI](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/ci.yml)
 [![Contract Tests](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/contract-tests.yml/badge.svg)](https://github.com/SimonChiabo/MacroPipeline/actions/workflows/contract-tests.yml)
@@ -8,7 +8,7 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Proyecto de portfolio. Lo que hay para mirar es la arquitectura de un sistema de datos que depende de ocho servicios externos y tiene que decidir, para cada uno, si su caída degrada la salida o la cancela. **No es asesoramiento financiero.**
+Proyecto de portfolio. Lo que hay para mirar es la arquitectura de un sistema de datos que depende de ocho servicios externos y tiene que decidir, para cada uno, si su caída degrada la salida o la cancela.
 
 ---
 
@@ -18,7 +18,8 @@ Tres cosas distintas, y conviene no mezclarlas:
 
 | | |
 |---|---|
-| **Corre hoy** | El ETL contra FMP, Alpha Vantage y FRED; la validación; el render; el HITL de Telegram; los publicadores de X y LinkedIn; el estado en SQLite sincronizado contra Cloudflare R2. Se lanza **a mano**: `python src/macro_pipeline/orchestration/main.py`. |
+| **Corre hoy** | El ETL contra FMP, Alpha Vantage y FRED; la validación; el render; el HITL de Telegram; el estado en SQLite sincronizado contra Cloudflare R2. Se lanza **a mano**: `python src/macro_pipeline/orchestration/main.py`. |
+| **Construido, sin una llamada real** | Los publicadores de X y LinkedIn. `post_tweet` y `post_text` están escritos y testeados contra mocks, y nunca se ejecutaron con una aprobación detrás: en `published_events` no hay ninguna fila con `x_post_id` ni con `linkedin_post_id`. Lo único que hoy se autentica de verdad contra LinkedIn es `GET /v2/userinfo`, desde `scripts/check_credentials.py:310`, que el nightly corre cada noche. Contra X no se hace ninguna llamada salvo que se corra el chequeo a mano. |
 | **Construido y apagado** | La capa LLM (generador de titulares + validator agent con tool-use forzado). Existe, está testeada y está apagada por configuración: `USE_ANTHROPIC=false`. El titular lo arma el pipeline con las cifras del snapshot. Vuelve cuando tenga un trabajo que sólo ella pueda hacer — ver el camino A en [ROADMAP.md](./ROADMAP.md). |
 | **No existe** | El trigger programado. En `.github/workflows/` hay dos workflows y ninguno ejecuta el pipeline. ADR-002 propone Claude Routines y GitHub Actions como plan B; no hay ninguno de los dos montado. Tampoco hay backend de trazas: la corrida abre siete spans de OpenTelemetry —uno raíz y seis de fase— y, sin `OTEL_EXPORTER_OTLP_ENDPOINT`, no se registra ningún exportador y los spans se descartan al cerrarse. |
 
@@ -117,23 +118,18 @@ pytest
 Sin `.env`, sin claves y sin red:
 
 ```
-364 passed, 1 skipped, 28 deselected
+370 passed, 1 skipped, 28 deselected
 ```
 
-El skip es el chequeo de deriva entre `.env` y `.env.example`, que no tiene nada que comparar sin un `.env` local. Los 28 deseleccionados son los contract tests: `pyproject.toml` fija `addopts = -m 'not contract'` para que el `pytest` local no salga a la red.
+El skip es el chequeo de deriva entre `.env` y `.env.example`, que no tiene nada que comparar sin un `.env` local. Los 28 deseleccionados son los contract tests: `pyproject.toml` fija `addopts = -m 'not contract'` para que el `pytest` local no salga a la red. El mismo comando pasa entero con un `.env` puesto: las credenciales de los contract tests se leen a un diccionario y no viajan por `os.environ`, así que no alcanzan a ningún test que no sea de contrato.
 
-**393 tests en total** — 293 unitarios, 72 de integración, 28 de contrato — y **93 % de cobertura**:
+La cobertura la publica el badge de codecov, arriba, que se actualiza en cada push.
 
-```sh
-pytest tests/unit tests/integration --cov=src/macro_pipeline
-# TOTAL   1305   92   93%
-```
-
-Los contract tests pegan contra las APIs reales y hay que pedirlos explícitamente. Sin credenciales se saltean, nombrando cuál falta:
+Los 28 contract tests pegan contra las APIs reales y hay que pedirlos explícitamente. Sin credenciales se saltean, nombrando cuál falta:
 
 ```sh
 $ pytest -m contract
-28 skipped, 365 deselected
+28 skipped, 371 deselected
 ```
 
 ### Correr el pipeline
@@ -261,9 +257,9 @@ MacroPipeline/
 │   ├── storage/           # SQLite + sincronizado contra R2
 │   └── orchestration/     # main.py — único punto de entrada
 ├── tests/
-│   ├── unit/              # 293 tests, sin red
-│   ├── integration/       # 72 tests, orquestador de punta a punta con mocks
-│   ├── contract/          # 28 tests contra APIs reales (marcador `contract`)
+│   ├── unit/              # Logica pura, sin red
+│   ├── integration/       # Orquestador de punta a punta, con mocks
+│   ├── contract/          # Contra APIs reales (marcador `contract`)
 │   └── fixtures/          # Una respuesta JSON grabada de FRED
 ├── scripts/               # check_credentials.py · linkedin_token_alert.py
 ├── docs/adr/              # 9 ADRs
@@ -277,9 +273,8 @@ MacroPipeline/
 Además de las tres divergencias abiertas de [ADR-009](./docs/adr/009-degradation-policy.md):
 
 - **No hay `--dry-run`.** El único punto de entrada es `src/macro_pipeline/orchestration/main.py`; no hay `console_scripts` ni `__main__.py`. Apagar las dos redes no sirve de ensayo: la corrida sale con 0 en el punto de decisión, antes de la fase de datos. El único ensayo real es rechazar el borrador en Telegram.
-- **`pytest` a secas falla con un `.env` local que tenga `USE_ANTHROPIC=false`.** [`tests/contract/conftest.py:19`](./tests/contract/conftest.py) llama a `load_dotenv` al importarse, y pytest importa esa conftest aunque el marcador `contract` deseleccione sus tests: la variable se filtra al proceso y tumba un test unitario que espera la capa LLM encendida. En un clon sin `.env` y en CI no ocurre. Mientras tanto: `pytest tests/unit tests/integration`.
 - **Dos corridas el mismo día se pisan la imagen en R2.** La clave es `{event_id}.png` y el `event_id` lleva la fecha del día, sin versionado de objeto.
-- **FMP no está en `scripts/check_credentials.py`.**
+- **FMP no está en `scripts/check_credentials.py`.** Es la única de las ocho credenciales que no se verifica antes de correr. Activarlo exige además apagar `USE_FMP` en el paso de LinkedIn del nightly, que corre ese script sin `FMP_API_KEY`; las dos cosas van juntas, y están anotadas en [`ROADMAP.md`](./ROADMAP.md).
 - **`PillowEngine`, `FMPClient.get_earnings_calendar` y `MacroReleaseData` no se usan desde ningún punto de entrada.** Están escritos y testeados; ningún camino del pipeline los invoca.
 - **Las dependencias de runtime van con rangos abiertos y no hay lockfile.** Las de desarrollo sí están fijadas: `ruff`, `mypy` y `pytest` son gates de CI y cambian de opinión entre minors.
 - **La historia de git incluye un `.env` y un `.venv/` de los primeros commits.** Las claves de las APIs de datos eran placeholders; el token de Telegram que había ahí fue rotado. El `.venv/` es lo que engorda el clon; su tamaño sale de `git count-objects -vH`.
