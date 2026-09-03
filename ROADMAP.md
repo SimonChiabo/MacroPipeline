@@ -405,6 +405,118 @@ arreglaron —el IPC y el intradía— habrían quedado dentro de esa síntesis.
 
 ---
 
+## Deuda registrada, para después de la primera corrida
+
+Todo lo de acá está diagnosticado y ninguna de las entradas se tocó. El motivo
+es el mismo para todas: **cada una toca el camino que ejecuta la corrida del
+sábado 2026-09-05, y no hay una corrida buena de referencia contra la que
+comparar.** Arreglar y estrenar a la vez deja dos variables moviéndose, y si el
+sábado sale mal no se sabe cuál fue. Después de la primera corrida limpia, cada
+una se puede mirar por separado.
+
+No hay fechas acá, y no es una omisión: nada de esto está planificado todavía.
+
+### Ejecución
+
+**`__main__.py` con `--dry-run`.** El único punto de entrada es el bloque
+`if __name__ == "__main__"` de `orchestration/main.py:1161`; no hay
+`console_scripts` en `pyproject.toml` ni `__main__.py`. No existe forma de
+ejercitar el ETL, la validación y el render sin llegar al gate de Telegram.
+Apagar las dos redes no lo sustituye: con `PUBLISH_X=false` y
+`PUBLISH_LINKEDIN=false`, `_publisher_failures()` no devuelve nada —un switch
+apagado es una decisión, no un fallo— y la corrida sale con `0` en
+`orchestration/main.py:601` (`no_publishers_enabled`), **antes** de la fase de
+datos. Hoy el único ensayo real es rechazar el borrador en Telegram.
+
+**`mark_failed` no persiste el motivo.** `storage/state.py:310` recibe `reason`
+y lo manda al log (`event_marked_failed`); la tabla creada en
+`storage/state.py:66` no tiene columna para él. La consecuencia práctica: una
+fila en `failed` no distingue un rechazo humano de una excepción, y por eso no
+se sabe ni se puede saber por qué falló la corrida del 2026-08-27. Es cambio de
+esquema y necesita migración, porque hay una base viva en R2.
+
+**La clave de R2 lleva la fecha del día.** `orchestration/main.py:1033` sube la
+imagen como `f"{event_id}.png"`, y `event_id` es `weekly_close_<fecha de hoy>`.
+`R2Client.upload_image` (`storage/r2_client.py:131`) delega en un `put_object`
+sin versionado de objeto ni cabecera condicional, así que dos corridas el mismo
+día —el caso normal cuando la primera se rechaza y la segunda se aprueba—
+sobrescriben la imagen de la primera.
+
+**La imagen renderizada no se adjunta a las publicaciones.** Va a la preview de
+Telegram y a R2. Los dos publicadores mandan sólo texto:
+`publishers/x_client.py:49` (`post_tweet(text)`) y
+`publishers/linkedin_client.py:40` (`post_text(text)`) no aceptan otra cosa.
+Cambiarlo son dos endpoints distintos —el de subida de media de X y el de
+imágenes de UGC Posts en LinkedIn—, así que es trabajo real y no un parámetro.
+
+### Cobertura
+
+**`tests/integration/test_orchestrator_startup_gate.py:80` mockea el camino de
+datos entero.** El test se llamaba
+`test_a_broken_fmp_degrades_to_alpha_vantage_and_publishes` y lo que verifica es
+otra cosa: que FMP sin key alerta una sola vez nombrando la consecuencia y deja
+que la corrida llegue a publicar. Nunca ejecuta la ruta de Alpha Vantage, porque
+el `_orchestrator` de ese fichero reemplaza `_fetch_weekly_close` por un
+`MagicMock`. Se le cambió el nombre a
+`test_a_broken_fmp_alerts_and_lets_the_run_reach_publication`, que es lo que
+hace; el rename no toca ningún otro test. Lo que queda pendiente es la cobertura
+en sí, no el nombre: el fallback de verdad está ejercitado en
+`tests/unit/test_orchestrator_startup.py:226`
+(`test_la_ruta_de_av_no_publica_el_nivel`), que fuerza un `RuntimeError` en FMP
+y comprueba que la fuente pasa a ser AV y que el nivel de cierre queda en
+`None`.
+
+**FMP sigue fuera de `scripts/check_credentials.py`.** Es la única de las ocho
+credenciales que no se verifica antes de correr, y es la de la fuente primaria
+de precios: hoy se descubre rota cuando la corrida ya cayó a Alpha Vantage y
+publica sin nivel de cierre. El chequeo está diseñado y probado contra la API
+real —una sola llamada, al mismo endpoint que usa `_fetch_weekly_close`— pero
+no se puede activar sin añadir `USE_FMP: "false"` al paso «Verificar la
+credencial de LinkedIn» de `.github/workflows/contract-tests.yml`: ese paso
+corre el script sin `FMP_API_KEY`, así que con FMP registrado saldría con `1`
+todas las noches y mandaría una alerta culpando a LinkedIn de que falta la key
+de FMP. Las dos cosas van juntas, en un commit.
+
+### Divergencias abiertas de ADR-009
+
+Las tres están escritas en el propio ADR, con la fecha en que se encontraron.
+Ninguna es un bug del código: son celdas de la tabla que prometen algo distinto
+de lo que el código hace, y las tres se dejaron abiertas a propósito.
+
+- **Divergencia 5** — «cualquier switch aborta con alerta» promete un aviso que
+  no siempre llega: con `USE_TELEGRAM` ilegible, el switch roto es el del canal,
+  así que se sale por `switch_invalid_no_channel_aborting` con código `1` y sin
+  alerta. El código hace lo único que puede; lo que diverge es la celda.
+- **Divergencia 6** — una red apagada y la otra rota abortan, y ninguna fila lo
+  dice. `PUBLISH_X=false` con LinkedIn sin credenciales aborta con alerta y
+  código `1`, que es correcto, pero leyendo la tabla se predice «degrada,
+  publica en la otra». Falta una fila, no código.
+- **Divergencia 7** — `fmp_runtime_error` puede nombrar la fuente equivocada, y
+  sólo en desarrollo. Se carga en el `except` de FMP antes de intentar Alpha
+  Vantage.
+
+### Dependencias y código sin uso
+
+**Rangos de runtime abiertos y sin lockfile** (`pyproject.toml`). Las de
+desarrollo están fijadas exactas porque son gates de CI; las de runtime van con
+`>=` y sin techo salvo `anthropic>=1,<2`. Hoy eso resuelve `pandas` de la serie
+3.x bajo un rango escrito para la 2.x. No falla, y por eso mismo es deuda y no
+incidente: lo que falta es un lockfile que haga reproducible la corrida.
+
+**Tres piezas escritas, testeadas y sin usar desde ningún punto de entrada.**
+Hay que decidir si se usan o se borran; dejarlas sin decidir es lo que las
+convierte en ruido para quien lee el repo.
+
+- `render/pillow_engine.py` — `PillowEngine`. ADR-003 le asigna las plantillas
+  simples; el orquestador sólo instancia `PlaywrightEngine`. Su único consumidor
+  es `tests/unit/test_render_pillow.py`.
+- `data/fmp_client.py:93` — `FMPClient.get_earnings_calendar`. Ninguna fase del
+  pipeline usa earnings.
+- `validators/schemas.py:78` — `MacroReleaseData`, y con él
+  `ValidationEngine.validate_macro_release`. No lo invoca ningún camino.
+
+---
+
 ## Lo que este documento no cubre
 
 - **Cobertura de CI para R2 y Telegram.** El nightly apaga los cinco

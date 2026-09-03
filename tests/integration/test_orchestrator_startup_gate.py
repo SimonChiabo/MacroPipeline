@@ -77,10 +77,17 @@ def _orchestrator(data: WeeklyCloseData, state: StateDB) -> MacroOrchestrator:
     return orch
 
 
-def test_a_broken_fmp_degrades_to_alpha_vantage_and_publishes(data, state):
-    """FMP sin key ya no aborta: degrada a la ruta de AV (ADR-009, divergencia 4).
+def test_a_broken_fmp_alerts_and_lets_the_run_reach_publication(data, state):
+    """FMP sin key ya no aborta: degrada (ADR-009, divergencia 4) y la run sigue.
 
-    Esa ruta ahora publica el retorno sin el nivel, asi que la run sigue.
+    **La ruta de Alpha Vantage no se ejercita aca.** El `_orchestrator` de este
+    fichero reemplaza `_fetch_weekly_close` por un `MagicMock`, asi que lo que
+    se fija es el punto de decision: una sola alerta, que nombra la key que
+    falta y la consecuencia, y una corrida que llega a publicar en vez de
+    abortar. El nombre anterior prometia el fallback, que vive en
+    `tests/unit/test_orchestrator_startup.py::test_la_ruta_de_av_no_publica_el_nivel`:
+    ese fuerza el fallo de FMP de verdad y comprueba que el nivel queda en
+    `None`.
     """
     orch = _orchestrator(data, state)
     orch.fmp = None
