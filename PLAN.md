@@ -238,7 +238,7 @@
 - [x] Tests de snapshot sobre outputs renderizados
 
 ### Semana 3 — Orquestación + HITL
-- [ ] Configurar Claude Routine para cierre semanal del viernes — **no existe**; ver [ROADMAP.md](./ROADMAP.md) §3
+- [ ] Configurar Claude Routine para cierre semanal del sábado — **no existe**; ver [ROADMAP.md](./ROADMAP.md) §3
 - [x] Bot Telegram: envío de drafts con preview + botones
 - [x] Long polling desde Python
 - [x] Estado en SQLite + snapshots a R2

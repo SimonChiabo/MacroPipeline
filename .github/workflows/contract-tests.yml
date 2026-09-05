@@ -2,8 +2,30 @@ name: Contract Tests (Nightly)
 
 on:
   schedule:
-    # Lunes a viernes a las 07:00 UTC (antes de apertura de mercados europeos)
-    - cron: "0 7 * * 1-5"
+    # 05:00 UTC = 07:00 en Madrid, que es la hora local de la maquina desde la
+    # que se opera el pipeline: el cron se lee en la misma hora en la que se
+    # habla de el. Antes decia 07:00 UTC "antes de apertura de mercados
+    # europeos", que en local eran las 09:00 —o sea, la apertura misma, no
+    # antes. GitHub solo acepta UTC, asi que el 2026-10-25, cuando Madrid
+    # vuelva a CET (UTC+1), esta misma linea disparara a las 06:00 locales. Se
+    # acepta esa deriva de una hora: la hora nominal no manda nada.
+    #
+    # Y no manda porque es un piso, no una cita. Las diez corridas por schedule
+    # de las dos semanas hasta el 2026-09-04 arrancaron entre 4 y 12 horas
+    # tarde de su nominal: 07:39, 07:53, 07:41, 18:02, 19:11, 14:45, 12:17,
+    # 11:54, 11:53, 11:56 UTC. GitHub despacha los cron de cuenta gratuita con
+    # la cola que tenga, y la deriva viene creciendo. Nada puede depender de
+    # que el nightly ya haya corrido a una hora dada; para eso esta
+    # workflow_dispatch.
+    #
+    # `1-6` y no `1-5`: desde el 2026-09-05 el pipeline publica los sabados
+    # —publicar un viernes implica que parte del dato es del jueves—, y el
+    # sabado era justo el unico dia sin verificacion. Dentro de este job viven
+    # el check de credenciales de los siete componentes y la alarma de
+    # vencimiento del token de LinkedIn, asi que dejarlo en L-V significaba
+    # llegar al dia de publicacion sin ninguna de las dos. El domingo sigue
+    # fuera: no se publica.
+    - cron: "0 5 * * 1-6"
   workflow_dispatch: # Permite lanzar manualmente desde GitHub UI
 
 jobs:

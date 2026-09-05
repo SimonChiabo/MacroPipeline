@@ -20,7 +20,9 @@ La alternativa de incluir tests contra APIs reales en el pipeline de PR tiene do
 
 1. **Pipeline de PR** (`ci.yml`): usa `unittest.mock` para simular todas las respuestas de API. Rápido, determinista, sin credenciales. Ejecuta en cada push.
 
-2. **Contract tests nightly** (`contract-tests.yml`): ejecuta L-V a las 07:00 UTC contra las APIs reales con credenciales almacenadas en GitHub Secrets. Verifica que los schemas de respuesta siguen siendo los esperados. Si falla, notifica por Telegram.
+2. **Contract tests nightly** (`contract-tests.yml`): ejecuta L-S a las 05:00 UTC —las 07:00 en Madrid, la hora local desde la que se opera— contra las APIs reales con credenciales almacenadas en GitHub Secrets. Verifica que los schemas de respuesta siguen siendo los esperados. Si falla, notifica por Telegram.
+
+   **Corrección del 2026-09-05 — esa hora es un piso, no una cita.** Decía 07:00 UTC y ahora dice 05:00, pero el cambio importante no es cuál de las dos: es que ninguna se cumple. Las diez corridas por `schedule` de las dos semanas hasta el 2026-09-04 arrancaron entre 4 y 12 horas tarde de su nominal, con la deriva creciendo (las cinco últimas, cerca de las 12:00 UTC). GitHub despacha los cron de cuenta gratuita con la cola que tenga. Cualquier cosa que dé por hecho que el nightly ya corrió a una hora dada está apoyada en nada; para eso está `workflow_dispatch`.
 
 ---
 
